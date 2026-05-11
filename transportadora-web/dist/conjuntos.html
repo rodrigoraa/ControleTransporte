@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Conjuntos de caminhoes</title>
+    <link rel="stylesheet" href="/assets/conjuntos.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-mark">CT</span>
+          <div>
+            <strong>Controle Transporte</strong>
+            <span>Conjuntos de veiculos</span>
+          </div>
+        </div>
+        <nav class="nav">
+          <a href="/index.html">Sistema</a>
+          <a class="active" href="/conjuntos.html">Conjuntos</a>
+        </nav>
+      </aside>
+
+      <main class="content">
+        <header class="topbar">
+          <div>
+            <h1>Caminhoes e conjuntos</h1>
+            <p>Cadastre os veiculos, monte o conjunto atual e consulte o historico do caminhao.</p>
+          </div>
+          <div class="api-box">
+            <label for="apiBase">API</label>
+            <input id="apiBase" value="http://localhost:3000" />
+            <button id="reloadButton" type="button">Atualizar</button>
+          </div>
+        </header>
+
+        <div id="alert" class="alert" hidden></div>
+
+        <section class="workflow">
+          <button class="workflow-tab active" type="button" data-view="montagem">1. Montar conjunto</button>
+          <button class="workflow-tab" type="button" data-view="extrato">2. Extrato</button>
+        </section>
+
+        <section id="view-montagem" class="view active">
+          <div class="section-header">
+            <div>
+              <h2>Montagem do conjunto atual</h2>
+              <p>Use apenas placas e motoristas ja cadastrados na tela Caminhoes.</p>
+            </div>
+          </div>
+
+          <form id="compositionForm" class="panel form">
+            <div class="panel-title">
+              <span class="step-pill">Composicao</span>
+              <h3>Alterar conjunto atual</h3>
+            </div>
+            <div class="form-grid">
+              <label>
+                Placa principal
+                <select name="placaPrincipalId" id="compositionTruckSelect" required></select>
+              </label>
+              <label>
+                Motorista
+                <select name="motoristaId" id="compositionDriverSelect">
+                  <option value="">Selecionar motorista</option>
+                </select>
+              </label>
+              <label>
+                Inicio
+                <input name="dataInicio" type="datetime-local" />
+              </label>
+            </div>
+
+            <div class="selector-block">
+              <div class="selector-title">
+                <strong>Placas engatadas</strong>
+                <span>Use somente placas ja cadastradas</span>
+              </div>
+              <div id="compositionItems" class="item-list"></div>
+              <button id="addCompositionItem" class="secondary-button" type="button">Adicionar placa</button>
+            </div>
+
+            <label>
+              Observacao
+              <textarea name="observacao" rows="3"></textarea>
+            </label>
+
+            <div class="form-actions">
+              <button type="submit">Salvar conjunto</button>
+            </div>
+          </form>
+        </section>
+
+        <section id="view-extrato" class="view">
+          <div class="section-header">
+            <div>
+              <h2>Extrato do caminhao</h2>
+              <p>Veja o motorista atual, as carretas engatadas e os conjuntos anteriores.</p>
+            </div>
+          </div>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h3>Consulta</h3>
+                <p>Selecione a placa principal para abrir o extrato.</p>
+              </div>
+              <select id="extractTruckSelect"></select>
+            </div>
+            <div id="extractView" class="extract-empty">Selecione um caminhao para consultar.</div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <script src="/assets/conjuntos.js"></script>
+  </body>
+</html>

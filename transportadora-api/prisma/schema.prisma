@@ -1,0 +1,146 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TipoVeiculo {
+  CAVALO
+  CARRETA
+  DOLLY
+}
+
+model Cliente {
+  id            Int           @id @default(autoincrement())
+  nome          String
+  criadoEm      DateTime      @default(now())
+  atualizadoEm  DateTime      @updatedAt
+
+  faturamentos  Faturamento[]
+}
+
+model Motorista {
+  id              Int                  @id @default(autoincrement())
+  nome            String
+  apelido         String?
+  cpf             String?              @unique
+  telefone        String?
+  cidade          String?
+  situacao        String               @default("Ativo")
+
+  veiculoAtualId  Int?                 @unique
+  veiculoAtual    Veiculo?             @relation("MotoristaVeiculoAtual", fields: [veiculoAtualId], references: [id], onDelete: SetNull)
+
+  composicoes     ComposicaoVeiculo[]
+
+  criadoEm        DateTime             @default(now())
+  atualizadoEm    DateTime             @updatedAt
+}
+
+model Veiculo {
+  id                    Int                       @id @default(autoincrement())
+  placa                 String                    @unique
+  tipo                  TipoVeiculo
+  tipoDescricao         String?
+  marca                 String?
+  modelo                String?
+  anoFabricacao         Int?
+  proprietario          String?
+  situacaoOperacional   String                    @default("Ativo")
+  situacaoCadastro      String                    @default("Normal")
+
+  motoristaAtual        Motorista?                @relation("MotoristaVeiculoAtual")
+  composicoesComoCavalo ComposicaoVeiculo[]       @relation("CavaloComposicoes")
+  itensComposicao       ComposicaoVeiculoItem[]
+
+  criadoEm              DateTime                  @default(now())
+  atualizadoEm          DateTime                  @updatedAt
+}
+
+model ComposicaoVeiculo {
+  id            Int                       @id @default(autoincrement())
+
+  cavaloId      Int
+  cavalo        Veiculo                   @relation("CavaloComposicoes", fields: [cavaloId], references: [id])
+
+  motoristaId   Int?
+  motorista     Motorista?                @relation(fields: [motoristaId], references: [id], onDelete: SetNull)
+
+  dataInicio    DateTime                  @default(now())
+  dataFim       DateTime?
+  observacao    String?
+
+  itens         ComposicaoVeiculoItem[]
+
+  criadoEm      DateTime                  @default(now())
+  atualizadoEm  DateTime                  @updatedAt
+
+  @@index([cavaloId, dataFim])
+  @@index([motoristaId])
+}
+
+model ComposicaoVeiculoItem {
+  id            Int                 @id @default(autoincrement())
+
+  composicaoId  Int
+  composicao    ComposicaoVeiculo   @relation(fields: [composicaoId], references: [id], onDelete: Cascade)
+
+  veiculoId     Int
+  veiculo       Veiculo             @relation(fields: [veiculoId], references: [id])
+
+  ordem         Int                 @default(1)
+  observacao    String?
+
+  criadoEm      DateTime            @default(now())
+  atualizadoEm  DateTime            @updatedAt
+
+  @@unique([composicaoId, veiculoId])
+  @@index([veiculoId])
+}
+
+model Despesa {
+  id             Int      @id @default(autoincrement())
+  data           DateTime
+
+  placa          String?
+  motorista      String?
+  fornecedor     String?
+
+  tipo           String?
+  descricao      String?
+
+  quantidade     Decimal  @db.Decimal(10, 2) @default(1)
+  valorUnitario  Decimal  @db.Decimal(10, 2)
+  total          Decimal  @db.Decimal(10, 2)
+
+  km             Int?
+
+  criadoEm       DateTime @default(now())
+  atualizadoEm   DateTime @updatedAt
+}
+
+model Faturamento {
+  id                      Int      @id @default(autoincrement())
+  data                    DateTime
+
+  clienteId               Int
+  cliente                 Cliente  @relation(fields: [clienteId], references: [id])
+
+  produto                 String
+
+  placa                   String?
+  motorista               String?
+
+  quantidadeToneladas     Decimal  @db.Decimal(10, 3)
+  valorFretePorTonelada   Decimal  @db.Decimal(10, 2)
+  valorTotalFrete         Decimal  @db.Decimal(10, 2)
+
+  km                      Int?
+  descricao               String?
+
+  criadoEm                DateTime @default(now())
+  atualizadoEm            DateTime @updatedAt
+}

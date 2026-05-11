@@ -1,0 +1,67 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Local databases and generated data
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Prisma local artifacts
+dev.db
+dev.db-journal
+
+# Build outputs
+dist/
+build/
+coverage/
+
+# The current repo only has the frontend build available.
+# Keep it versioned until the frontend source project is restored.
+!transportadora-web/dist/
+!transportadora-web/dist/**
+
+# Caches
+.cache/
+.parcel-cache/
+.eslintcache
+.vite/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Optional package manager folders
+.npm/
+.pnpm-store/
+.yarn/
+!.yarn/releases/
+!.yarn/plugins/
+!.yarn/sdks/
+!.yarn/versions/
