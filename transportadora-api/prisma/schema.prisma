@@ -7,140 +7,279 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum TipoVeiculo {
-  CAVALO
-  CARRETA
-  DOLLY
+enum PerfilUsuario {
+  ADMIN
+  USUARIO
+}
+
+enum StatusGeral {
+  ATIVO
+  INATIVO
+}
+
+enum StatusFuncionario {
+  ATIVO
+  AFASTADO
+  DESLIGADO
+}
+
+enum StatusAcompanhamento {
+  ATIVO
+  ENCERRADO
+}
+
+enum TipoLancamento {
+  DESPESA
+  FATURAMENTO
+}
+
+enum CategoriaLancamento {
+  CALCARIO_DOLOMITICO
+  PECAS_MECANICAS
+  MANUTENCAO
+  COMBUSTIVEL
+  PNEUS
+  SERVICO
+  OUTROS
+}
+
+enum UnidadeQuantidade {
+  KG
+  UNIDADE
+}
+
+model User {
+  id        String        @id @default(uuid())
+  nome      String
+  email     String        @unique
+  senha     String
+  perfil    PerfilUsuario @default(USUARIO)
+  ativo     Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@map("users")
 }
 
 model Cliente {
-  id            Int           @id @default(autoincrement())
-  nome          String
-  criadoEm      DateTime      @default(now())
-  atualizadoEm  DateTime      @updatedAt
+  id           String   @id @default(uuid())
+  nome         String
+  documento    String?  @unique
+  telefone     String?
+  email        String?
+  endereco     String?
+  observacoes  String?
+  ativo        Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  faturamentos  Faturamento[]
+  lancamentos LancamentoFinanceiro[]
+
+  @@map("clientes")
+}
+
+model Funcionario {
+  id            String             @id @default(uuid())
+  nome          String
+  cpf           String             @unique
+  telefone      String?
+  cargo         String?
+  dataAdmissao  DateTime?
+  status        StatusFuncionario  @default(ATIVO)
+  observacoes   String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  @@map("funcionarios")
 }
 
 model Motorista {
-  id              Int                  @id @default(autoincrement())
-  nome            String
-  apelido         String?
-  cpf             String?              @unique
-  telefone        String?
-  cidade          String?
-  situacao        String               @default("Ativo")
+  id           String   @id @default(uuid())
+  nome         String
+  cpf          String?  @unique
+  cnh          String?  @unique
+  categoriaCnh String?
+  validadeCnh  DateTime?
+  telefone     String?
+  status       StatusGeral?
+  observacoes  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  veiculoAtualId  Int?                 @unique
-  veiculoAtual    Veiculo?             @relation("MotoristaVeiculoAtual", fields: [veiculoAtualId], references: [id], onDelete: SetNull)
+  acompanhamentos Acompanhamento[]
+  lancamentos     LancamentoFinanceiro[]
+  historicos      HistoricoMotorista[]
+  engates         EngateCarreta[]
 
-  composicoes     ComposicaoVeiculo[]
-
-  criadoEm        DateTime             @default(now())
-  atualizadoEm    DateTime             @updatedAt
+  @@map("motoristas")
 }
 
-model Veiculo {
-  id                    Int                       @id @default(autoincrement())
-  placa                 String                    @unique
-  tipo                  TipoVeiculo
-  tipoDescricao         String?
-  marca                 String?
-  modelo                String?
-  anoFabricacao         Int?
-  proprietario          String?
-  situacaoOperacional   String                    @default("Ativo")
-  situacaoCadastro      String                    @default("Normal")
+model Caminhao {
+  id          String      @id @default(uuid())
+  placa       String      @unique
+  marca       String?
+  modelo      String?
+  ano         Int?
+  tipo        String?
+  cor         String?
+  chassi      String?     @unique
+  renavam     String?     @unique
+  status      StatusGeral?
+  observacoes String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
 
-  motoristaAtual        Motorista?                @relation("MotoristaVeiculoAtual")
-  composicoesComoCavalo ComposicaoVeiculo[]       @relation("CavaloComposicoes")
-  itensComposicao       ComposicaoVeiculoItem[]
+  acompanhamentos Acompanhamento[]
+  lancamentos     LancamentoFinanceiro[]
+  historicos      HistoricoCaminhao[]
+  engatesComoCavalo EngateCarreta[] @relation("EngateCavalo")
+  engatesComoCarreta1 EngateCarreta[] @relation("EngateCarreta1")
+  engatesComoCarreta2 EngateCarreta[] @relation("EngateCarreta2")
 
-  criadoEm              DateTime                  @default(now())
-  atualizadoEm          DateTime                  @updatedAt
+  @@map("caminhoes")
 }
 
-model ComposicaoVeiculo {
-  id            Int                       @id @default(autoincrement())
+model HistoricoMotorista {
+  id          String   @id @default(uuid())
+  motoristaId String
+  acao        String
+  dadosAntes  Json?
+  dadosDepois Json?
+  observacoes String?
+  createdAt   DateTime @default(now())
 
-  cavaloId      Int
-  cavalo        Veiculo                   @relation("CavaloComposicoes", fields: [cavaloId], references: [id])
+  motorista Motorista @relation(fields: [motoristaId], references: [id], onDelete: Cascade)
 
-  motoristaId   Int?
-  motorista     Motorista?                @relation(fields: [motoristaId], references: [id], onDelete: SetNull)
-
-  dataInicio    DateTime                  @default(now())
-  dataFim       DateTime?
-  observacao    String?
-
-  itens         ComposicaoVeiculoItem[]
-
-  criadoEm      DateTime                  @default(now())
-  atualizadoEm  DateTime                  @updatedAt
-
-  @@index([cavaloId, dataFim])
   @@index([motoristaId])
+  @@map("historicos_motoristas")
 }
 
-model ComposicaoVeiculoItem {
-  id            Int                 @id @default(autoincrement())
+model HistoricoCaminhao {
+  id          String   @id @default(uuid())
+  caminhaoId  String
+  acao        String
+  dadosAntes  Json?
+  dadosDepois Json?
+  observacoes String?
+  createdAt   DateTime @default(now())
 
-  composicaoId  Int
-  composicao    ComposicaoVeiculo   @relation(fields: [composicaoId], references: [id], onDelete: Cascade)
+  caminhao Caminhao @relation(fields: [caminhaoId], references: [id], onDelete: Cascade)
 
-  veiculoId     Int
-  veiculo       Veiculo             @relation(fields: [veiculoId], references: [id])
-
-  ordem         Int                 @default(1)
-  observacao    String?
-
-  criadoEm      DateTime            @default(now())
-  atualizadoEm  DateTime            @updatedAt
-
-  @@unique([composicaoId, veiculoId])
-  @@index([veiculoId])
+  @@index([caminhaoId])
+  @@map("historicos_caminhoes")
 }
 
-model Despesa {
-  id             Int      @id @default(autoincrement())
+model EngateCarreta {
+  id          String   @id @default(uuid())
+  cavaloId    String
+  carreta1Id  String?
+  carreta2Id  String?
+  motoristaId String?
+  dataInicio  DateTime
+  dataFim     DateTime?
+  status      StatusAcompanhamento @default(ATIVO)
+  observacoes String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  cavalo    Caminhao   @relation("EngateCavalo", fields: [cavaloId], references: [id], onDelete: Restrict)
+  carreta1  Caminhao?  @relation("EngateCarreta1", fields: [carreta1Id], references: [id], onDelete: SetNull)
+  carreta2  Caminhao?  @relation("EngateCarreta2", fields: [carreta2Id], references: [id], onDelete: SetNull)
+  motorista Motorista? @relation(fields: [motoristaId], references: [id], onDelete: SetNull)
+
+  @@index([cavaloId])
+  @@index([carreta1Id])
+  @@index([carreta2Id])
+  @@index([motoristaId])
+  @@index([dataInicio])
+  @@map("engates_carretas")
+}
+
+model Fornecedor {
+  id          String   @id @default(uuid())
+  nome        String
+  documento   String?  @unique
+  telefone    String?
+  email       String?
+  endereco    String?
+  observacoes String?
+  ativo       Boolean?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  lancamentos LancamentoFinanceiro[]
+
+  @@map("fornecedores")
+}
+
+model CategoriaFinanceira {
+  id             String          @id @default(uuid())
+  nome           String          @unique
+  tipoLancamento TipoLancamento?
+  ativo          Boolean         @default(true)
+  observacoes    String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  lancamentos LancamentoFinanceiro[]
+
+  @@map("categorias_financeiras")
+}
+
+model Acompanhamento {
+  id            String                 @id @default(uuid())
+  caminhaoId    String
+  motoristaId   String
+  tipoOperacao  String
+  tipoVeiculo   String
+  dataInicio    DateTime?
+  dataFim       DateTime?
+  status        StatusAcompanhamento?
+  observacoes   String?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+
+  caminhao  Caminhao  @relation(fields: [caminhaoId], references: [id], onDelete: Restrict)
+  motorista Motorista @relation(fields: [motoristaId], references: [id], onDelete: Restrict)
+
+  @@index([caminhaoId])
+  @@index([motoristaId])
+  @@map("acompanhamentos")
+}
+
+model LancamentoFinanceiro {
+  id             String               @id @default(uuid())
   data           DateTime
+  placaOuPessoa  String
+  motoristaId    String
+  fornecedorId   String?
+  caminhaoId      String?
+  clienteId       String?
+  categoriaId     String?
+  tipoLancamento  TipoLancamento
+  categoria       CategoriaLancamento?
+  descricao       String?
+  quantidade      Decimal              @db.Decimal(12, 3)
+  unidadeQuantidade UnidadeQuantidade
+  valorUnitario   Decimal              @db.Decimal(14, 2)
+  valorTotal      Decimal              @db.Decimal(14, 2)
+  observacoes     String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
 
-  placa          String?
-  motorista      String?
-  fornecedor     String?
+  motorista  Motorista   @relation(fields: [motoristaId], references: [id], onDelete: Restrict)
+  fornecedor Fornecedor? @relation(fields: [fornecedorId], references: [id], onDelete: SetNull)
+  caminhao    Caminhao?   @relation(fields: [caminhaoId], references: [id], onDelete: SetNull)
+  cliente     Cliente?    @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+  categoriaFinanceira CategoriaFinanceira? @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
 
-  tipo           String?
-  descricao      String?
-
-  quantidade     Decimal  @db.Decimal(10, 2) @default(1)
-  valorUnitario  Decimal  @db.Decimal(10, 2)
-  total          Decimal  @db.Decimal(10, 2)
-
-  km             Int?
-
-  criadoEm       DateTime @default(now())
-  atualizadoEm   DateTime @updatedAt
-}
-
-model Faturamento {
-  id                      Int      @id @default(autoincrement())
-  data                    DateTime
-
-  clienteId               Int
-  cliente                 Cliente  @relation(fields: [clienteId], references: [id])
-
-  produto                 String
-
-  placa                   String?
-  motorista               String?
-
-  quantidadeToneladas     Decimal  @db.Decimal(10, 3)
-  valorFretePorTonelada   Decimal  @db.Decimal(10, 2)
-  valorTotalFrete         Decimal  @db.Decimal(10, 2)
-
-  km                      Int?
-  descricao               String?
-
-  criadoEm                DateTime @default(now())
-  atualizadoEm            DateTime @updatedAt
+  @@index([data])
+  @@index([tipoLancamento])
+  @@index([categoria])
+  @@index([categoriaId])
+  @@index([motoristaId])
+  @@index([fornecedorId])
+  @@index([caminhaoId])
+  @@index([clienteId])
+  @@map("lancamentos_financeiros")
 }

@@ -1,0 +1,17 @@
+{
+  "name": "controle-transporte",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace transportadora-api\" \"npm run dev --workspace transportadora-web\"",
+    "build": "npm run build --workspace transportadora-api && npm run build --workspace transportadora-web",
+    "test": "npm run test --workspace transportadora-api && npm run test --workspace transportadora-web",
+    "install:all": "npm install --workspaces"
+  },
+  "workspaces": [
+    "transportadora-api",
+    "transportadora-web"
+  ],
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
