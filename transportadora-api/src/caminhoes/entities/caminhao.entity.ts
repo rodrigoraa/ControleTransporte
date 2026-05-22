@@ -3,4 +3,5 @@ export class CaminhaoEntity {
   placa!: string;
   marca!: string;
   modelo!: string;
+  conjuntoId?: string;
 }

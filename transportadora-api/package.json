@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "nest start --watch",
-    "start": "node dist/main.js",
+    "start": "node .build/src/main.js",
     "build": "nest build",
     "test": "jest --runInBand",
     "lint": "eslint \"src/**/*.ts\"",

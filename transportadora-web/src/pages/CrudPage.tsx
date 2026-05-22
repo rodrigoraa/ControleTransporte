@@ -1,6 +1,7 @@
 import { Eye, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Toast } from '../components/Toast';
+import { useAuth } from '../contexts/AuthContext';
 import { api } from '../services/api';
 import { date, money } from '../utils/formatters';
 import { Field, Resource } from './resources';
@@ -14,17 +15,24 @@ export function CrudPage({ resource }: { resource: Resource }) {
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState<{ mode: Mode; item: any } | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<any | null>(null);
+  const { user } = useAuth();
+  const canWrite = user?.perfil === 'ADMIN' && !resource.readOnly;
   const limit = 10;
 
   const tableFields = useMemo(() => resource.fields.filter((field) => field.table), [resource]);
 
   async function load() {
+    setLoading(true);
     try {
       const { data } = await api.get(resource.endpoint, { params: { page, limit, search, ...resource.fixedParams } });
       setRows(data.data);
       setTotal(data.total);
     } catch {
       setToast({ type: 'error', message: 'Nao foi possivel carregar os registros.' });
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -33,10 +41,10 @@ export function CrudPage({ resource }: { resource: Resource }) {
   }, [resource.endpoint, page]);
 
   async function remove(item: any) {
-    if (!confirm('Confirma a exclusao deste registro?')) return;
     try {
       await api.delete(`${resource.endpoint}/${item.id}`);
       setToast({ type: 'success', message: 'Registro excluido com sucesso.' });
+      setPendingDelete(null);
       load();
     } catch {
       setToast({ type: 'error', message: 'Nao foi possivel excluir o registro.' });
@@ -51,9 +59,11 @@ export function CrudPage({ resource }: { resource: Resource }) {
           <h1>{resource.title}</h1>
           <p>Cadastro, edicao, detalhes e exclusao.</p>
         </div>
-        <button className="button primary" onClick={() => setModal({ mode: 'create', item: {} })}>
-          <Plus size={18} /> Novo
-        </button>
+        {canWrite && (
+          <button className="button primary" onClick={() => setModal({ mode: 'create', item: {} })}>
+            <Plus size={18} /> Novo
+          </button>
+        )}
       </div>
       <form className="toolbar" onSubmit={(event) => { event.preventDefault(); setPage(1); load(); }}>
         <div className="search-box">
@@ -68,21 +78,22 @@ export function CrudPage({ resource }: { resource: Resource }) {
             <thead>
               <tr>
                 {tableFields.map((field) => <th key={field.name}>{field.label}</th>)}
-                <th>Acoes</th>
+                <th>Ações</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => (
                 <tr key={row.id}>
-                  {tableFields.map((field) => <td key={field.name}>{renderRowValue(row, field)}</td>)}
+                  {tableFields.map((field) => <td key={field.name}>{renderRowValue(row, field, resource)}</td>)}
                   <td className="actions">
                     <button className="icon-button" title="Visualizar" onClick={() => setModal({ mode: 'view', item: row })}><Eye size={17} /></button>
-                    <button className="icon-button" title="Editar" onClick={() => setModal({ mode: 'edit', item: row })}><Pencil size={17} /></button>
-                    <button className="icon-button danger" title="Excluir" onClick={() => remove(row)}><Trash2 size={17} /></button>
+                    {canWrite && <button className="icon-button" title="Editar" onClick={() => setModal({ mode: 'edit', item: row })}><Pencil size={17} /></button>}
+                    {canWrite && <button className="icon-button danger" title="Excluir" onClick={() => setPendingDelete(row)}><Trash2 size={17} /></button>}
                   </td>
                 </tr>
               ))}
-              {!rows.length && <tr><td colSpan={tableFields.length + 1}>Nenhum registro encontrado.</td></tr>}
+              {loading && <tr><td colSpan={tableFields.length + 1}>Carregando registros...</td></tr>}
+              {!loading && !rows.length && <tr><td colSpan={tableFields.length + 1}>Nenhum registro encontrado.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -106,7 +117,33 @@ export function CrudPage({ resource }: { resource: Resource }) {
           }}
         />
       )}
+      {pendingDelete && (
+        <ConfirmModal
+          title="Excluir registro"
+          message="Esta ação não pode ser desfeita. Confirma a exclusão?"
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={() => remove(pendingDelete)}
+        />
+      )}
     </section>
+  );
+}
+
+function ConfirmModal({ title, message, onCancel, onConfirm }: { title: string; message: string; onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <div className="modal-backdrop">
+      <div className="modal small-modal">
+        <div className="modal-header">
+          <h2>{title}</h2>
+          <button type="button" className="icon-button" onClick={onCancel}><X size={18} /></button>
+        </div>
+        <p>{message}</p>
+        <div className="modal-actions">
+          <button type="button" className="button ghost" onClick={onCancel}>Cancelar</button>
+          <button type="button" className="button danger" onClick={onConfirm}>Excluir</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -139,9 +176,23 @@ function RecordModal({ resource, mode, item, onClose, onSaved }: { resource: Res
     setForm((current: any) => ({ ...current, [field.name]: next }));
   }
 
+  function updateMulti(field: Field, value: string) {
+    setForm((current: any) => {
+      const values = Array.isArray(current[field.name]) ? current[field.name] : [];
+      return {
+        ...current,
+        [field.name]: values.includes(value) ? values.filter((item: string) => item !== value) : [...values, value],
+      };
+    });
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     const payload = { ...sanitize(form, resource.fields, mode), ...resource.fixedValues };
+    await persist(payload);
+  }
+
+  async function persist(payload: any) {
     try {
       if (mode === 'create') await api.post(resource.endpoint, payload);
       if (mode === 'edit') await api.patch(`${resource.endpoint}/${item.id}`, payload);
@@ -153,6 +204,7 @@ function RecordModal({ resource, mode, item, onClose, onSaved }: { resource: Res
     }
   }
 
+
   return (
     <div className="modal-backdrop">
       <form className="modal" onSubmit={submit}>
@@ -161,7 +213,7 @@ function RecordModal({ resource, mode, item, onClose, onSaved }: { resource: Res
           <button type="button" className="icon-button" onClick={onClose}><X size={18} /></button>
         </div>
         <div className="form-grid">
-          {resource.fields.filter((field) => field.name !== 'valorTotal' && !field.hidden).map((field) => (
+          {resource.fields.filter((field) => shouldRenderField(field, form)).map((field) => (
             <label key={field.name} className={field.type === 'textarea' ? 'wide' : ''}>
               {field.label}
               {field.type === 'select' ? (
@@ -169,6 +221,15 @@ function RecordModal({ resource, mode, item, onClose, onSaved }: { resource: Res
                   <option value="">Selecione</option>
                   {(field.relation ? relationOptions[field.name] : field.options)?.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
+              ) : field.type === 'multiselect' ? (
+                <div className="multi-options">
+                  {(field.relation ? relationOptions[field.name] : field.options)?.map((option) => (
+                    <label key={option.value} className="check-row">
+                      <input disabled={readonly} type="checkbox" checked={(form[field.name] || []).includes(option.value)} onChange={() => updateMulti(field, option.value)} />
+                      <span>{option.label}</span>
+                    </label>
+                  ))}
+                </div>
               ) : field.type === 'textarea' ? (
                 <textarea disabled={readonly} value={form[field.name] || ''} onChange={(e) => update(field, e.target.value)} />
               ) : field.type === 'checkbox' ? (
@@ -194,10 +255,14 @@ function renderValue(value: any, field: Field) {
   if (field.type === 'money') return money(value);
   if (field.type === 'date') return date(value);
   if (field.type === 'checkbox') return value ? 'Sim' : 'Nao';
+  if (typeof value === 'object') return JSON.stringify(value);
   return value || '-';
 }
 
-function renderRowValue(row: any, field: Field) {
+function renderRowValue(row: any, field: Field, resource?: Resource) {
+  if (resource?.path === 'caminhoes' && field.name === 'motoristaId' && !row.motorista) {
+    return <span className="status-warning">Sem motorista vinculado</span>;
+  }
   if (field.relation?.objectKey && row[field.relation.objectKey]) {
     return relationLabel(row[field.relation.objectKey], field);
   }
@@ -214,9 +279,22 @@ function prepareInitial(item: any, fields: Field[]) {
   const initial = { ...item };
   for (const field of fields) {
     if (field.type === 'date' && initial[field.name]) initial[field.name] = String(initial[field.name]).slice(0, 10);
+    if (field.type === 'multiselect' && initial[field.name] === undefined && Array.isArray(initial.implementos)) {
+      initial[field.name] = initial.implementos.map((item: any) => item.implementoId || item.implemento?.id).filter(Boolean);
+    }
+    if (field.type === 'multiselect' && initial[field.name] === undefined) initial[field.name] = [];
     if (field.type === 'checkbox' && field.required && initial[field.name] === undefined) initial[field.name] = true;
+    if (field.type === 'textarea' && typeof initial[field.name] === 'object' && initial[field.name] !== null) {
+      initial[field.name] = JSON.stringify(initial[field.name], null, 2);
+    }
   }
   return initial;
+}
+
+function shouldRenderField(field: Field, form: any) {
+  if (field.name === 'valorTotal' || field.hidden) return false;
+  if (field.showWhen?.hasValue) return Boolean(form[field.showWhen.field]);
+  return true;
 }
 
 function sanitize(form: any, fields: Field[], mode: Mode) {

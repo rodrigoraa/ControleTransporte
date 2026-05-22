@@ -27,9 +27,49 @@ export class MotoristasService extends CrudService<CreateMotoristaDto, UpdateMot
 
   async historico(id: string) {
     await this.findOne(id);
-    return this.prisma.historicoMotorista.findMany({
-      where: { motoristaId: id },
-      orderBy: { createdAt: 'desc' },
+    const [alteracoes, cavalosAtuais, lancamentos, historicosCavalos] = await Promise.all([
+      this.prisma.historicoMotorista.findMany({
+        where: { motoristaId: id },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.cavaloMecanico.findMany({
+        where: { motoristaId: id },
+        orderBy: { updatedAt: 'desc' },
+      }),
+      this.prisma.lancamentoFinanceiro.findMany({
+        where: { motoristaId: id },
+        include: { cavaloMecanico: true, conjunto: true, fornecedor: true, cliente: true, categoriaFinanceira: true },
+        orderBy: { data: 'desc' },
+      }),
+      this.prisma.historicoCavaloMecanico.findMany({
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+    const historicoCavalos = historicosCavalos.filter((item) => {
+      const antes = item.dadosAntes as any;
+      const depois = item.dadosDepois as any;
+      return antes?.motoristaId === id || depois?.motoristaId === id;
     });
+
+    return {
+      alteracoes,
+      cavalosAtuais,
+      historicoCavalos,
+      lancamentos,
+      totais: this.totaisLancamentos(lancamentos),
+    };
+  }
+
+  private totaisLancamentos(lancamentos: Array<{ tipoLancamento: string; valorTotal: unknown }>) {
+    return lancamentos.reduce(
+      (totais, item) => {
+        const valor = Number(item.valorTotal || 0);
+        if (item.tipoLancamento === 'DESPESA') totais.totalDespesas += valor;
+        if (item.tipoLancamento === 'FATURAMENTO') totais.totalFaturamento += valor;
+        totais.saldo = totais.totalFaturamento - totais.totalDespesas;
+        return totais;
+      },
+      { totalDespesas: 0, totalFaturamento: 0, saldo: 0 },
+    );
   }
 }

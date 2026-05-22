@@ -2,7 +2,7 @@ export class LancamentoFinanceiroEntity {
   id!: string;
   data!: Date;
   tipoLancamento!: string;
-  categoria?: string;
+  placa!: string;
   categoriaId?: string;
   valorTotal!: number;
 }

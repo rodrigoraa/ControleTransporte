@@ -10,10 +10,12 @@ import { UpdateLancamentoFinanceiroDto } from './dto/update-lancamento-financeir
 @Injectable()
 export class LancamentosFinanceirosService extends CrudService<CreateLancamentoFinanceiroDto, UpdateLancamentoFinanceiroDto> {
   constructor(prisma: PrismaService) {
-    super(prisma, 'lancamentoFinanceiro', ['placaOuPessoa', 'descricao'], {
+    super(prisma, 'lancamentoFinanceiro', ['placa', 'descricao'], {
       motorista: true,
       fornecedor: true,
-      caminhao: true,
+      cavaloMecanico: true,
+      conjunto: { include: { cavaloMecanico: true, implementos: { include: { implemento: true } } } },
+      implemento: true,
       cliente: true,
       categoriaFinanceira: true,
     });
@@ -21,16 +23,20 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
 
   async create(dto: CreateLancamentoFinanceiroDto) {
     const data = await this.prepareData(this.cleanData(dto));
-    return this.repo.create({
+    const created = await this.repo.create({
       data: { ...data, valorTotal: new Prisma.Decimal(dto.quantidade).mul(dto.valorUnitario) },
       include: {
         motorista: true,
         fornecedor: true,
-        caminhao: true,
+        cavaloMecanico: true,
+        conjunto: true,
+        implemento: true,
         cliente: true,
         categoriaFinanceira: true,
       },
     });
+    await this.audit('CRIACAO', created?.id, null, created);
+    return created;
   }
 
   protected normalizeUpdate(dto: UpdateLancamentoFinanceiroDto) {
@@ -53,32 +59,39 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
       fornecedorId: data.fornecedorId ?? current.fornecedorId,
       clienteId: data.clienteId ?? current.clienteId,
     });
-    const caminhaoId = data.placaOuPessoa ? await this.findCaminhaoIdByPlaca(data.placaOuPessoa as string) : data.caminhaoId;
+    const frota = await this.resolveFrotaFields(data, current);
 
-    return this.repo.update({
+    const updated = await this.repo.update({
       where: { id },
       data: {
         ...data,
+        placa: frota.placa,
         fornecedorId: partyFields.fornecedorId,
         clienteId: partyFields.clienteId,
-        caminhaoId,
+        cavaloMecanicoId: frota.cavaloMecanicoId,
         valorTotal: new Prisma.Decimal(quantidade).mul(valorUnitario),
       },
       include: {
         motorista: true,
         fornecedor: true,
-        caminhao: true,
+        cavaloMecanico: true,
+        conjunto: true,
+        implemento: true,
         cliente: true,
         categoriaFinanceira: true,
       },
     });
+    await this.audit('ATUALIZACAO', id, current, updated);
+    return updated;
   }
 
   private async prepareData(dto: CreateLancamentoFinanceiroDto) {
     const data = this.applyBusinessRules(dto);
+    const frota = await this.resolveFrotaFields(data);
     return {
       ...data,
-      caminhaoId: await this.findCaminhaoIdByPlaca(dto.placaOuPessoa),
+      placa: frota.placa,
+      cavaloMecanicoId: frota.cavaloMecanicoId,
     };
   }
 
@@ -92,9 +105,41 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
     ) as T;
   }
 
-  private async findCaminhaoIdByPlaca(placa: string) {
-    const caminhao = await this.prisma.caminhao.findUnique({ where: { placa } });
-    return caminhao?.id || null;
+  private async findCavaloIdByPlaca(placa: string) {
+    const cavalo = await this.prisma.cavaloMecanico.findUnique({ where: { placa } });
+    return cavalo?.id || null;
+  }
+
+  private async resolveFrotaFields(data: any, current?: any) {
+    if (data.conjuntoId) {
+      const conjunto = await this.prisma.conjunto.findUnique({
+        where: { id: data.conjuntoId },
+        include: { cavaloMecanico: true },
+      });
+      if (!conjunto) throw new BadRequestException('Conjunto operacional nao encontrado.');
+      return {
+        placa: conjunto.cavaloMecanico.placa,
+        cavaloMecanicoId: conjunto.cavaloMecanicoId,
+      };
+    }
+
+    if (data.cavaloMecanicoId) {
+      const cavalo = await this.prisma.cavaloMecanico.findUnique({ where: { id: data.cavaloMecanicoId } });
+      if (!cavalo) throw new BadRequestException('Cavalo mecanico nao encontrado.');
+      return { placa: cavalo.placa, cavaloMecanicoId: cavalo.id };
+    }
+
+    if (data.placa) {
+      const cavalo = await this.prisma.cavaloMecanico.findUnique({ where: { placa: data.placa } });
+      if (!cavalo) throw new BadRequestException('Cavalo mecanico nao encontrado para a placa informada.');
+      return { placa: cavalo.placa, cavaloMecanicoId: cavalo.id };
+    }
+
+    if (current?.cavaloMecanicoId || current?.placa) {
+      return { placa: current.placa, cavaloMecanicoId: current.cavaloMecanicoId };
+    }
+
+    throw new BadRequestException('Informe um conjunto operacional ou um cavalo mecanico para o lancamento.');
   }
 
   protected buildWhere(query: PaginationDto & Record<string, any>) {
@@ -104,11 +149,11 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
       if (query.dataInicial) where.data.gte = new Date(query.dataInicial);
       if (query.dataFinal) where.data.lte = new Date(query.dataFinal);
     }
-    for (const field of ['motoristaId', 'caminhaoId', 'fornecedorId', 'clienteId', 'categoria', 'categoriaId']) {
+    for (const field of ['motoristaId', 'caminhaoId', 'cavaloMecanicoId', 'conjuntoId', 'implementoId', 'fornecedorId', 'clienteId', 'categoriaId']) {
       if (query[field]) where[field] = query[field];
     }
     if (query.tipoLancamento) where.tipoLancamento = query.tipoLancamento as TipoLancamento;
-    if (query.placa) where.placaOuPessoa = { contains: query.placa, mode: 'insensitive' };
+    if (query.placa) where.placa = { contains: query.placa, mode: 'insensitive' };
     return where;
   }
 

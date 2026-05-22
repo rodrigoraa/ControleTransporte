@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { CategoriaLancamento, TipoLancamento } from '@prisma/client';
+import { TipoLancamento } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 
 @Injectable()
@@ -15,7 +15,7 @@ export class DashboardService {
 
   async resumo() {
     const data = this.monthRange();
-    const [faturamento, despesas, caminhoesAtivos, motoristasAtivos, ultimosLancamentos, despesasPorCategoria, fluxoMensal, despesasPorCaminhao] =
+    const [faturamento, despesas, cavalosAtivos, implementosAtivos, conjuntosAtivos, motoristasAtivos, ultimosLancamentos, despesasPorCategoria, fluxoMensal, conjuntosPorTipo, manutencao] =
       await Promise.all([
         this.prisma.lancamentoFinanceiro.aggregate({
           where: { data, tipoLancamento: TipoLancamento.FATURAMENTO },
@@ -25,12 +25,14 @@ export class DashboardService {
           where: { data, tipoLancamento: TipoLancamento.DESPESA },
           _sum: { valorTotal: true },
         }),
-        this.prisma.caminhao.count({ where: { status: 'ATIVO' } }),
+        this.prisma.cavaloMecanico.count({ where: { status: 'ATIVO' } }),
+        this.prisma.implemento.count({ where: { status: 'ATIVO' } }),
+        this.prisma.conjunto.count({ where: { status: 'ATIVO' } }),
         this.prisma.motorista.count({ where: { status: 'ATIVO' } }),
         this.prisma.lancamentoFinanceiro.findMany({
           take: 8,
           orderBy: { data: 'desc' },
-          include: { motorista: true, fornecedor: true, caminhao: true, cliente: true },
+          include: { motorista: true, fornecedor: true, cavaloMecanico: true, conjunto: true, cliente: true },
         }),
         this.prisma.lancamentoFinanceiro.groupBy({
           by: ['categoriaId'],
@@ -38,13 +40,18 @@ export class DashboardService {
           _sum: { valorTotal: true },
         }),
         this.fluxoPorMes(),
-        this.prisma.lancamentoFinanceiro.groupBy({
-          by: ['caminhaoId'],
-          where: { data, tipoLancamento: TipoLancamento.DESPESA, caminhaoId: { not: null } },
-          _sum: { valorTotal: true },
-        }),
+        this.prisma.conjunto.groupBy({ by: ['tipo'], where: { status: 'ATIVO' }, _count: { _all: true } }),
+        Promise.all([
+          this.prisma.cavaloMecanico.count({ where: { status: { in: ['INATIVO', 'MANUTENCAO'] } } }),
+          this.prisma.implemento.count({ where: { status: { in: ['INATIVO', 'MANUTENCAO'] } } }),
+        ]),
       ]);
 
+    const categoriaIds = despesasPorCategoria.map((item) => item.categoriaId).filter(Boolean) as string[];
+    const categorias = categoriaIds.length
+      ? await this.prisma.categoriaFinanceira.findMany({ where: { id: { in: categoriaIds } }, select: { id: true, nome: true } })
+      : [];
+    const categoriasPorId = new Map(categorias.map((categoria) => [categoria.id, categoria.nome]));
     const totalFaturadoMes = Number(faturamento._sum.valorTotal || 0);
     const totalDespesasMes = Number(despesas._sum.valorTotal || 0);
     return {
@@ -52,17 +59,20 @@ export class DashboardService {
         totalFaturadoMes,
         totalDespesasMes,
         saldoMes: totalFaturadoMes - totalDespesasMes,
-        caminhoesAtivos,
+        cavalosMecanicosAtivos: cavalosAtivos,
+        implementosAtivos,
+        conjuntosAtivos,
+        itensInativosOuManutencao: manutencao[0] + manutencao[1],
         motoristasAtivos,
       },
       ultimosLancamentos,
       graficos: {
-        despesasPorCategoria: await Promise.all(despesasPorCategoria.map(async (item) => ({
-          categoria: item.categoriaId ? (await this.prisma.categoriaFinanceira.findUnique({ where: { id: item.categoriaId } }))?.nome || 'Sem categoria' : 'Sem categoria',
+        despesasPorCategoria: despesasPorCategoria.map((item) => ({
+          categoria: item.categoriaId ? categoriasPorId.get(item.categoriaId) || 'Sem categoria' : 'Sem categoria',
           total: Number(item._sum.valorTotal || 0),
-        }))),
+        })),
         faturamentoPorMes: fluxoMensal.map((item) => ({ mes: item.mes, total: item.faturamento })),
-        despesasPorCaminhao,
+        conjuntosPorTipo: conjuntosPorTipo.map((item) => ({ tipo: item.tipo, total: item._count._all })),
         comparativo: fluxoMensal,
       },
     };

@@ -5,13 +5,13 @@ import { PaginationDto } from './pagination.dto';
 
 type CrudModel =
   | 'cliente'
-  | 'funcionario'
   | 'motorista'
   | 'caminhao'
+  | 'cavaloMecanico'
+  | 'implemento'
+  | 'conjunto'
   | 'fornecedor'
   | 'categoriaFinanceira'
-  | 'acompanhamento'
-  | 'engateCarreta'
   | 'lancamentoFinanceiro';
 
 @Injectable()
@@ -20,7 +20,7 @@ export abstract class CrudService<CreateDto extends object, UpdateDto extends ob
     protected readonly prisma: PrismaService,
     private readonly model: CrudModel,
     private readonly searchFields: string[],
-    private readonly include?: object,
+    protected readonly include?: object,
   ) {}
 
   protected get repo(): any {
@@ -46,7 +46,7 @@ export abstract class CrudService<CreateDto extends object, UpdateDto extends ob
   }
 
   private emptyStringsToNull(data: any): any {
-    const dateFields = new Set(['data', 'dataAdmissao', 'validadeCnh', 'dataInicio', 'dataFim']);
+    const dateFields = new Set(['data', 'dataAdmissao', 'validadeCnh', 'dataInicio', 'dataFim', 'dataColocacaoConjunto', 'dataRemocaoConjunto']);
     return Object.fromEntries(
       Object.entries(data).map(([key, value]) => {
         if (value === '') return [key, null];
@@ -85,7 +85,9 @@ export abstract class CrudService<CreateDto extends object, UpdateDto extends ob
 
   async create(dto: CreateDto) {
     try {
-      return await this.repo.create({ data: this.normalizeCreate(this.emptyStringsToNull(dto) as CreateDto), include: this.include });
+      const created = await this.repo.create({ data: this.normalizeCreate(this.emptyStringsToNull(dto) as CreateDto), include: this.include });
+      await this.audit('CRIACAO', created?.id, null, created);
+      return created;
     } catch (error) {
       this.handlePrismaError(error);
     }
@@ -115,21 +117,40 @@ export abstract class CrudService<CreateDto extends object, UpdateDto extends ob
   }
 
   async update(id: string, dto: UpdateDto) {
-    await this.findOne(id);
+    const before = await this.findOne(id);
     try {
-      return await this.repo.update({ where: { id }, data: this.normalizeUpdate(this.emptyStringsToNull(dto) as UpdateDto), include: this.include });
+      const updated = await this.repo.update({ where: { id }, data: this.normalizeUpdate(this.emptyStringsToNull(dto) as UpdateDto), include: this.include });
+      await this.audit('ATUALIZACAO', id, before, updated);
+      return updated;
     } catch (error) {
       this.handlePrismaError(error);
     }
   }
 
   async remove(id: string) {
-    await this.findOne(id);
+    const before = await this.findOne(id);
     try {
       await this.repo.delete({ where: { id } });
+      await this.audit('EXCLUSAO', id, before, null);
       return { message: 'Registro excluido com sucesso' };
     } catch {
       throw new BadRequestException('Nao foi possivel excluir: registro possui vinculos');
+    }
+  }
+
+  protected async audit(acao: string, entidadeId?: string | null, dadosAntes?: unknown, dadosDepois?: unknown) {
+    try {
+      await this.prisma.auditoria.create({
+        data: {
+          entidade: this.model,
+          entidadeId: entidadeId || null,
+          acao,
+          dadosAntes: dadosAntes == null ? undefined : JSON.parse(JSON.stringify(dadosAntes)),
+          dadosDepois: dadosDepois == null ? undefined : JSON.parse(JSON.stringify(dadosDepois)),
+        },
+      });
+    } catch {
+      // Auditoria nao deve bloquear a operacao principal.
     }
   }
 }

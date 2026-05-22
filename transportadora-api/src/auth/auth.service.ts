@@ -1,12 +1,18 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { randomBytes } from 'crypto';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+
+type LoginAttempt = { count: number; blockedUntil?: number; firstAttemptAt: number };
 
 @Injectable()
 export class AuthService {
+  private readonly attempts = new Map<string, LoginAttempt>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
@@ -14,11 +20,14 @@ export class AuthService {
   ) {}
 
   async login(dto: LoginDto) {
+    this.assertLoginAllowed(dto.email);
     const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
     const valid = user ? await bcrypt.compare(dto.senha, user.senha) : false;
     if (!user || !valid || !user.ativo) {
+      this.registerFailedAttempt(dto.email);
       throw new UnauthorizedException('Credenciais invalidas');
     }
+    this.attempts.delete(dto.email.toLowerCase());
 
     const payload = { sub: user.id, email: user.email, perfil: user.perfil };
     const token = await this.jwt.signAsync(payload, {
@@ -26,5 +35,58 @@ export class AuthService {
     });
     const { senha, ...safeUser } = user;
     return { accessToken: token, user: safeUser };
+  }
+
+  async forgotPassword(dto: ForgotPasswordDto) {
+    const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    if (!user || !user.ativo) {
+      return { message: 'Se o email existir, as instrucoes de recuperacao serao enviadas.' };
+    }
+
+    const temporaryPassword = this.generateTemporaryPassword();
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { senha: await bcrypt.hash(temporaryPassword, 10) },
+    });
+    await this.prisma.auditoria.create({
+      data: {
+        entidade: 'User',
+        entidadeId: user.id,
+        acao: 'RECUPERACAO_SENHA',
+        dadosDepois: { email: user.email },
+      },
+    });
+
+    const response: Record<string, string> = {
+      message: 'Senha temporaria gerada. Altere a senha apos entrar.',
+    };
+    if (this.config.get('NODE_ENV') !== 'production') response.temporaryPassword = temporaryPassword;
+    return response;
+  }
+
+  private assertLoginAllowed(email: string) {
+    const attempt = this.attempts.get(email.toLowerCase());
+    if (attempt?.blockedUntil && attempt.blockedUntil > Date.now()) {
+      throw new HttpException('Muitas tentativas de login. Aguarde alguns minutos e tente novamente.', HttpStatus.TOO_MANY_REQUESTS);
+    }
+  }
+
+  private registerFailedAttempt(email: string) {
+    const key = email.toLowerCase();
+    const now = Date.now();
+    const current = this.attempts.get(key);
+    const attempt = current && now - current.firstAttemptAt < 10 * 60 * 1000
+      ? { ...current, count: current.count + 1 }
+      : { count: 1, firstAttemptAt: now };
+
+    if (attempt.count >= 5) {
+      attempt.blockedUntil = now + 10 * 60 * 1000;
+    }
+
+    this.attempts.set(key, attempt);
+  }
+
+  private generateTemporaryPassword() {
+    return `Tmp${randomBytes(6).toString('base64url')}!${randomBytes(1).readUInt8()}`;
   }
 }

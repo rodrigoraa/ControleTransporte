@@ -12,25 +12,30 @@ const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(() => {
-    const stored = localStorage.getItem('user');
-    return stored ? JSON.parse(stored) : null;
+    const stored = sessionStorage.getItem('user');
+    try {
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      sessionStorage.removeItem('user');
+      return null;
+    }
   });
 
   useEffect(() => {
-    if (!localStorage.getItem('token')) setUser(null);
+    if (!sessionStorage.getItem('token')) setUser(null);
   }, []);
 
   const value = useMemo<AuthContextType>(() => ({
     user,
     async login(email, senha) {
       const { data } = await api.post('/auth/login', { email, senha });
-      localStorage.setItem('token', data.accessToken);
-      localStorage.setItem('user', JSON.stringify(data.user));
+      sessionStorage.setItem('token', data.accessToken);
+      sessionStorage.setItem('user', JSON.stringify(data.user));
       setUser(data.user);
     },
     logout() {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
+      sessionStorage.removeItem('token');
+      sessionStorage.removeItem('user');
       setUser(null);
     },
   }), [user]);

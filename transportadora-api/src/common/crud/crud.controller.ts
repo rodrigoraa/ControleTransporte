@@ -1,12 +1,16 @@
 import { Body, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { PerfilUsuario } from '@prisma/client';
+import { Roles } from '../decorators/roles.decorator';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
+import { RolesGuard } from '../guards/roles.guard';
 import { PaginationDto } from './pagination.dto';
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export abstract class CrudController<CreateDto extends object, UpdateDto extends object> {
   protected constructor(protected readonly service: any) {}
 
   @Post()
+  @Roles(PerfilUsuario.ADMIN)
   create(@Body() dto: CreateDto) {
     return this.service.create(dto);
   }
@@ -22,11 +26,13 @@ export abstract class CrudController<CreateDto extends object, UpdateDto extends
   }
 
   @Patch(':id')
+  @Roles(PerfilUsuario.ADMIN)
   update(@Param('id') id: string, @Body() dto: UpdateDto) {
     return this.service.update(id, dto);
   }
 
   @Delete(':id')
+  @Roles(PerfilUsuario.ADMIN)
   remove(@Param('id') id: string) {
     return this.service.remove(id);
   }

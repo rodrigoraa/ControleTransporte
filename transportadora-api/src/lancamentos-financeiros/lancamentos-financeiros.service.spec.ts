@@ -5,18 +5,23 @@ import { LancamentosFinanceirosService } from './lancamentos-financeiros.service
 function makeService() {
   const create = jest.fn((args: any) => args);
   const update = jest.fn((args: any) => args);
-  const findUnique = jest.fn(async ({ where }: any) => (where.placa === 'ABC1D23' ? { id: 'truck-1', placa: 'ABC1D23' } : null));
+  const findUnique = jest.fn(async ({ where }: any) => {
+    if (where.placa === 'ABC1D23') return { id: 'horse-1', placa: 'ABC1D23' };
+    if (where.id === 'horse-1') return { id: 'horse-1', placa: 'ABC1D23' };
+    return null;
+  });
 
   const prisma = {
     lancamentoFinanceiro: { create, update, findUnique: jest.fn() },
-    caminhao: { findUnique },
+    cavaloMecanico: { findUnique },
+    auditoria: { create: jest.fn() },
   } as any;
 
   const service = new LancamentosFinanceirosService(prisma);
   jest.spyOn(service as any, 'findOne').mockResolvedValue({
     id: 'launch-1',
     data: new Date('2026-01-01T00:00:00.000Z'),
-    placaOuPessoa: 'ABC1D23',
+    placa: 'ABC1D23',
     motoristaId: 'driver-1',
     fornecedorId: 'supplier-1',
     clienteId: null,
@@ -30,7 +35,7 @@ function makeService() {
 
 const baseDto = {
   data: new Date('2026-01-01T00:00:00.000Z'),
-  placaOuPessoa: 'ABC1D23',
+  placa: 'ABC1D23',
   motoristaId: 'driver-1',
   tipoLancamento: TipoLancamento.DESPESA,
   quantidade: 2,
@@ -39,7 +44,7 @@ const baseDto = {
 };
 
 describe('LancamentosFinanceirosService', () => {
-  it('cria despesa com fornecedor, calcula valor total, zera cliente e vincula caminhao pela placa', async () => {
+  it('cria despesa com fornecedor, calcula valor total, zera cliente e vincula cavalo pela placa', async () => {
     const { service, create } = makeService();
 
     await service.create({ ...baseDto, fornecedorId: 'supplier-1', clienteId: 'client-1' });
@@ -48,11 +53,25 @@ describe('LancamentosFinanceirosService', () => {
       data: expect.objectContaining({
         fornecedorId: 'supplier-1',
         clienteId: null,
-        caminhaoId: 'truck-1',
+        cavaloMecanicoId: 'horse-1',
         valorTotal: expect.anything(),
       }),
     }));
     expect(String(create.mock.calls[0][0].data.valorTotal)).toBe('20');
+  });
+
+  it('cria despesa usando cavalo mecanico sem exigir placa no payload', async () => {
+    const { service, create } = makeService();
+
+    await service.create({
+      ...baseDto,
+      placa: undefined,
+      cavaloMecanicoId: 'horse-1',
+      fornecedorId: 'supplier-1',
+    });
+
+    expect(create.mock.calls[0][0].data.placa).toBe('ABC1D23');
+    expect(create.mock.calls[0][0].data.cavaloMecanicoId).toBe('horse-1');
   });
 
   it('bloqueia despesa sem fornecedor', async () => {

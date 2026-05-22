@@ -10,7 +10,7 @@ async function bootstrap() {
 
   app.use(helmet());
   app.enableCors({
-    origin: config.get('FRONTEND_URL') || 'http://localhost:5173',
+    origin: config.getOrThrow<string>('FRONTEND_URL'),
     credentials: true,
   });
   app.setGlobalPrefix('api');

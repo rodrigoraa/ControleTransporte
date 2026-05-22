@@ -35,6 +35,7 @@ dev.db-journal
 # Build outputs
 dist/
 build/
+.build/
 coverage/
 
 # The current repo only has the frontend build available.

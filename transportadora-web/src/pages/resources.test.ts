@@ -23,9 +23,18 @@ describe('crudResources', () => {
     expect(field('faturamento', 'categoriaId')?.relation?.params).toEqual({ tipoLancamento: 'FATURAMENTO' });
   });
 
-  it('lancamento financeiro usa placa como select e nao duplica campo caminhao', () => {
-    expect(field('lancamentos-financeiros', 'placaOuPessoa')?.type).toBe('select');
-    expect(field('lancamentos-financeiros', 'placaOuPessoa')?.relation?.valueKey).toBe('placa');
-    expect(field('lancamentos-financeiros', 'caminhaoId')).toBeUndefined();
+  it('lancamento financeiro nao duplica placa e cavalo e usa conjunto operacional', () => {
+    expect(field('despesas', 'placa')).toBeUndefined();
+    expect(field('despesas', 'implementoId')).toBeUndefined();
+    expect(field('despesas', 'cavaloMecanicoId')).toBeTruthy();
+    expect(field('despesas', 'conjuntoId')).toBeTruthy();
+    expect(byPath('lancamentos-financeiros')).toBeUndefined();
+  });
+
+  it('possui cadastro separado de implementos e conjunto com selecao multipla', () => {
+    expect(byPath('implementos')).toBeTruthy();
+    expect(field('conjuntos', 'implementoIds')?.type).toBe('multiselect');
+    expect(field('conjuntos', 'quantidadeTotalEixos')?.table).toBe(true);
+    expect(field('conjuntos', 'capacidadeTotal')?.table).toBe(true);
   });
 });

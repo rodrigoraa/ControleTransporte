@@ -20,6 +20,9 @@ export class UsersService {
     const user = await this.prisma.user.create({
       data: { ...dto, senha: await bcrypt.hash(dto.senha, 10) },
     });
+    await this.prisma.auditoria.create({
+      data: { entidade: 'User', entidadeId: user.id, acao: 'CRIACAO', dadosDepois: this.safe(user) },
+    });
     return this.safe(user);
   }
 
@@ -46,13 +49,20 @@ export class UsersService {
     await this.findOne(id);
     const data = { ...dto } as any;
     if (dto.senha) data.senha = await bcrypt.hash(dto.senha, 10);
+    const before = await this.findOne(id);
     const user = await this.prisma.user.update({ where: { id }, data });
+    await this.prisma.auditoria.create({
+      data: { entidade: 'User', entidadeId: id, acao: 'ATUALIZACAO', dadosAntes: before, dadosDepois: this.safe(user) },
+    });
     return this.safe(user);
   }
 
   async remove(id: string) {
-    await this.findOne(id);
+    const before = await this.findOne(id);
     await this.prisma.user.delete({ where: { id } });
+    await this.prisma.auditoria.create({
+      data: { entidade: 'User', entidadeId: id, acao: 'EXCLUSAO', dadosAntes: before },
+    });
     return { message: 'Usuario excluido com sucesso' };
   }
 }

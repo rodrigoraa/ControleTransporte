@@ -1,11 +1,13 @@
-import { FormEvent, useEffect, useState } from 'react';
+﻿import { FormEvent, useEffect, useState } from 'react';
 import { api } from '../services/api';
 import { money } from '../utils/formatters';
 
-type Option = { value: string; label: string };
+type Option = { value: string; label: string; cavaloMecanicoId?: string | null; tipo?: string; quantidadeTotalEixos?: number };
 type ReportOptions = {
   motoristas: Option[];
-  caminhoes: Option[];
+  cavalosMecanicos: Option[];
+  implementos: Option[];
+  conjuntos: Option[];
   fornecedores: Option[];
   clientes: Option[];
   categorias: Option[];
@@ -13,13 +15,24 @@ type ReportOptions = {
   placas: Option[];
 };
 
+const tiposConjunto = [
+  { value: 'SIMPLES', label: 'Simples' },
+  { value: 'BITREM', label: 'Bitrem' },
+  { value: 'RODOTREM', label: 'Rodotrem' },
+  { value: 'OUTRO', label: 'Outro' },
+];
+
 export function Relatorios() {
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [financeiro, setFinanceiro] = useState<any>(null);
-  const [acompanhamentos, setAcompanhamentos] = useState<any>(null);
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const [options, setOptions] = useState<ReportOptions>({
     motoristas: [],
-    caminhoes: [],
+    cavalosMecanicos: [],
+    implementos: [],
+    conjuntos: [],
     fornecedores: [],
     clientes: [],
     categorias: [],
@@ -31,33 +44,50 @@ export function Relatorios() {
     api.get('/relatorios/opcoes').then((response) => setOptions(response.data));
   }, []);
 
-  const placasFiltradas = filters.caminhaoId
-    ? options.caminhoes
-        .filter((option) => option.value === filters.caminhaoId)
-        .map((option) => {
-          const placa = option.label.split(' - ')[0];
-          return { value: placa, label: placa };
-        })
-    : options.placas;
-
   function updateFilter(name: string, value: string) {
     const next = { ...filters, [name]: value };
-    if (name === 'caminhaoId') {
-      const caminhao = options.caminhoes.find((option) => option.value === value);
-      next.placa = caminhao ? caminhao.label.split(' - ')[0] : '';
-    }
+    setPage(1);
     setFilters(next);
   }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    setPage(1);
+    await loadReport(1);
+  }
+
+  async function loadReport(targetPage = page) {
+    setLoading(true);
+    setError('');
     const params = Object.fromEntries(Object.entries(filters).filter(([, value]) => value));
-    const [fin, acomp] = await Promise.all([
-      api.get('/relatorios/financeiros', { params }),
-      api.get('/relatorios/acompanhamentos', { params }),
-    ]);
-    setFinanceiro(fin.data);
-    setAcompanhamentos(acomp.data);
+    try {
+      const { data } = await api.get('/relatorios/financeiros', { params: { ...params, page: targetPage, limit: 50 } });
+      setPage(targetPage);
+      setFinanceiro(data);
+    } catch (requestError: any) {
+      const response = requestError.response?.data;
+      const message = Array.isArray(response?.message) ? response.message.join(' ') : response?.message;
+      setError(message || 'Nao foi possivel gerar o relatorio.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function exportReport(format: 'csv' | 'pdf') {
+    setError('');
+    try {
+      const params = Object.fromEntries(Object.entries(filters).filter(([, value]) => value));
+      const { data } = await api.get(`/relatorios/financeiros/exportar.${format}`, { params, responseType: 'blob' });
+      const url = URL.createObjectURL(data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `relatorio-financeiro.${format}`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (requestError: any) {
+      const response = requestError.response?.data;
+      setError(response?.message || `Nao foi possivel exportar o relatorio em ${format.toUpperCase()}.`);
+    }
   }
 
   return (
@@ -65,40 +95,28 @@ export function Relatorios() {
       <div className="page-header">
         <div>
           <h1>Relatorios</h1>
-          <p>Filtros por periodo, motorista, caminhao, placa, fornecedor, cliente, tipo e categoria.</p>
+          <p>Filtros por periodo, motorista, cavalo, implemento, conjunto, tipo de conjunto, quantidade de eixos e financeiro.</p>
         </div>
       </div>
       <form className="panel report-filters" onSubmit={submit}>
-        {[
-          ['dataInicial', 'Data inicial', 'date'],
-          ['dataFinal', 'Data final', 'date'],
-        ].map(([name, label, type]) => (
-          <label key={name}>
-            {label}
-            <input type={type} value={filters[name] || ''} onChange={(e) => setFilters({ ...filters, [name]: e.target.value })} />
-          </label>
-        ))}
+        <label>Data inicial<input type="date" value={filters.dataInicial || ''} onChange={(e) => setFilters({ ...filters, dataInicial: e.target.value })} /></label>
+        <label>Data final<input type="date" value={filters.dataFinal || ''} onChange={(e) => setFilters({ ...filters, dataFinal: e.target.value })} /></label>
         <SelectFilter label="Motorista" name="motoristaId" value={filters.motoristaId || ''} options={options.motoristas} onChange={updateFilter} />
-        <SelectFilter label="Caminhao" name="caminhaoId" value={filters.caminhaoId || ''} options={options.caminhoes} onChange={updateFilter} />
-        <SelectFilter label="Placa" name="placa" value={filters.placa || ''} options={placasFiltradas} disabled={Boolean(filters.caminhaoId)} onChange={updateFilter} />
+        <SelectFilter label="Cavalo mecanico" name="cavaloMecanicoId" value={filters.cavaloMecanicoId || ''} options={options.cavalosMecanicos} onChange={updateFilter} />
+        <SelectFilter label="Implemento" name="implementoId" value={filters.implementoId || ''} options={options.implementos} onChange={updateFilter} />
+        <SelectFilter label="Conjunto operacional" name="conjuntoId" value={filters.conjuntoId || ''} options={options.conjuntos} onChange={updateFilter} />
+        <SelectFilter label="Tipo de conjunto" name="tipoConjunto" value={filters.tipoConjunto || ''} options={tiposConjunto} onChange={updateFilter} />
+        <label>Quantidade de eixos<input type="number" value={filters.quantidadeEixos || ''} onChange={(e) => setFilters({ ...filters, quantidadeEixos: e.target.value })} /></label>
+        <SelectFilter label="Placa" name="placa" value={filters.placa || ''} options={options.placas} onChange={updateFilter} />
         <SelectFilter label="Fornecedor" name="fornecedorId" value={filters.fornecedorId || ''} options={options.fornecedores} onChange={updateFilter} />
         <SelectFilter label="Cliente" name="clienteId" value={filters.clienteId || ''} options={options.clientes} onChange={updateFilter} />
-        <label>
-          Tipo
-          <select value={filters.tipoLancamento || ''} onChange={(e) => setFilters({ ...filters, tipoLancamento: e.target.value })}>
-            <option value="">Todos</option>
-            {options.tipos.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
-        </label>
-        <label>
-          Categoria
-          <select value={filters.categoriaId || ''} onChange={(e) => setFilters({ ...filters, categoriaId: e.target.value })}>
-            <option value="">Todas</option>
-            {options.categorias.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
-        </label>
-        <button className="button primary">Gerar relatorio</button>
+        <SelectFilter label="Tipo financeiro" name="tipoLancamento" value={filters.tipoLancamento || ''} options={options.tipos} onChange={updateFilter} />
+        <SelectFilter label="Categoria" name="categoriaId" value={filters.categoriaId || ''} options={options.categorias} onChange={updateFilter} />
+        <SelectFilter label="Ordenar por" name="orderBy" value={filters.orderBy || ''} options={[{ value: 'data', label: 'Data' }, { value: 'valorTotal', label: 'Valor total' }]} onChange={updateFilter} />
+        <SelectFilter label="Direcao" name="orderDirection" value={filters.orderDirection || ''} options={[{ value: 'desc', label: 'Decrescente' }, { value: 'asc', label: 'Crescente' }]} onChange={updateFilter} />
+        <button className="button primary" disabled={loading}>{loading ? 'Gerando...' : 'Gerar relatorio'}</button>
       </form>
+      {error && <div className="form-error">{error}</div>}
       {financeiro && (
         <>
           <div className="stats-grid">
@@ -107,21 +125,32 @@ export function Relatorios() {
             <article className="stat-card"><span>Saldo final</span><strong>{money(financeiro.saldoFinal)}</strong></article>
           </div>
           <div className="panel">
-            <h2>Historico de lancamentos</h2>
+            <div className="panel-title-row">
+              <h2>Historico de lancamentos</h2>
+              <div className="actions">
+                <button className="button" type="button" onClick={() => exportReport('csv')}>Exportar Excel</button>
+                <button className="button" type="button" onClick={() => exportReport('pdf')}>Exportar PDF</button>
+              </div>
+            </div>
             <div className="table-wrap">
               <table>
                 <thead>
-                  <tr><th>Data</th><th>Tipo</th><th>Placa</th><th>Motorista</th><th>Fornecedor/Cliente</th><th>Categoria</th><th>Qtd.</th><th>Valor unitario</th><th>Valor total</th></tr>
+                  <tr><th>Data</th><th>Tipo</th><th>Cavalo</th><th>Conjunto</th><th>Composicao</th><th>Motorista</th><th>Fornecedor/Cliente</th><th>Categoria</th><th>Qtd.</th><th>Valor unitario</th><th>Valor total</th></tr>
                 </thead>
                 <tbody>
+                  {!financeiro.historico.length && (
+                    <tr><td colSpan={11}>Nenhum lancamento encontrado para os filtros informados.</td></tr>
+                  )}
                   {financeiro.historico.map((item: any) => (
                     <tr key={item.id}>
                       <td>{new Date(item.data).toLocaleDateString('pt-BR')}</td>
                       <td>{item.tipoLancamento}</td>
-                      <td>{item.placaOuPessoa}</td>
+                      <td>{item.cavaloMecanico?.placa || item.placa}</td>
+                      <td>{labelConjunto(item.conjunto)}</td>
+                      <td>{labelImplementos(item.conjunto)}</td>
                       <td>{labelPessoa(item.motorista)}</td>
                       <td>{labelPessoa(item.fornecedor) !== '-' ? labelPessoa(item.fornecedor) : labelPessoa(item.cliente)}</td>
-                      <td>{item.categoriaFinanceira?.nome || item.categoria || '-'}</td>
+                      <td>{item.categoriaFinanceira?.nome || '-'}</td>
                       <td>{Number(item.quantidade).toLocaleString('pt-BR')} {item.unidadeQuantidade}</td>
                       <td>{money(item.valorUnitario)}</td>
                       <td>{money(item.valorTotal)}</td>
@@ -130,35 +159,21 @@ export function Relatorios() {
                 </tbody>
               </table>
             </div>
+            <div className="pagination">
+              <span>{financeiro.total} lancamentos</span>
+              <button className="button" type="button" disabled={financeiro.page === 1 || loading} onClick={() => loadReport(financeiro.page - 1)}>Anterior</button>
+              <strong>{financeiro.page}</strong>
+              <button className="button" type="button" disabled={financeiro.page * financeiro.limit >= financeiro.total || loading} onClick={() => loadReport(financeiro.page + 1)}>Proxima</button>
+            </div>
           </div>
           <div className="report-grid">
-            <Group title="Despesas por caminhao" rows={financeiro.despesasPorCaminhao} />
+            <Group title="Despesas por cavalo mecanico" rows={financeiro.despesasPorCavaloMecanico} />
             <Group title="Despesas por motorista" rows={financeiro.despesasPorMotorista} />
-            <Group title="Faturamento por caminhao" rows={financeiro.faturamentoPorCaminhao} />
+            <Group title="Faturamento por cavalo mecanico" rows={financeiro.faturamentoPorCavaloMecanico} />
             <Group title="Faturamento por motorista" rows={financeiro.faturamentoPorMotorista} />
           </div>
+          <ConjuntosPorCavalo rows={financeiro.conjuntosPorCavalo || []} />
         </>
-      )}
-      {acompanhamentos && (
-        <div className="panel">
-          <h2>Relatorio de acompanhamentos</h2>
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Caminhao</th><th>Motorista</th><th>Operacao</th><th>Tipo veiculo</th><th>Status</th></tr></thead>
-              <tbody>
-                {acompanhamentos.historico.map((item: any) => (
-                  <tr key={item.id}>
-                    <td>{item.caminhao?.placa}</td>
-                    <td>{item.motorista?.nome}</td>
-                    <td>{item.tipoOperacao}</td>
-                    <td>{item.tipoVeiculo}</td>
-                    <td>{item.status}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
       )}
     </section>
   );
@@ -172,8 +187,37 @@ function Group({ title, rows }: { title: string; rows: any[] }) {
         <table>
           <thead><tr><th>Nome</th><th>Total</th></tr></thead>
           <tbody>
+            {rows.map((row, index) => <tr key={index}><td>{row.label}</td><td>{money(row.total)}</td></tr>)}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function ConjuntosPorCavalo({ rows }: { rows: any[] }) {
+  return (
+    <div className="panel">
+      <h2>Conjuntos utilizados por cavalo mecanico</h2>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Cavalo</th><th>Conjunto</th><th>Tipo</th><th>Eixos</th><th>Implementos</th><th>Lanc.</th><th>Despesas</th><th>Faturamento</th><th>Saldo</th></tr>
+          </thead>
+          <tbody>
+            {!rows.length && <tr><td colSpan={9}>Nenhum conjunto encontrado para os filtros informados.</td></tr>}
             {rows.map((row, index) => (
-              <tr key={index}><td>{row.label}</td><td>{money(row.total)}</td></tr>
+              <tr key={`${row.cavaloId}-${row.conjuntoId || index}`}>
+                <td>{row.cavalo || '-'}</td>
+                <td>{row.conjunto || '-'}</td>
+                <td>{row.tipoConjunto || '-'}</td>
+                <td>{row.quantidadeTotalEixos ?? '-'}</td>
+                <td>{row.implementos || '-'}</td>
+                <td>{row.quantidadeLancamentos}</td>
+                <td>{money(row.totalDespesas)}</td>
+                <td>{money(row.totalFaturamento)}</td>
+                <td>{money(row.saldo)}</td>
+              </tr>
             ))}
           </tbody>
         </table>
@@ -199,7 +243,16 @@ function labelPessoa(item: any) {
   return [item.nome, item.documento || item.cpf].filter(Boolean).join(' - ') || '-';
 }
 
-function labelCaminhao(item: any) {
-  if (!item) return '-';
-  return [item.placa, item.marca, item.modelo].filter(Boolean).join(' - ') || '-';
+function labelConjunto(conjunto: any) {
+  if (!conjunto) return '-';
+  return [conjunto.nome, conjunto.tipo, conjunto.quantidadeTotalEixos != null ? `${conjunto.quantidadeTotalEixos} eixos` : null].filter(Boolean).join(' - ');
+}
+
+function labelImplementos(conjunto: any) {
+  const implementos = conjunto?.implementos || [];
+  if (!implementos.length) return '-';
+  return implementos.map((vinculo: any) => {
+    const implemento = vinculo.implemento;
+    return [vinculo.ordem ? `${vinculo.ordem}.` : null, implemento?.placa || 'Sem placa', implemento?.tipo, implemento?.carroceria, implemento?.quantidadeEixos != null ? `${implemento.quantidadeEixos} eixos` : null].filter(Boolean).join(' ');
+  }).join(' / ');
 }

@@ -8,7 +8,7 @@ import { UpdateCategoriaFinanceiraDto } from './dto/update-categoria-financeira.
 @Injectable()
 export class CategoriasFinanceirasService extends CrudService<CreateCategoriaFinanceiraDto, UpdateCategoriaFinanceiraDto> {
   constructor(prisma: PrismaService) {
-    super(prisma, 'categoriaFinanceira' as any, ['nome', 'observacoes']);
+    super(prisma, 'categoriaFinanceira', ['nome', 'observacoes']);
   }
 
   protected buildWhere(query: PaginationDto & Record<string, any>) {
