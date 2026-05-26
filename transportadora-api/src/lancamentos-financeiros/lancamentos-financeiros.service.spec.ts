@@ -6,8 +6,8 @@ function makeService() {
   const create = jest.fn((args: any) => args);
   const update = jest.fn((args: any) => args);
   const findUnique = jest.fn(async ({ where }: any) => {
-    if (where.placa === 'ABC1D23') return { id: 'horse-1', placa: 'ABC1D23' };
-    if (where.id === 'horse-1') return { id: 'horse-1', placa: 'ABC1D23' };
+    if (where.placa === 'ABC1D23') return { id: 'horse-1', placa: 'ABC1D23', conjuntos: [{ id: 'set-1' }] };
+    if (where.id === 'horse-1') return { id: 'horse-1', placa: 'ABC1D23', conjuntos: [{ id: 'set-1' }] };
     return null;
   });
 
@@ -54,6 +54,7 @@ describe('LancamentosFinanceirosService', () => {
         fornecedorId: 'supplier-1',
         clienteId: null,
         cavaloMecanicoId: 'horse-1',
+        conjuntoId: 'set-1',
         valorTotal: expect.anything(),
       }),
     }));
@@ -72,6 +73,7 @@ describe('LancamentosFinanceirosService', () => {
 
     expect(create.mock.calls[0][0].data.placa).toBe('ABC1D23');
     expect(create.mock.calls[0][0].data.cavaloMecanicoId).toBe('horse-1');
+    expect(create.mock.calls[0][0].data.conjuntoId).toBe('set-1');
   });
 
   it('bloqueia despesa sem fornecedor', async () => {

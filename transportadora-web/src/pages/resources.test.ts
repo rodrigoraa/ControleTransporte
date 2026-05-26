@@ -31,10 +31,10 @@ describe('crudResources', () => {
     expect(byPath('lancamentos-financeiros')).toBeUndefined();
   });
 
-  it('possui cadastro separado de implementos e conjunto com selecao multipla', () => {
-    expect(byPath('implementos')).toBeTruthy();
-    expect(field('conjuntos', 'implementoIds')?.type).toBe('multiselect');
-    expect(field('conjuntos', 'quantidadeTotalEixos')?.table).toBe(true);
-    expect(field('conjuntos', 'capacidadeTotal')?.table).toBe(true);
+  it('centraliza a composicao no cadastro de cavalos mecanicos', () => {
+    expect(byPath('implementos')).toBeUndefined();
+    expect(byPath('conjuntos')).toBeUndefined();
+    expect(field('caminhoes', 'composicaoAtual')?.table).toBe(true);
+    expect(field('caminhoes', 'composicaoAtual')?.hidden).toBe(true);
   });
 });

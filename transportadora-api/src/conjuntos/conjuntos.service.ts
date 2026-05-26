@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { Prisma, TipoConjuntoOperacional, TipoImplemento } from '@prisma/client';
+import { Prisma, TipoCavaloMecanico, TipoConjuntoOperacional, TipoImplemento } from '@prisma/client';
 import { CrudService } from '../common/crud/crud.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateConjuntoDto } from './dto/create-conjunto.dto';
@@ -15,11 +15,11 @@ export class ConjuntosService extends CrudService<CreateConjuntoDto, UpdateConju
   }
 
   async create(dto: CreateConjuntoDto) {
-    await this.validateComposition(dto);
     const cavalo = await this.getCavalo(dto.cavaloMecanicoId);
+    await this.validateComposition(dto, cavalo);
     const implementos = await this.getImplementosInOrder(dto.implementoIds);
-    const totals = this.calculateTotals(implementos);
-    const composition = this.inferComposition(totals.eixos, implementos);
+    const totals = this.calculateTotals(cavalo.tipoCavalo, implementos);
+    const composition = this.inferComposition(totals.eixos);
     const created = await this.prisma.conjunto.create({
       data: {
         nome: this.buildNome(cavalo),
@@ -53,11 +53,11 @@ export class ConjuntosService extends CrudService<CreateConjuntoDto, UpdateConju
     const before = await this.findOne(id);
     const cavaloMecanicoId = dto.cavaloMecanicoId ?? before.cavaloMecanicoId;
     const implementoIds: string[] = dto.implementoIds ?? before.implementos.map((item: any) => item.implementoId);
-    await this.validateComposition({ ...before, ...dto, cavaloMecanicoId, implementoIds } as CreateConjuntoDto);
     const cavalo = await this.getCavalo(cavaloMecanicoId);
+    await this.validateComposition({ ...before, ...dto, cavaloMecanicoId, implementoIds } as CreateConjuntoDto, cavalo);
     const implementos = await this.getImplementosInOrder(implementoIds);
-    const totals = this.calculateTotals(implementos);
-    const composition = this.inferComposition(totals.eixos, implementos);
+    const totals = this.calculateTotals(cavalo.tipoCavalo, implementos);
+    const composition = this.inferComposition(totals.eixos);
     const updated = await this.prisma.$transaction(async (tx) => {
       if (dto.implementoIds) {
         await tx.conjuntoImplemento.deleteMany({ where: { conjuntoId: id } });
@@ -107,7 +107,7 @@ export class ConjuntosService extends CrudService<CreateConjuntoDto, UpdateConju
     });
   }
 
-  private async validateComposition(dto: CreateConjuntoDto) {
+  private async validateComposition(dto: CreateConjuntoDto, cavalo?: { tipoCavalo?: TipoCavaloMecanico | null }) {
     if (!dto.cavaloMecanicoId) throw new BadRequestException('Conjunto operacional deve ter um cavalo mecanico.');
     if ((!dto.implementoIds || dto.implementoIds.length === 0) && !dto.justificativaSemImplemento) {
       throw new BadRequestException('Informe pelo menos um implemento ou uma justificativa para conjunto sem implemento.');
@@ -116,32 +116,37 @@ export class ConjuntosService extends CrudService<CreateConjuntoDto, UpdateConju
 
     const implementos = await this.getImplementosInOrder(dto.implementoIds);
     const hasDolly = implementos.some((item) => item.tipo === TipoImplemento.DOLLY);
-    const inferred = this.inferComposition(0, implementos);
+    const carretas = implementos.filter((item) => item.tipo !== TipoImplemento.DOLLY);
 
-    if (hasDolly && implementos.length < 3) {
-      throw new BadRequestException('Composicao com dolly deve ter 1a carreta, dolly e 2a carreta.');
+    if (hasDolly && implementos.every((item) => item.tipo === TipoImplemento.DOLLY)) {
+      throw new BadRequestException('Dolly deve estar acompanhado de pelo menos uma carreta, semirreboque ou reboque.');
     }
 
-    if (inferred.tipo === TipoConjuntoOperacional.BITREM) {
-      if (implementos.length < 2) {
-        throw new BadRequestException('Bitrem 7 eixos deve ter 1a carreta e 2a carreta.');
-      }
-      if (hasDolly) {
-        throw new BadRequestException('Bitrem 7 eixos nao deve usar dolly. Para 1a carreta + dolly + 2a carreta, cadastre como Rodotrem.');
-      }
+    if (carretas.length > 2) {
+      throw new BadRequestException('A composicao deve ter no maximo duas carretas/reboques.');
     }
 
-    if (inferred.tipo === TipoConjuntoOperacional.RODOTREM) {
-      if (implementos.length < 3 || !hasDolly) {
-        throw new BadRequestException('Rodotrem 9 eixos deve ter 1a carreta, dolly e 2a carreta.');
-      }
+    if (carretas.length === 1 && hasDolly) {
+      throw new BadRequestException('Se houver apenas uma carreta, nao informe dolly.');
+    }
+
+    if (carretas.length === 2 && !hasDolly) {
+      throw new BadRequestException('Se houver segunda carreta, informe dolly.');
+    }
+
+    if (hasDolly && !this.isThreeAxleCavalo(cavalo?.tipoCavalo)) {
+      throw new BadRequestException('Rodotrem deve usar cavalo trucado ou tracado.');
+    }
+
+    if (carretas.some((item) => ![2, 3].includes(Number(item.quantidadeEixos)))) {
+      throw new BadRequestException('Carretas devem ter 2 ou 3 eixos.');
     }
   }
 
-  private calculateTotals(implementos: Array<{ quantidadeEixos: number; capacidadeCarga: Prisma.Decimal }>) {
+  private calculateTotals(tipoCavalo: TipoCavaloMecanico | null | undefined, implementos: Array<{ tipo: TipoImplemento; quantidadeEixos: number; capacidadeCarga: Prisma.Decimal }>) {
     if (!implementos.length) return { eixos: 0, capacidade: new Prisma.Decimal(0) };
     return {
-      eixos: implementos.reduce((total, item) => total + item.quantidadeEixos, 0),
+      eixos: this.cavaloEixos(tipoCavalo) + implementos.reduce((total, item) => total + (item.tipo === TipoImplemento.DOLLY ? 2 : item.quantidadeEixos), 0),
       capacidade: implementos.reduce((total, item) => total.add(item.capacidadeCarga), new Prisma.Decimal(0)),
     };
   }
@@ -163,13 +168,21 @@ export class ConjuntosService extends CrudService<CreateConjuntoDto, UpdateConju
     return [cavalo.placa, cavalo.marca].filter(Boolean).join(' - ');
   }
 
-  private inferComposition(eixos: number, implementos: Array<{ tipo: TipoImplemento }>) {
-    const hasDolly = implementos.some((item) => item.tipo === TipoImplemento.DOLLY);
-    if (hasDolly && implementos.length >= 3) return { tipo: TipoConjuntoOperacional.RODOTREM, eixos: 9 };
-    if (!hasDolly && implementos.length >= 2) return { tipo: TipoConjuntoOperacional.BITREM, eixos: 7 };
-    if (eixos >= 9) return { tipo: TipoConjuntoOperacional.RODOTREM, eixos };
-    if (eixos >= 7) return { tipo: TipoConjuntoOperacional.BITREM, eixos };
+  private inferComposition(eixos: number) {
+    if (eixos === 9 || eixos === 11) return { tipo: TipoConjuntoOperacional.RODOTREM, eixos };
+    if (eixos === 7) return { tipo: TipoConjuntoOperacional.BITREM, eixos };
+    if (eixos === 5 || eixos === 6) return { tipo: TipoConjuntoOperacional.SIMPLES, eixos };
     return { tipo: TipoConjuntoOperacional.SIMPLES, eixos };
+  }
+
+  private cavaloEixos(tipoCavalo: TipoCavaloMecanico | null | undefined) {
+    if (tipoCavalo === TipoCavaloMecanico.SIMPLES_TOCO_4X2) return 2;
+    if (tipoCavalo === TipoCavaloMecanico.TRUCADO_6X2 || tipoCavalo === TipoCavaloMecanico.TRACADO_6X4) return 3;
+    return 0;
+  }
+
+  private isThreeAxleCavalo(tipoCavalo: TipoCavaloMecanico | null | undefined) {
+    return tipoCavalo === TipoCavaloMecanico.TRUCADO_6X2 || tipoCavalo === TipoCavaloMecanico.TRACADO_6X4;
   }
 
   private async registrarHistoricoCavalo(cavaloMecanicoId: string | null | undefined, acao: string, antes: unknown, depois: unknown) {

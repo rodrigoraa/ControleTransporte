@@ -290,6 +290,24 @@ td {
   gap: 6px;
 }
 
+.status-group-row td {
+  background: #f4f7f9;
+  color: #15202b;
+  font-weight: 700;
+  border-top: 1px solid #dce6ea;
+}
+
+.status-group-row td {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.status-group-row span {
+  color: #5d6e76;
+  font-size: 12px;
+}
+
 .pagination {
   display: flex;
   justify-content: flex-end;
@@ -319,6 +337,200 @@ td {
   background: white;
   border-radius: 8px;
   padding: 20px;
+}
+
+.large-modal {
+  width: min(1040px, 100%);
+}
+
+.form-section {
+  display: grid;
+  gap: 12px;
+  padding: 14px 0;
+  border-top: 1px solid #e5edf0;
+}
+
+.modal-header + .form-section {
+  border-top: 0;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.section-title h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.section-title.compact {
+  margin-bottom: 12px;
+}
+
+.implemento-list {
+  display: grid;
+  gap: 12px;
+}
+
+.implemento-item {
+  border: 1px solid #dce6ea;
+  border-radius: 8px;
+  padding: 14px;
+  background: #f9fbfc;
+}
+
+.empty-inline {
+  border: 1px dashed #cbd8dd;
+  border-radius: 8px;
+  padding: 12px;
+  color: #5d6e76;
+  background: #f9fbfc;
+}
+
+.composition-cell {
+  display: grid;
+  gap: 8px;
+  min-width: 260px;
+}
+
+.composition-cell span {
+  color: #43555d;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.selected-composition {
+  border: 1px solid #dce6ea;
+  border-radius: 8px;
+  background: #f9fbfc;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.selected-composition > span {
+  color: #43555d;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.composition-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  border: 1px solid #dce6ea;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #f9fbfc;
+}
+
+.composition-summary strong,
+.composition-summary span {
+  color: #15202b;
+  font-size: 13px;
+}
+
+.composition-summary span {
+  color: #43555d;
+  font-weight: 700;
+}
+
+.composition-drawing {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 8px 2px 4px;
+}
+
+.vehicle-sketch {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  align-items: start;
+  gap: 2px;
+  color: #43555d;
+  font-size: 10px;
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+
+.vehicle-sketch svg {
+  display: block;
+  height: 54px;
+}
+
+.cavalo-sketch svg {
+  width: 116px;
+}
+
+.carreta-sketch svg {
+  width: 132px;
+}
+
+.dolly-sketch svg {
+  width: 74px;
+}
+
+.vehicle-sketch span {
+  max-width: 124px;
+  overflow-wrap: anywhere;
+  text-align: center;
+  line-height: 1.15;
+}
+
+.vehicle-hitch {
+  position: absolute;
+  left: -10px;
+  top: 34px;
+  width: 16px;
+  border-top: 2px solid #5d6e76;
+}
+
+.vehicle-fill,
+.vehicle-roof {
+  fill: #eef4f6;
+  stroke: #10242c;
+  stroke-width: 3;
+  stroke-linejoin: round;
+}
+
+.vehicle-fill.accent {
+  fill: #d8e6eb;
+}
+
+.dolly-fill {
+  fill: #fff4d6;
+}
+
+.vehicle-window {
+  fill: #b9d3dc;
+  stroke: #10242c;
+  stroke-width: 3;
+  stroke-linejoin: round;
+}
+
+.vehicle-line {
+  fill: none;
+  stroke: #10242c;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.vehicle-line.soft {
+  stroke: #7f99a3;
+  stroke-width: 2;
+}
+
+.vehicle-wheel {
+  fill: #10242c;
+  stroke: #eef4f6;
+  stroke-width: 2;
 }
 
 .panel-title-row {
@@ -380,6 +592,18 @@ input, select, textarea {
   padding: 9px 10px;
   color: #15202b;
   background: white;
+}
+
+.relation-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.relation-control .button {
+  min-height: 40px;
+  white-space: nowrap;
 }
 
 textarea {

@@ -36,21 +36,20 @@ const statusGeral = [
   { label: 'Manutencao', value: 'MANUTENCAO' },
 ];
 
-const tiposConjunto = [
-  { label: 'Simples', value: 'SIMPLES' },
-  { label: 'Bitrem', value: 'BITREM' },
-  { label: 'Rodotrem', value: 'RODOTREM' },
-  { label: 'Outro', value: 'OUTRO' },
+const tiposCavalo = [
+  { label: 'Simples / Toco (4x2) - 2 eixos, para cargas menores', value: 'SIMPLES_TOCO_4X2' },
+  { label: 'Trucado (6x2) - 3 eixos, um eixo traseiro com tracao', value: 'TRUCADO_6X2' },
+  { label: 'Tracado (6x4) - 3 eixos, dois eixos com tracao', value: 'TRACADO_6X4' },
 ];
 
-const tiposImplemento = [
+export const tiposImplemento = [
   { label: 'Carreta', value: 'CARRETA' },
   { label: 'Semirreboque', value: 'SEMIRREBOQUE' },
   { label: 'Reboque', value: 'REBOQUE' },
   { label: 'Dolly', value: 'DOLLY' },
 ];
 
-const carrocerias = [
+export const carrocerias = [
   { label: 'Bau', value: 'BAU' },
   { label: 'Graneleiro', value: 'GRANELEIRO' },
   { label: 'Sider', value: 'SIDER' },
@@ -61,8 +60,8 @@ const carrocerias = [
 
 const lancamentoFields: Field[] = [
   { name: 'data', label: 'Data', type: 'date', required: true, table: true },
-  { name: 'conjuntoId', label: 'Conjunto operacional', type: 'select', table: true, relation: { endpoint: '/conjuntos', labelKey: 'nome', fallbackKey: 'tipo', objectKey: 'conjunto' } },
-  { name: 'cavaloMecanicoId', label: 'Cavalo mecanico (quando nao houver conjunto)', type: 'select', table: true, relation: { endpoint: '/caminhoes', labelKey: 'placa', fallbackKey: 'modelo', objectKey: 'cavaloMecanico' } },
+  { name: 'cavaloMecanicoId', label: 'Cavalo mecanico', type: 'select', required: true, table: true, relation: { endpoint: '/caminhoes', labelKey: 'placa', fallbackKey: 'modelo', objectKey: 'cavaloMecanico' } },
+  { name: 'conjuntoId', label: 'Conjunto usado', type: 'select', table: true, hidden: true, relation: { endpoint: '/conjuntos', labelKey: 'nome', fallbackKey: 'tipo', objectKey: 'conjunto' } },
   { name: 'motoristaId', label: 'Motorista', type: 'select', required: true, table: true, relation: { endpoint: '/motoristas', labelKey: 'nome', fallbackKey: 'cpf', objectKey: 'motorista' } },
   { name: 'fornecedorId', label: 'Fornecedor', type: 'select', required: true, table: true, relation: { endpoint: '/fornecedores', labelKey: 'nome', fallbackKey: 'documento', objectKey: 'fornecedor' } },
   { name: 'clienteId', label: 'Cliente', type: 'select', relation: { endpoint: '/clientes', labelKey: 'nome', fallbackKey: 'documento', objectKey: 'cliente' } },
@@ -112,44 +111,16 @@ export const crudResources: Resource[] = [
     endpoint: '/caminhoes',
     fields: [
       { name: 'placa', label: 'Placa do cavalo', required: true, table: true, mask: maskPlate },
+      { name: 'composicaoAtual', label: 'Composicao atual', table: true, hidden: true },
       { name: 'marca', label: 'Marca', table: true },
       { name: 'modelo', label: 'Modelo', table: true },
       { name: 'ano', label: 'Ano', type: 'number', table: true },
+      { name: 'tipoCavalo', label: 'Tipo de cavalo', type: 'select', options: tiposCavalo, table: true },
       { name: 'motoristaId', label: 'Motorista atual', type: 'select', table: true, relation: { endpoint: '/motoristas', labelKey: 'nome', fallbackKey: 'cpf', objectKey: 'motorista' } },
       { name: 'cor', label: 'Cor' },
       { name: 'chassi', label: 'Chassi' },
       { name: 'renavam', label: 'Renavam' },
       { name: 'status', label: 'Status', type: 'select', options: statusGeral, table: true },
-      { name: 'observacoes', label: 'Observacoes', type: 'textarea' },
-    ],
-  },
-  {
-    title: 'Implementos',
-    path: 'implementos',
-    endpoint: '/implementos',
-    fields: [
-      { name: 'placa', label: 'Placa', table: true, mask: maskPlate },
-      { name: 'tipo', label: 'Tipo', type: 'select', required: true, table: true, options: tiposImplemento },
-      { name: 'carroceria', label: 'Carroceria', type: 'select', required: true, table: true, options: carrocerias },
-      { name: 'quantidadeEixos', label: 'Quantidade de eixos', type: 'number', table: true },
-      { name: 'capacidadeCarga', label: 'Capacidade de carga', type: 'number', table: true },
-      { name: 'status', label: 'Status', type: 'select', options: statusGeral, table: true },
-      { name: 'observacoes', label: 'Observacoes', type: 'textarea' },
-    ],
-  },
-  {
-    title: 'Conjuntos operacionais',
-    path: 'conjuntos',
-    endpoint: '/conjuntos',
-    fields: [
-      { name: 'nome', label: 'Nome automatico', table: true, hidden: true },
-      { name: 'tipo', label: 'Tipo automatico', type: 'select', table: true, hidden: true, options: tiposConjunto },
-      { name: 'cavaloMecanicoId', label: 'Cavalo mecanico', type: 'select', required: true, table: true, relation: { endpoint: '/caminhoes', labelKey: 'placa', fallbackKey: 'modelo', objectKey: 'cavaloMecanico' } },
-      { name: 'implementoIds', label: 'Implementos vinculados (ordem: 1a carreta, dolly se houver, 2a carreta)', type: 'multiselect', relation: { endpoint: '/implementos', labelKey: 'placa', fallbackKey: 'tipo' } },
-      { name: 'quantidadeTotalEixos', label: 'Total de eixos', type: 'number', table: true },
-      { name: 'capacidadeTotal', label: 'Capacidade total', type: 'number', table: true },
-      { name: 'status', label: 'Status', type: 'select', options: statusGeral, table: true },
-      { name: 'justificativaSemImplemento', label: 'Justificativa para conjunto sem implemento', type: 'textarea' },
       { name: 'observacoes', label: 'Observacoes', type: 'textarea' },
     ],
   },

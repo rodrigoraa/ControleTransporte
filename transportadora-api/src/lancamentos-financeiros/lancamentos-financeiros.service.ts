@@ -69,6 +69,7 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
         fornecedorId: partyFields.fornecedorId,
         clienteId: partyFields.clienteId,
         cavaloMecanicoId: frota.cavaloMecanicoId,
+        conjuntoId: frota.conjuntoId,
         valorTotal: new Prisma.Decimal(quantidade).mul(valorUnitario),
       },
       include: {
@@ -92,6 +93,7 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
       ...data,
       placa: frota.placa,
       cavaloMecanicoId: frota.cavaloMecanicoId,
+      conjuntoId: frota.conjuntoId,
     };
   }
 
@@ -105,11 +107,6 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
     ) as T;
   }
 
-  private async findCavaloIdByPlaca(placa: string) {
-    const cavalo = await this.prisma.cavaloMecanico.findUnique({ where: { placa } });
-    return cavalo?.id || null;
-  }
-
   private async resolveFrotaFields(data: any, current?: any) {
     if (data.conjuntoId) {
       const conjunto = await this.prisma.conjunto.findUnique({
@@ -120,23 +117,42 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
       return {
         placa: conjunto.cavaloMecanico.placa,
         cavaloMecanicoId: conjunto.cavaloMecanicoId,
+        conjuntoId: conjunto.id,
       };
     }
 
     if (data.cavaloMecanicoId) {
-      const cavalo = await this.prisma.cavaloMecanico.findUnique({ where: { id: data.cavaloMecanicoId } });
+      const cavalo = await this.prisma.cavaloMecanico.findUnique({
+        where: { id: data.cavaloMecanicoId },
+        include: {
+          conjuntos: {
+            where: { status: 'ATIVO' },
+            orderBy: { updatedAt: 'desc' },
+            take: 1,
+          },
+        },
+      });
       if (!cavalo) throw new BadRequestException('Cavalo mecanico nao encontrado.');
-      return { placa: cavalo.placa, cavaloMecanicoId: cavalo.id };
+      return { placa: cavalo.placa, cavaloMecanicoId: cavalo.id, conjuntoId: cavalo.conjuntos?.[0]?.id || null };
     }
 
     if (data.placa) {
-      const cavalo = await this.prisma.cavaloMecanico.findUnique({ where: { placa: data.placa } });
+      const cavalo = await this.prisma.cavaloMecanico.findUnique({
+        where: { placa: data.placa },
+        include: {
+          conjuntos: {
+            where: { status: 'ATIVO' },
+            orderBy: { updatedAt: 'desc' },
+            take: 1,
+          },
+        },
+      });
       if (!cavalo) throw new BadRequestException('Cavalo mecanico nao encontrado para a placa informada.');
-      return { placa: cavalo.placa, cavaloMecanicoId: cavalo.id };
+      return { placa: cavalo.placa, cavaloMecanicoId: cavalo.id, conjuntoId: cavalo.conjuntos?.[0]?.id || null };
     }
 
     if (current?.cavaloMecanicoId || current?.placa) {
-      return { placa: current.placa, cavaloMecanicoId: current.cavaloMecanicoId };
+      return { placa: current.placa, cavaloMecanicoId: current.cavaloMecanicoId, conjuntoId: current.conjuntoId };
     }
 
     throw new BadRequestException('Informe um conjunto operacional ou um cavalo mecanico para o lancamento.');

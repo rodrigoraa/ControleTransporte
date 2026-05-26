@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import { IsEnum, IsInt, IsNumber, IsOptional, IsString, Matches, Min } from 'class-validator';
 
 export class CreateImplementoDto {
+  @IsOptional() @IsString() id?: string;
   @IsOptional() @IsString() @Matches(/^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/) placa?: string | null;
   @IsEnum(TipoImplemento) tipo!: TipoImplemento;
   @IsEnum(TipoCarroceria) carroceria!: TipoCarroceria;

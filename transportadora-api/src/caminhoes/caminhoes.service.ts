@@ -1,16 +1,71 @@
 import { Injectable } from '@nestjs/common';
 import { CrudService } from '../common/crud/crud.service';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { ComposicoesCavaloService } from './composicoes-cavalo.service';
 import { CreateCaminhaoDto } from './dto/create-caminhao.dto';
 import { UpdateCaminhaoDto } from './dto/update-caminhao.dto';
 
 @Injectable()
 export class CaminhoesService extends CrudService<CreateCaminhaoDto, UpdateCaminhaoDto> {
-  constructor(prisma: PrismaService) {
-    super(prisma, 'cavaloMecanico', ['placa', 'marca', 'modelo'], { motorista: true });
+  constructor(
+    prisma: PrismaService,
+    private readonly composicoes: ComposicoesCavaloService,
+  ) {
+    super(prisma, 'cavaloMecanico', ['placa', 'marca', 'modelo'], {
+      motorista: true,
+      conjuntos: {
+        where: { status: 'ATIVO' },
+        include: { implementos: { include: { implemento: true }, orderBy: { ordem: 'asc' } } },
+        orderBy: { updatedAt: 'desc' },
+        take: 1,
+      },
+    });
+  }
+
+  async create(dto: CreateCaminhaoDto) {
+    const { implementos = [], conjuntoStatus, conjuntoObservacoes, ...cavaloDto } = dto;
+
+    if (!implementos.length) return super.create(cavaloDto as CreateCaminhaoDto);
+
+    this.composicoes.validateComposition(implementos, cavaloDto.tipoCavalo);
+
+    const created = await this.composicoes.runCompositionTransaction<any>(this.prisma, async (tx) => {
+      const cavalo = await tx.cavaloMecanico.create({
+        data: this.nullifyEmptyStrings(cavaloDto) as any,
+        include: { motorista: true },
+      });
+      const createdImplementos = await Promise.all(
+        implementos.map((implemento) =>
+          tx.implemento.create({
+            data: {
+              ...this.nullifyEmptyStrings(implemento),
+              quantidadeEixos: this.composicoes.normalizeImplementoEixos(implemento),
+              capacidadeCarga: implemento.capacidadeCarga ?? 0,
+            } as any,
+          }),
+        ),
+      );
+      const conjunto = await this.composicoes.createConjunto(tx, cavalo, createdImplementos, conjuntoStatus || 'ATIVO', conjuntoObservacoes || null, new Date());
+
+      await tx.historicoCavaloMecanico.create({
+        data: {
+          cavaloMecanicoId: cavalo.id,
+          acao: 'CRIACAO_COM_CONJUNTO',
+          dadosDepois: JSON.parse(JSON.stringify({ cavalo, conjunto })),
+          observacoes: 'Cadastro completo de cavalo mecanico com implementos',
+        },
+      });
+
+      return { ...cavalo, conjuntoAtual: conjunto };
+    });
+
+    await this.audit('CRIACAO_COMPLETA', created.id, null, created);
+    return created;
   }
 
   async update(id: string, dto: UpdateCaminhaoDto) {
+    if (dto.implementos !== undefined) return this.atualizarComposicao(id, dto);
+
     const antes = await this.findOne(id);
     const depois = await super.update(id, dto);
     await this.prisma.historicoCavaloMecanico.create({
@@ -27,6 +82,112 @@ export class CaminhoesService extends CrudService<CreateCaminhaoDto, UpdateCamin
       await this.registrarHistoricoMotorista((depois as any).motoristaId, 'VINCULO_CAVALO', antes, depois);
     }
     await this.audit('HISTORICO_CAVALO_MECANICO', id, antes, depois);
+    return depois;
+  }
+
+  async composicaoAtual(id: string) {
+    const cavalo = await this.findOne(id);
+    return {
+      cavalo,
+      conjunto: (cavalo as any).conjuntos?.[0] || null,
+      implementos: (cavalo as any).conjuntos?.[0]?.implementos || [],
+    };
+  }
+
+  async atualizarComposicao(id: string, dto: UpdateCaminhaoDto) {
+    const antes = await this.findOne(id);
+    const { implementos = [], conjuntoStatus, conjuntoObservacoes, ...cavaloDto } = dto;
+
+    if (implementos.length) this.composicoes.validateComposition(implementos, cavaloDto.tipoCavalo ?? (antes as any).tipoCavalo);
+
+    const depois = await this.composicoes.runCompositionTransaction<any>(this.prisma, async (tx) => {
+      const cavalo = await tx.cavaloMecanico.update({
+        where: { id },
+        data: this.nullifyEmptyStrings(cavaloDto) as any,
+        include: { motorista: true },
+      });
+
+      const activeConjuntos = await tx.conjunto.findMany({
+        where: { cavaloMecanicoId: id, status: 'ATIVO' },
+        include: { implementos: { include: { implemento: true }, orderBy: { ordem: 'asc' } } },
+        orderBy: { updatedAt: 'desc' },
+      });
+      const endedAt = new Date();
+
+      for (const conjunto of activeConjuntos) {
+        await tx.conjuntoImplemento.updateMany({
+          where: { conjuntoId: conjunto.id, dataFim: null },
+          data: { dataFim: endedAt },
+        });
+        const updatedConjunto = await tx.conjunto.update({
+          where: { id: conjunto.id },
+          data: {
+            status: 'INATIVO',
+            nome: `${conjunto.nome} - hist ${endedAt.getTime()}`,
+          },
+          include: { implementos: { include: { implemento: true }, orderBy: { ordem: 'asc' } } },
+        });
+        await tx.historicoConjuntoOperacional.create({
+          data: {
+            conjuntoId: conjunto.id,
+            acao: 'ENCERRAMENTO_COMPOSICAO',
+            dadosAntes: JSON.parse(JSON.stringify(conjunto)),
+            dadosDepois: JSON.parse(JSON.stringify(updatedConjunto)),
+            observacoes: 'Composicao encerrada por alteracao no cadastro do cavalo mecanico',
+          },
+        });
+      }
+
+      const currentImplementos = await Promise.all(
+        implementos.map((implemento) => {
+          const data = {
+            ...this.nullifyEmptyStrings(implemento),
+            quantidadeEixos: this.composicoes.normalizeImplementoEixos(implemento),
+            capacidadeCarga: implemento.capacidadeCarga ?? 0,
+          } as any;
+          if (implemento.id) {
+            const { id: implementoId, ...updateData } = data;
+            return tx.implemento.update({ where: { id: implementoId }, data: updateData });
+          }
+          return tx.implemento.create({ data });
+        }),
+      );
+
+      const conjunto = currentImplementos.length
+        ? await this.composicoes.createConjunto(tx, cavalo, currentImplementos, conjuntoStatus || 'ATIVO', conjuntoObservacoes || null, endedAt)
+        : null;
+
+      const current = await tx.cavaloMecanico.findUniqueOrThrow({
+        where: { id },
+        include: {
+          motorista: true,
+          conjuntos: {
+            where: { status: 'ATIVO' },
+            include: { implementos: { include: { implemento: true }, orderBy: { ordem: 'asc' } } },
+            orderBy: { updatedAt: 'desc' },
+            take: 1,
+          },
+        },
+      });
+
+      await tx.historicoCavaloMecanico.create({
+        data: {
+          cavaloMecanicoId: id,
+          acao: 'ALTERACAO_COMPOSICAO',
+          dadosAntes: JSON.parse(JSON.stringify(antes)),
+          dadosDepois: JSON.parse(JSON.stringify({ cavalo: current, conjunto })),
+          observacoes: 'Alteracao de carretas/dolly vinculados ao cavalo mecanico',
+        },
+      });
+
+      return current;
+    });
+
+    if ((antes as any).motoristaId !== (depois as any).motoristaId) {
+      await this.registrarHistoricoMotorista((antes as any).motoristaId, 'REMOCAO_CAVALO', antes, depois);
+      await this.registrarHistoricoMotorista((depois as any).motoristaId, 'VINCULO_CAVALO', antes, depois);
+    }
+    await this.audit('ATUALIZACAO_COMPOSICAO', id, antes, depois);
     return depois;
   }
 
@@ -90,5 +251,9 @@ export class CaminhoesService extends CrudService<CreateCaminhaoDto, UpdateCamin
       },
       { totalDespesas: 0, totalFaturamento: 0, saldo: 0 },
     );
+  }
+
+  private nullifyEmptyStrings<T extends Record<string, any>>(data: T): T {
+    return Object.fromEntries(Object.entries(data).map(([key, value]) => [key, value === '' ? null : value])) as T;
   }
 }

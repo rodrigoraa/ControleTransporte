@@ -126,7 +126,10 @@ export function Relatorios() {
           </div>
           <div className="panel">
             <div className="panel-title-row">
-              <h2>Historico de lancamentos</h2>
+              <div>
+                <h2>Lancamentos encontrados</h2>
+                <p>Detalhamento das despesas e faturamentos, incluindo a composicao registrada no momento do lancamento.</p>
+              </div>
               <div className="actions">
                 <button className="button" type="button" onClick={() => exportReport('csv')}>Exportar Excel</button>
                 <button className="button" type="button" onClick={() => exportReport('pdf')}>Exportar PDF</button>
@@ -135,7 +138,7 @@ export function Relatorios() {
             <div className="table-wrap">
               <table>
                 <thead>
-                  <tr><th>Data</th><th>Tipo</th><th>Cavalo</th><th>Conjunto</th><th>Composicao</th><th>Motorista</th><th>Fornecedor/Cliente</th><th>Categoria</th><th>Qtd.</th><th>Valor unitario</th><th>Valor total</th></tr>
+                  <tr><th>Data</th><th>Tipo</th><th>Cavalo</th><th>Conjunto registrado</th><th>Implementos usados no lancamento</th><th>Motorista</th><th>Fornecedor/Cliente</th><th>Categoria</th><th>Qtd.</th><th>Valor unitario</th><th>Valor total</th></tr>
                 </thead>
                 <tbody>
                   {!financeiro.historico.length && (
@@ -198,7 +201,7 @@ function Group({ title, rows }: { title: string; rows: any[] }) {
 function ConjuntosPorCavalo({ rows }: { rows: any[] }) {
   return (
     <div className="panel">
-      <h2>Conjuntos utilizados por cavalo mecanico</h2>
+      <h2>Resumo por composicao do cavalo</h2>
       <div className="table-wrap">
         <table>
           <thead>
@@ -244,13 +247,14 @@ function labelPessoa(item: any) {
 }
 
 function labelConjunto(conjunto: any) {
-  if (!conjunto) return '-';
-  return [conjunto.nome, conjunto.tipo, conjunto.quantidadeTotalEixos != null ? `${conjunto.quantidadeTotalEixos} eixos` : null].filter(Boolean).join(' - ');
+  if (!conjunto) return 'Sem conjunto registrado';
+  return [conjunto.tipo, conjunto.quantidadeTotalEixos != null ? `${conjunto.quantidadeTotalEixos} eixos` : null].filter(Boolean).join(' - ');
 }
 
 function labelImplementos(conjunto: any) {
   const implementos = conjunto?.implementos || [];
-  if (!implementos.length) return '-';
+  if (!conjunto) return 'Sem composicao registrada neste lancamento';
+  if (!implementos.length) return 'Sem implementos registrados';
   return implementos.map((vinculo: any) => {
     const implemento = vinculo.implemento;
     return [vinculo.ordem ? `${vinculo.ordem}.` : null, implemento?.placa || 'Sem placa', implemento?.tipo, implemento?.carroceria, implemento?.quantidadeEixos != null ? `${implemento.quantidadeEixos} eixos` : null].filter(Boolean).join(' ');

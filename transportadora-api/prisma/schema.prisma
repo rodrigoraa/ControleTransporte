@@ -51,6 +51,12 @@ enum TipoConjuntoOperacional {
   OUTRO
 }
 
+enum TipoCavaloMecanico {
+  SIMPLES_TOCO_4X2
+  TRUCADO_6X2
+  TRACADO_6X4
+}
+
 model User {
   id        String        @id @default(uuid())
   nome      String
@@ -133,6 +139,7 @@ model CavaloMecanico {
   marca       String?
   modelo      String?
   ano         Int?
+  tipoCavalo  TipoCavaloMecanico?
   renavam     String?     @unique
   chassi      String?     @unique
   cor         String?
