@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
+﻿import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
 import { api } from '../services/api';
 
 type User = { id: string; nome: string; email: string; perfil: 'ADMIN' | 'USUARIO' };
@@ -48,3 +48,4 @@ export const useAuth = () => {
   if (!context) throw new Error('useAuth deve ser usado dentro de AuthProvider');
   return context;
 };
+

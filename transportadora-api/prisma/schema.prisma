@@ -26,6 +26,7 @@ enum TipoLancamento {
 enum UnidadeQuantidade {
   KG
   UNIDADE
+  LITROS
 }
 
 enum TipoImplemento {
@@ -379,7 +380,7 @@ model LancamentoFinanceiro {
   id             String               @id @default(uuid())
   data           DateTime
   placa          String
-  motoristaId    String
+  motoristaId    String?
   fornecedorId   String?
   caminhaoId      String?
   cavaloMecanicoId String?
@@ -397,7 +398,7 @@ model LancamentoFinanceiro {
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt
 
-  motorista  Motorista   @relation(fields: [motoristaId], references: [id], onDelete: Restrict)
+  motorista  Motorista?  @relation(fields: [motoristaId], references: [id], onDelete: SetNull)
   fornecedor Fornecedor? @relation(fields: [fornecedorId], references: [id], onDelete: SetNull)
   caminhao    Caminhao?   @relation(fields: [caminhaoId], references: [id], onDelete: SetNull)
   cavaloMecanico CavaloMecanico? @relation(fields: [cavaloMecanicoId], references: [id], onDelete: SetNull)

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+﻿import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma, TipoCavaloMecanico, TipoConjuntoOperacional, TipoImplemento } from '@prisma/client';
 import { CrudService } from '../common/crud/crud.service';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -42,7 +42,7 @@ export class ConjuntosService extends CrudService<CreateConjuntoDto, UpdateConju
         acao: 'ENGATE_CONJUNTO',
         dadosAntes: undefined,
         dadosDepois: JSON.parse(JSON.stringify(created)),
-        observacoes: 'Conjunto operacional engatado ao cavalo mecanico',
+        observacoes: 'Conjunto operacional engatado ao cavalo mecânico',
       },
     });
     await this.audit('CRIACAO', created.id, null, created);
@@ -86,7 +86,7 @@ export class ConjuntosService extends CrudService<CreateConjuntoDto, UpdateConju
         acao: 'ATUALIZACAO_COMPOSICAO',
         dadosAntes: JSON.parse(JSON.stringify(before)),
         dadosDepois: JSON.parse(JSON.stringify(updated)),
-        observacoes: 'Alteracao de composicao registrada automaticamente',
+        observacoes: 'Alteração de composição registrada automaticamente',
       },
     });
     if ((before as any).cavaloMecanicoId !== updated.cavaloMecanicoId) {
@@ -108,7 +108,7 @@ export class ConjuntosService extends CrudService<CreateConjuntoDto, UpdateConju
   }
 
   private async validateComposition(dto: CreateConjuntoDto, cavalo?: { tipoCavalo?: TipoCavaloMecanico | null }) {
-    if (!dto.cavaloMecanicoId) throw new BadRequestException('Conjunto operacional deve ter um cavalo mecanico.');
+    if (!dto.cavaloMecanicoId) throw new BadRequestException('Conjunto operacional deve ter um cavalo mecânico.');
     if ((!dto.implementoIds || dto.implementoIds.length === 0) && !dto.justificativaSemImplemento) {
       throw new BadRequestException('Informe pelo menos um implemento ou uma justificativa para conjunto sem implemento.');
     }
@@ -123,11 +123,11 @@ export class ConjuntosService extends CrudService<CreateConjuntoDto, UpdateConju
     }
 
     if (carretas.length > 2) {
-      throw new BadRequestException('A composicao deve ter no maximo duas carretas/reboques.');
+      throw new BadRequestException('A composição deve ter no máximo duas carretas/reboques.');
     }
 
     if (carretas.length === 1 && hasDolly) {
-      throw new BadRequestException('Se houver apenas uma carreta, nao informe dolly.');
+      throw new BadRequestException('Se houver apenas uma carreta, não informe dolly.');
     }
 
     if (carretas.length === 2 && !hasDolly) {
@@ -135,7 +135,7 @@ export class ConjuntosService extends CrudService<CreateConjuntoDto, UpdateConju
     }
 
     if (hasDolly && !this.isThreeAxleCavalo(cavalo?.tipoCavalo)) {
-      throw new BadRequestException('Rodotrem deve usar cavalo trucado ou tracado.');
+      throw new BadRequestException('Rodotrem deve usar cavalo trucado ou traçado.');
     }
 
     if (carretas.some((item) => ![2, 3].includes(Number(item.quantidadeEixos)))) {
@@ -153,14 +153,14 @@ export class ConjuntosService extends CrudService<CreateConjuntoDto, UpdateConju
 
   private async getImplementosInOrder(implementoIds: string[]) {
     const implementos = await this.prisma.implemento.findMany({ where: { id: { in: implementoIds } } });
-    if (implementos.length !== new Set(implementoIds).size) throw new BadRequestException('Um ou mais implementos nao foram encontrados.');
+    if (implementos.length !== new Set(implementoIds).size) throw new BadRequestException('Um ou mais implementos não foram encontrados.');
     const byId = new Map(implementos.map((item) => [item.id, item]));
     return implementoIds.map((id) => byId.get(id)!);
   }
 
   private async getCavalo(cavaloMecanicoId: string) {
     const cavalo = await this.prisma.cavaloMecanico.findUnique({ where: { id: cavaloMecanicoId } });
-    if (!cavalo) throw new BadRequestException('Cavalo mecanico nao encontrado.');
+    if (!cavalo) throw new BadRequestException('Cavalo mecânico não encontrado.');
     return cavalo;
   }
 
@@ -198,3 +198,7 @@ export class ConjuntosService extends CrudService<CreateConjuntoDto, UpdateConju
     });
   }
 }
+
+
+
+

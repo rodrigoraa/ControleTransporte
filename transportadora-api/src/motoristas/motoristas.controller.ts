@@ -1,4 +1,4 @@
-import { Controller, Get, Param, UseGuards } from '@nestjs/common';
+﻿import { Controller, Get, Param, UseGuards } from '@nestjs/common';
 import { CrudController } from '../common/crud/crud.controller';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CreateMotoristaDto } from './dto/create-motorista.dto';
@@ -17,3 +17,7 @@ export class MotoristasController extends CrudController<CreateMotoristaDto, Upd
     return this.service.historico(id);
   }
 }
+
+
+
+

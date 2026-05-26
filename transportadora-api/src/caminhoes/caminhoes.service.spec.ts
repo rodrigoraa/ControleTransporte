@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+﻿import { BadRequestException } from '@nestjs/common';
 import { Prisma, StatusGeral, TipoCavaloMecanico, TipoImplemento } from '@prisma/client';
 import { CaminhoesService } from './caminhoes.service';
 import { ComposicoesCavaloService } from './composicoes-cavalo.service';
@@ -156,3 +156,7 @@ describe('CaminhoesService', () => {
     })).rejects.toBeInstanceOf(BadRequestException);
   });
 });
+
+
+
+

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+﻿import { Injectable } from '@nestjs/common';
 import { CrudService } from '../common/crud/crud.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateMotoristaDto } from './dto/create-motorista.dto';
@@ -19,7 +19,7 @@ export class MotoristasService extends CrudService<CreateMotoristaDto, UpdateMot
         acao: 'ATUALIZACAO',
         dadosAntes: JSON.parse(JSON.stringify(antes)),
         dadosDepois: JSON.parse(JSON.stringify(depois)),
-        observacoes: 'Alteracao registrada automaticamente',
+        observacoes: 'Alteração registrada automaticamente',
       },
     });
     return depois;
@@ -73,3 +73,7 @@ export class MotoristasService extends CrudService<CreateMotoristaDto, UpdateMot
     );
   }
 }
+
+
+
+

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+﻿import { Injectable } from '@nestjs/common';
 import { CrudService } from '../common/crud/crud.service';
 import { PaginationDto } from '../common/crud/pagination.dto';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -18,3 +18,7 @@ export class CategoriasFinanceirasService extends CrudService<CreateCategoriaFin
     return where;
   }
 }
+
+
+
+

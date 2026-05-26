@@ -1,4 +1,4 @@
-import {
+﻿import {
   BarChart3,
   Building2,
   ChevronDown,
@@ -25,7 +25,7 @@ const navGroups = [
       { to: '/clientes', label: 'Clientes', icon: Building2 },
       { to: '/fornecedores', label: 'Fornecedores', icon: Building2 },
       { to: '/motoristas', label: 'Motoristas', icon: UserRound },
-      { to: '/caminhoes', label: 'Cavalos mecanicos', icon: Truck },
+      { to: '/caminhoes', label: 'Cavalos mecânicos', icon: Truck },
       { to: '/categorias-financeiras', label: 'Categorias financeiras', icon: FileText },
     ],
   },
@@ -43,16 +43,16 @@ const navGroups = [
     label: 'Analises',
     icon: BarChart3,
     items: [
-      { to: '/relatorios', label: 'Relatorios', icon: BarChart3 },
+      { to: '/relatorios', label: 'Relatórios', icon: BarChart3 },
     ],
   },
   {
     id: 'administracao',
-    label: 'Administracao',
+    label: 'Administração',
     icon: Settings,
     adminOnly: true,
     items: [
-      { to: '/users', label: 'Usuarios', icon: Users },
+      { to: '/users', label: 'Usuários', icon: Users },
       { to: '/auditorias', label: 'Auditoria', icon: FileText },
     ],
   },
@@ -149,3 +149,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
     </div>
   );
 }
+
+
+

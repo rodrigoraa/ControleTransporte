@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+﻿import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaginationDto } from './pagination.dto';
@@ -63,21 +63,21 @@ export abstract class CrudService<CreateDto extends object, UpdateDto extends ob
 
     if (prismaError?.code) {
       if (prismaError.code === 'P2002') {
-        const fields = Array.isArray(prismaError.meta?.target) ? prismaError.meta.target.join(', ') : 'campo unico';
-        throw new ConflictException(`Ja existe um registro com este valor em: ${fields}`);
+        const fields = Array.isArray(prismaError.meta?.target) ? prismaError.meta.target.join(', ') : 'campo único';
+        throw new ConflictException(`Já existe um registro cadastrado com este valor em: ${fields}. Verifique se não há duplicidade.`);
       }
 
       if (prismaError.code === 'P2003') {
-        throw new BadRequestException('Registro relacionado nao encontrado ou nao pode ser removido.');
+        throw new BadRequestException('Registro relacionado não encontrado ou não pode ser removido porque está vinculado a outro cadastro.');
       }
 
       if (prismaError.code === 'P2025') {
-        throw new NotFoundException('Registro nao encontrado');
+        throw new NotFoundException('Registro não encontrado.');
       }
     }
 
     if ((error as Error)?.name === 'PrismaClientValidationError') {
-      throw new BadRequestException('Dados invalidos. Verifique datas, numeros e campos obrigatorios.');
+      throw new BadRequestException('Dados inválidos. Verifique datas, números e campos obrigatórios.');
     }
 
     throw error;
@@ -112,7 +112,7 @@ export abstract class CrudService<CreateDto extends object, UpdateDto extends ob
 
   async findOne(id: string) {
     const item = await this.repo.findUnique({ where: { id }, include: this.include });
-    if (!item) throw new NotFoundException('Registro nao encontrado');
+    if (!item) throw new NotFoundException('Registro não encontrado.');
     return item;
   }
 
@@ -132,9 +132,9 @@ export abstract class CrudService<CreateDto extends object, UpdateDto extends ob
     try {
       await this.repo.delete({ where: { id } });
       await this.audit('EXCLUSAO', id, before, null);
-      return { message: 'Registro excluido com sucesso' };
+      return { message: 'Registro excluído com sucesso.' };
     } catch {
-      throw new BadRequestException('Nao foi possivel excluir: registro possui vinculos');
+      throw new BadRequestException('Não foi possível excluir: o registro possui vínculos com outros cadastros ou lançamentos.');
     }
   }
 
@@ -150,7 +150,11 @@ export abstract class CrudService<CreateDto extends object, UpdateDto extends ob
         },
       });
     } catch {
-      // Auditoria nao deve bloquear a operacao principal.
+      // Auditoria não deve bloquear a operação principal.
     }
   }
 }
+
+
+
+

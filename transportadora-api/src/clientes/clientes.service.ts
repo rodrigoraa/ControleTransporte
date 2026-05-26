@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+﻿import { BadRequestException, Injectable } from '@nestjs/common';
 import { CrudService } from '../common/crud/crud.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateClienteDto } from './dto/create-cliente.dto';
@@ -32,7 +32,7 @@ export class ClientesService extends CrudService<CreateClienteDto, UpdateCliente
         acao: 'ATUALIZACAO',
         dadosAntes: JSON.parse(JSON.stringify(antes)),
         dadosDepois: JSON.parse(JSON.stringify(depois)),
-        observacoes: 'Alteracao de cliente registrada automaticamente',
+        observacoes: 'Alteração de cliente registrada automaticamente',
       },
     });
     return depois;
@@ -41,7 +41,7 @@ export class ClientesService extends CrudService<CreateClienteDto, UpdateCliente
   async remove(id: string) {
     const totalLancamentos = await this.prisma.lancamentoFinanceiro.count({ where: { clienteId: id } });
     if (totalLancamentos > 0) {
-      throw new BadRequestException('Nao foi possivel excluir: cliente possui despesas ou faturamentos vinculados ao historico.');
+      throw new BadRequestException('Não foi possível excluir: cliente possui faturamentos vinculados ao histórico.');
     }
     return super.remove(id);
   }
@@ -80,3 +80,7 @@ export class ClientesService extends CrudService<CreateClienteDto, UpdateCliente
     );
   }
 }
+
+
+
+

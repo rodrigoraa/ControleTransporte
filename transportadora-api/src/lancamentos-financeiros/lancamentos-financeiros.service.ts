@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+﻿import { BadRequestException, Injectable } from '@nestjs/common';
 import { TipoLancamento } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 import { CrudService } from '../common/crud/crud.service';
@@ -113,7 +113,7 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
         where: { id: data.conjuntoId },
         include: { cavaloMecanico: true },
       });
-      if (!conjunto) throw new BadRequestException('Conjunto operacional nao encontrado.');
+      if (!conjunto) throw new BadRequestException('Conjunto operacional não encontrado. Atualize a página e selecione novamente.');
       return {
         placa: conjunto.cavaloMecanico.placa,
         cavaloMecanicoId: conjunto.cavaloMecanicoId,
@@ -132,7 +132,7 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
           },
         },
       });
-      if (!cavalo) throw new BadRequestException('Cavalo mecanico nao encontrado.');
+      if (!cavalo) throw new BadRequestException('Cavalo mecânico não encontrado. Atualize a página e selecione novamente.');
       return { placa: cavalo.placa, cavaloMecanicoId: cavalo.id, conjuntoId: cavalo.conjuntos?.[0]?.id || null };
     }
 
@@ -147,7 +147,7 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
           },
         },
       });
-      if (!cavalo) throw new BadRequestException('Cavalo mecanico nao encontrado para a placa informada.');
+      if (!cavalo) throw new BadRequestException('Cavalo mecânico não encontrado para a placa informada.');
       return { placa: cavalo.placa, cavaloMecanicoId: cavalo.id, conjuntoId: cavalo.conjuntos?.[0]?.id || null };
     }
 
@@ -155,7 +155,7 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
       return { placa: current.placa, cavaloMecanicoId: current.cavaloMecanicoId, conjuntoId: current.conjuntoId };
     }
 
-    throw new BadRequestException('Informe um conjunto operacional ou um cavalo mecanico para o lancamento.');
+    throw new BadRequestException('Informe um conjunto operacional ou um cavalo mecânico para o lançamento.');
   }
 
   protected buildWhere(query: PaginationDto & Record<string, any>) {
@@ -178,14 +178,14 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
 
     if (normalized.tipoLancamento === TipoLancamento.DESPESA) {
       if (!normalized.fornecedorId) {
-        throw new BadRequestException('Despesa deve ter fornecedor.');
+        throw new BadRequestException('Despesa deve ter fornecedor. Selecione um fornecedor antes de salvar.');
       }
       normalized.clienteId = null;
     }
 
     if (normalized.tipoLancamento === TipoLancamento.FATURAMENTO) {
       if (!normalized.clienteId) {
-        throw new BadRequestException('Faturamento deve ter cliente.');
+        throw new BadRequestException('Faturamento deve ter cliente. Selecione um cliente antes de salvar.');
       }
       normalized.fornecedorId = null;
     }
@@ -193,3 +193,7 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
     return normalized;
   }
 }
+
+
+
+

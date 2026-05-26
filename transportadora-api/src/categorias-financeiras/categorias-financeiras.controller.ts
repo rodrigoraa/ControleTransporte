@@ -1,4 +1,4 @@
-import { Controller } from '@nestjs/common';
+﻿import { Controller } from '@nestjs/common';
 import { CrudController } from '../common/crud/crud.controller';
 import { CategoriasFinanceirasService } from './categorias-financeiras.service';
 import { CreateCategoriaFinanceiraDto } from './dto/create-categoria-financeira.dto';
@@ -10,3 +10,7 @@ export class CategoriasFinanceirasController extends CrudController<CreateCatego
     super(service);
   }
 }
+
+
+
+

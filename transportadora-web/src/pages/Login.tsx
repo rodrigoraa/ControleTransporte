@@ -1,4 +1,4 @@
-import { FormEvent, useState } from 'react';
+﻿import { FormEvent, useState } from 'react';
 import { Truck } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -22,7 +22,7 @@ export function Login() {
       await login(email, senha);
       navigate('/');
     } catch {
-      setError('Email ou senha invalidos.');
+      setError('E-mail ou senha inválidos.');
     } finally {
       setLoading(false);
     }
@@ -49,11 +49,11 @@ export function Login() {
           <Truck size={34} />
           <div>
             <h1>Controle Transporte</h1>
-            <span>Gestao financeira e operacional</span>
+            <span>Gestão financeira e operacional</span>
           </div>
         </div>
         <label>
-          Email
+          E-mail
           <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" required />
         </label>
         <label>
@@ -72,3 +72,6 @@ export function Login() {
     </div>
   );
 }
+
+
+

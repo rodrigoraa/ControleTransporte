@@ -1,4 +1,4 @@
-import { TipoLancamento } from '@prisma/client';
+﻿import { TipoLancamento } from '@prisma/client';
 import { RelatoriosService } from './relatorios.service';
 
 function makeService() {
@@ -86,7 +86,7 @@ function makeService() {
 }
 
 describe('RelatoriosService', () => {
-  it('gera relatorio financeiro com totais, paginacao, ordenacao e filtro por implemento no conjunto', async () => {
+  it('gera relatório financeiro com totais, paginacao, ordenacao e filtro por implemento no conjunto', async () => {
     const { service, prisma } = makeService();
 
     const result = await service.financeiros({
@@ -131,7 +131,7 @@ describe('RelatoriosService', () => {
 
     const csv = await service.exportarCsv({ tipoLancamento: TipoLancamento.DESPESA });
 
-    expect(csv).toContain('"Cavalo mecanico"');
+    expect(csv).toContain('"Cavalo mecânico"');
     expect(csv).toContain('"Conjunto operacional"');
     expect(csv).toContain('"Implementos do conjunto"');
     expect(csv).toContain('"ABC1D23"');
@@ -140,7 +140,7 @@ describe('RelatoriosService', () => {
     expect(csv).toContain('"50"');
   });
 
-  it('exporta PDF valido com linhas do relatorio', async () => {
+  it('exporta PDF valido com linhas do relatório', async () => {
     const { service } = makeService();
 
     const pdf = await service.exportarPdf({ tipoLancamento: TipoLancamento.FATURAMENTO });
@@ -149,3 +149,7 @@ describe('RelatoriosService', () => {
     expect(pdf.length).toBeGreaterThan(500);
   });
 });
+
+
+
+

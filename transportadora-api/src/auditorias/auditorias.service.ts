@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+﻿import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { PaginationDto } from '../common/crud/pagination.dto';
 
@@ -28,3 +28,7 @@ export class AuditoriasService {
     return { data, total, page, limit };
   }
 }
+
+
+
+

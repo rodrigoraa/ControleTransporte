@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+﻿import { describe, expect, it } from 'vitest';
 import { crudResources } from './resources';
 
 const byPath = (path: string) => crudResources.find((resource) => resource.path === path)!;
@@ -38,3 +38,4 @@ describe('crudResources', () => {
     expect(field('caminhoes', 'composicaoAtual')?.hidden).toBe(true);
   });
 });
+

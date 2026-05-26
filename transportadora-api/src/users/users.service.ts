@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+﻿import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { PaginationDto } from '../common/crud/pagination.dto';
@@ -16,7 +16,7 @@ export class UsersService {
 
   async create(dto: CreateUserDto) {
     const exists = await this.prisma.user.findUnique({ where: { email: dto.email } });
-    if (exists) throw new ConflictException('Email ja cadastrado');
+    if (exists) throw new ConflictException('E-mail já cadastrado. Use outro e-mail ou edite o usuário existente.');
     const user = await this.prisma.user.create({
       data: { ...dto, senha: await bcrypt.hash(dto.senha, 10) },
     });
@@ -41,7 +41,7 @@ export class UsersService {
 
   async findOne(id: string) {
     const user = await this.prisma.user.findUnique({ where: { id } });
-    if (!user) throw new NotFoundException('Usuario nao encontrado');
+    if (!user) throw new NotFoundException('Usuário não encontrado.');
     return this.safe(user);
   }
 
@@ -63,6 +63,10 @@ export class UsersService {
     await this.prisma.auditoria.create({
       data: { entidade: 'User', entidadeId: id, acao: 'EXCLUSAO', dadosAntes: before },
     });
-    return { message: 'Usuario excluido com sucesso' };
+    return { message: 'Usuário excluído com sucesso.' };
   }
 }
+
+
+
+

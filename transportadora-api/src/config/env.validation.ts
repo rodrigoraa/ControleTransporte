@@ -1,4 +1,4 @@
-const requiredEnv = ['DATABASE_URL', 'JWT_SECRET', 'JWT_EXPIRES_IN', 'FRONTEND_URL'] as const;
+﻿const requiredEnv = ['DATABASE_URL', 'JWT_SECRET', 'JWT_EXPIRES_IN', 'FRONTEND_URL'] as const;
 
 export function validateEnv(config: Record<string, unknown>) {
   for (const key of requiredEnv) {
@@ -11,3 +11,7 @@ export function validateEnv(config: Record<string, unknown>) {
 
   return config;
 }
+
+
+
+

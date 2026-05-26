@@ -1,5 +1,6 @@
 ﻿import { FormEvent, useEffect, useState } from 'react';
 import { api } from '../services/api';
+import { apiErrorMessage } from '../utils/apiError';
 import { money } from '../utils/formatters';
 
 type Option = { value: string; label: string; cavaloMecanicoId?: string | null; tipo?: string; quantidadeTotalEixos?: number };
@@ -65,9 +66,7 @@ export function Relatorios() {
       setPage(targetPage);
       setFinanceiro(data);
     } catch (requestError: any) {
-      const response = requestError.response?.data;
-      const message = Array.isArray(response?.message) ? response.message.join(' ') : response?.message;
-      setError(message || 'Nao foi possivel gerar o relatorio.');
+      setError(await apiErrorMessage(requestError, 'Não foi possível gerar o relatório.'));
     } finally {
       setLoading(false);
     }
@@ -85,8 +84,7 @@ export function Relatorios() {
       link.click();
       URL.revokeObjectURL(url);
     } catch (requestError: any) {
-      const response = requestError.response?.data;
-      setError(response?.message || `Nao foi possivel exportar o relatorio em ${format.toUpperCase()}.`);
+      setError(await apiErrorMessage(requestError, `Não foi possível exportar o relatório em ${format.toUpperCase()}.`));
     }
   }
 
@@ -94,15 +92,15 @@ export function Relatorios() {
     <section className="page">
       <div className="page-header">
         <div>
-          <h1>Relatorios</h1>
-          <p>Filtros por periodo, motorista, cavalo, implemento, conjunto, tipo de conjunto, quantidade de eixos e financeiro.</p>
+          <h1>Relatórios</h1>
+          <p>Filtros por período, motorista, cavalo, implemento, conjunto, tipo de conjunto, quantidade de eixos e financeiro.</p>
         </div>
       </div>
       <form className="panel report-filters" onSubmit={submit}>
         <label>Data inicial<input type="date" value={filters.dataInicial || ''} onChange={(e) => setFilters({ ...filters, dataInicial: e.target.value })} /></label>
         <label>Data final<input type="date" value={filters.dataFinal || ''} onChange={(e) => setFilters({ ...filters, dataFinal: e.target.value })} /></label>
         <SelectFilter label="Motorista" name="motoristaId" value={filters.motoristaId || ''} options={options.motoristas} onChange={updateFilter} />
-        <SelectFilter label="Cavalo mecanico" name="cavaloMecanicoId" value={filters.cavaloMecanicoId || ''} options={options.cavalosMecanicos} onChange={updateFilter} />
+        <SelectFilter label="Cavalo mecânico" name="cavaloMecanicoId" value={filters.cavaloMecanicoId || ''} options={options.cavalosMecanicos} onChange={updateFilter} />
         <SelectFilter label="Implemento" name="implementoId" value={filters.implementoId || ''} options={options.implementos} onChange={updateFilter} />
         <SelectFilter label="Conjunto operacional" name="conjuntoId" value={filters.conjuntoId || ''} options={options.conjuntos} onChange={updateFilter} />
         <SelectFilter label="Tipo de conjunto" name="tipoConjunto" value={filters.tipoConjunto || ''} options={tiposConjunto} onChange={updateFilter} />
@@ -113,8 +111,8 @@ export function Relatorios() {
         <SelectFilter label="Tipo financeiro" name="tipoLancamento" value={filters.tipoLancamento || ''} options={options.tipos} onChange={updateFilter} />
         <SelectFilter label="Categoria" name="categoriaId" value={filters.categoriaId || ''} options={options.categorias} onChange={updateFilter} />
         <SelectFilter label="Ordenar por" name="orderBy" value={filters.orderBy || ''} options={[{ value: 'data', label: 'Data' }, { value: 'valorTotal', label: 'Valor total' }]} onChange={updateFilter} />
-        <SelectFilter label="Direcao" name="orderDirection" value={filters.orderDirection || ''} options={[{ value: 'desc', label: 'Decrescente' }, { value: 'asc', label: 'Crescente' }]} onChange={updateFilter} />
-        <button className="button primary" disabled={loading}>{loading ? 'Gerando...' : 'Gerar relatorio'}</button>
+        <SelectFilter label="Direção" name="orderDirection" value={filters.orderDirection || ''} options={[{ value: 'desc', label: 'Decrescente' }, { value: 'asc', label: 'Crescente' }]} onChange={updateFilter} />
+        <button className="button primary" disabled={loading}>{loading ? 'Gerando...' : 'Gerar relatório'}</button>
       </form>
       {error && <div className="form-error">{error}</div>}
       {financeiro && (
@@ -127,8 +125,8 @@ export function Relatorios() {
           <div className="panel">
             <div className="panel-title-row">
               <div>
-                <h2>Lancamentos encontrados</h2>
-                <p>Detalhamento das despesas e faturamentos, incluindo a composicao registrada no momento do lancamento.</p>
+                <h2>Lançamentos encontrados</h2>
+                <p>Detalhamento das despesas e faturamentos, incluindo a composição registrada no momento do lançamento.</p>
               </div>
               <div className="actions">
                 <button className="button" type="button" onClick={() => exportReport('csv')}>Exportar Excel</button>
@@ -138,11 +136,11 @@ export function Relatorios() {
             <div className="table-wrap">
               <table>
                 <thead>
-                  <tr><th>Data</th><th>Tipo</th><th>Cavalo</th><th>Conjunto registrado</th><th>Implementos usados no lancamento</th><th>Motorista</th><th>Fornecedor/Cliente</th><th>Categoria</th><th>Qtd.</th><th>Valor unitario</th><th>Valor total</th></tr>
+                  <tr><th>Data</th><th>Tipo</th><th>Cavalo</th><th>Conjunto registrado</th><th>Implementos usados no lançamento</th><th>Motorista</th><th>Fornecedor/Cliente</th><th>Categoria</th><th>Qtd.</th><th>Valor unitário</th><th>Valor total</th></tr>
                 </thead>
                 <tbody>
                   {!financeiro.historico.length && (
-                    <tr><td colSpan={11}>Nenhum lancamento encontrado para os filtros informados.</td></tr>
+                    <tr><td colSpan={11}>Nenhum lançamento encontrado para os filtros informados.</td></tr>
                   )}
                   {financeiro.historico.map((item: any) => (
                     <tr key={item.id}>
@@ -163,16 +161,16 @@ export function Relatorios() {
               </table>
             </div>
             <div className="pagination">
-              <span>{financeiro.total} lancamentos</span>
+              <span>{financeiro.total} lançamentos</span>
               <button className="button" type="button" disabled={financeiro.page === 1 || loading} onClick={() => loadReport(financeiro.page - 1)}>Anterior</button>
               <strong>{financeiro.page}</strong>
-              <button className="button" type="button" disabled={financeiro.page * financeiro.limit >= financeiro.total || loading} onClick={() => loadReport(financeiro.page + 1)}>Proxima</button>
+              <button className="button" type="button" disabled={financeiro.page * financeiro.limit >= financeiro.total || loading} onClick={() => loadReport(financeiro.page + 1)}>Próxima</button>
             </div>
           </div>
           <div className="report-grid">
-            <Group title="Despesas por cavalo mecanico" rows={financeiro.despesasPorCavaloMecanico} />
+            <Group title="Despesas por cavalo mecânico" rows={financeiro.despesasPorCavaloMecanico} />
             <Group title="Despesas por motorista" rows={financeiro.despesasPorMotorista} />
-            <Group title="Faturamento por cavalo mecanico" rows={financeiro.faturamentoPorCavaloMecanico} />
+            <Group title="Faturamento por cavalo mecânico" rows={financeiro.faturamentoPorCavaloMecanico} />
             <Group title="Faturamento por motorista" rows={financeiro.faturamentoPorMotorista} />
           </div>
           <ConjuntosPorCavalo rows={financeiro.conjuntosPorCavalo || []} />
@@ -201,7 +199,7 @@ function Group({ title, rows }: { title: string; rows: any[] }) {
 function ConjuntosPorCavalo({ rows }: { rows: any[] }) {
   return (
     <div className="panel">
-      <h2>Resumo por composicao do cavalo</h2>
+      <h2>Resumo por composição do cavalo</h2>
       <div className="table-wrap">
         <table>
           <thead>
@@ -253,10 +251,15 @@ function labelConjunto(conjunto: any) {
 
 function labelImplementos(conjunto: any) {
   const implementos = conjunto?.implementos || [];
-  if (!conjunto) return 'Sem composicao registrada neste lancamento';
+  if (!conjunto) return 'Sem composição registrada neste lançamento';
   if (!implementos.length) return 'Sem implementos registrados';
   return implementos.map((vinculo: any) => {
     const implemento = vinculo.implemento;
     return [vinculo.ordem ? `${vinculo.ordem}.` : null, implemento?.placa || 'Sem placa', implemento?.tipo, implemento?.carroceria, implemento?.quantidadeEixos != null ? `${implemento.quantidadeEixos} eixos` : null].filter(Boolean).join(' ');
   }).join(' / ');
 }
+
+
+
+
+

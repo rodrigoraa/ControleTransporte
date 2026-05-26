@@ -1,4 +1,4 @@
-import { PerfilUsuario } from '@prisma/client';
+﻿import { PerfilUsuario } from '@prisma/client';
 import { IsBoolean, IsEmail, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class CreateUserDto {
@@ -20,3 +20,7 @@ export class CreateUserDto {
   @IsBoolean()
   ativo?: boolean;
 }
+
+
+
+

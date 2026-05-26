@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, UseGuards } from '@nestjs/common';
+﻿import { Body, Controller, Get, Param, Patch, UseGuards } from '@nestjs/common';
 import { PerfilUsuario } from '@prisma/client';
 import { CrudController } from '../common/crud/crud.controller';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -32,3 +32,7 @@ export class CaminhoesController extends CrudController<CreateCaminhaoDto, Updat
     return this.service.atualizarComposicao(id, dto);
   }
 }
+
+
+
+

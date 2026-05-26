@@ -1,4 +1,4 @@
-import { Controller, Get, Header, Query, Res, UseGuards } from '@nestjs/common';
+﻿import { Controller, Get, Header, Query, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RelatorioFinanceiroQueryDto } from './dto/relatorio-financeiro-query.dto';
@@ -33,3 +33,8 @@ export class RelatoriosController {
     response.send(pdf);
   }
 }
+
+
+
+
+

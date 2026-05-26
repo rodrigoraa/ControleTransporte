@@ -1,4 +1,4 @@
-import { IsBoolean, IsEmail, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+﻿import { IsBoolean, IsEmail, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreateFornecedorDto {
   @IsString() @IsNotEmpty() nome!: string;
@@ -9,3 +9,7 @@ export class CreateFornecedorDto {
   @IsOptional() @IsString() observacoes?: string;
   @IsOptional() @IsBoolean() ativo?: boolean | null;
 }
+
+
+
+

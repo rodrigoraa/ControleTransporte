@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+﻿import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { Prisma, TipoCavaloMecanico, TipoConjuntoOperacional, TipoImplemento } from '@prisma/client';
 
 @Injectable()
@@ -37,7 +37,7 @@ export class ComposicoesCavaloService {
         conjuntoId: conjunto.id,
         acao: 'CRIACAO_COMPOSICAO',
         dadosDepois: JSON.parse(JSON.stringify(conjunto)),
-        observacoes: 'Composicao criada pelo cadastro do cavalo mecanico',
+        observacoes: 'Composição criada pelo cadastro do cavalo mecânico',
       },
     });
     return conjunto;
@@ -48,11 +48,11 @@ export class ComposicoesCavaloService {
       return await prisma.$transaction(callback);
     } catch (error: any) {
       if (error?.code === 'P2002') {
-        const fields = Array.isArray(error.meta?.target) ? error.meta.target.join(', ') : 'campo unico';
-        throw new ConflictException(`Ja existe um registro com este valor em: ${fields}`);
+        const fields = Array.isArray(error.meta?.target) ? error.meta.target.join(', ') : 'campo único';
+        throw new ConflictException(`Já existe um registro cadastrado com este valor em: ${fields}. Verifique placas e dados únicos.`);
       }
       if (error?.code === 'P2003') {
-        throw new BadRequestException('Registro relacionado nao encontrado.');
+        throw new BadRequestException('Registro relacionado não encontrado. Atualize a página e selecione novamente.');
       }
       throw error;
     }
@@ -67,11 +67,11 @@ export class ComposicoesCavaloService {
     }
 
     if (carretas.length > 2) {
-      throw new BadRequestException('A composicao deve ter no maximo duas carretas/reboques.');
+      throw new BadRequestException('A composição deve ter no máximo duas carretas/reboques.');
     }
 
     if (carretas.length === 1 && hasDolly) {
-      throw new BadRequestException('Se houver apenas uma carreta, nao informe dolly.');
+      throw new BadRequestException('Se houver apenas uma carreta, não informe dolly.');
     }
 
     if (carretas.length === 2 && !hasDolly) {
@@ -79,7 +79,7 @@ export class ComposicoesCavaloService {
     }
 
     if (hasDolly && !this.isThreeAxleCavalo(tipoCavalo)) {
-      throw new BadRequestException('Rodotrem deve usar cavalo trucado ou tracado.');
+      throw new BadRequestException('Rodotrem deve usar cavalo trucado ou traçado.');
     }
 
     if (carretas.some((item) => ![2, 3].includes(Number(item.quantidadeEixos)))) {
@@ -120,3 +120,7 @@ export class ComposicoesCavaloService {
     return [...[cavalo.placa, cavalo.marca].filter(Boolean), `comp ${referenceDate.getTime()}`].join(' - ');
   }
 }
+
+
+
+

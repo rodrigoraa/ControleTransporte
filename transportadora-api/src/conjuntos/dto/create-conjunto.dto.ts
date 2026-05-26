@@ -1,4 +1,4 @@
-import { StatusGeral, TipoConjuntoOperacional } from '@prisma/client';
+﻿import { StatusGeral, TipoConjuntoOperacional } from '@prisma/client';
 import { IsArray, IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreateConjuntoDto {
@@ -10,3 +10,7 @@ export class CreateConjuntoDto {
   @IsOptional() @IsString() justificativaSemImplemento?: string | null;
   @IsOptional() @IsString() observacoes?: string | null;
 }
+
+
+
+

@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+﻿import { BadRequestException } from '@nestjs/common';
 import { TipoLancamento, UnidadeQuantidade } from '@prisma/client';
 import { LancamentosFinanceirosService } from './lancamentos-financeiros.service';
 
@@ -61,7 +61,7 @@ describe('LancamentosFinanceirosService', () => {
     expect(String(create.mock.calls[0][0].data.valorTotal)).toBe('20');
   });
 
-  it('cria despesa usando cavalo mecanico sem exigir placa no payload', async () => {
+  it('cria despesa usando cavalo mecânico sem exigir placa no payload', async () => {
     const { service, create } = makeService();
 
     await service.create({
@@ -74,6 +74,19 @@ describe('LancamentosFinanceirosService', () => {
     expect(create.mock.calls[0][0].data.placa).toBe('ABC1D23');
     expect(create.mock.calls[0][0].data.cavaloMecanicoId).toBe('horse-1');
     expect(create.mock.calls[0][0].data.conjuntoId).toBe('set-1');
+  });
+
+  it('cria despesa sem motorista', async () => {
+    const { service, create } = makeService();
+
+    await service.create({
+      ...baseDto,
+      motoristaId: undefined,
+      fornecedorId: 'supplier-1',
+    });
+
+    expect(create.mock.calls[0][0].data.motoristaId).toBeUndefined();
+    expect(create.mock.calls[0][0].data.fornecedorId).toBe('supplier-1');
   });
 
   it('bloqueia despesa sem fornecedor', async () => {
@@ -106,4 +119,35 @@ describe('LancamentosFinanceirosService', () => {
       clienteId: null,
     })).rejects.toBeInstanceOf(BadRequestException);
   });
+
+  it('edita lançamento existente sem motorista sem exigir novo motorista', async () => {
+    const { service, update } = makeService();
+    jest.spyOn(service as any, 'findOne').mockResolvedValueOnce({
+      id: 'launch-1',
+      data: new Date('2026-01-01T00:00:00.000Z'),
+      placa: 'ABC1D23',
+      motoristaId: null,
+      fornecedorId: 'supplier-1',
+      clienteId: null,
+      cavaloMecanicoId: 'horse-1',
+      conjuntoId: 'set-1',
+      tipoLancamento: TipoLancamento.DESPESA,
+      quantidade: 2,
+      valorUnitario: 10,
+    });
+
+    await service.update('launch-1', { descricao: 'Despesa editada' });
+
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        descricao: 'Despesa editada',
+        valorTotal: expect.anything(),
+      }),
+    }));
+    expect(update.mock.calls[0][0].data).not.toHaveProperty('motoristaId');
+  });
 });
+
+
+
+

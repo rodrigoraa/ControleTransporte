@@ -10,7 +10,7 @@ export function Dashboard() {
   useEffect(() => {
     api.get('/dashboard')
       .then((response) => setData(response.data))
-      .catch(() => setError('Nao foi possivel carregar o dashboard.'));
+      .catch(() => setError('Não foi possível carregar o dashboard.'));
   }, []);
 
   if (error) return <div className="form-error">{error}</div>;
@@ -20,10 +20,10 @@ export function Dashboard() {
     ['Total faturado no mes', data.cards.totalFaturadoMes, 'money'],
     ['Total de despesas no mes', data.cards.totalDespesasMes, 'money'],
     ['Saldo do mes', data.cards.saldoMes, 'money'],
-    ['Cavalos mecanicos ativos', data.cards.cavalosMecanicosAtivos, 'number'],
+    ['Cavalos mecânicos ativos', data.cards.cavalosMecanicosAtivos, 'number'],
     ['Implementos ativos', data.cards.implementosAtivos, 'number'],
     ['Conjuntos ativos', data.cards.conjuntosAtivos, 'number'],
-    ['Itens inativos/manutencao', data.cards.itensInativosOuManutencao, 'number'],
+    ['Itens inativos/manutenção', data.cards.itensInativosOuManutenção, 'number'],
     ['Motoristas ativos', data.cards.motoristasAtivos, 'number'],
   ];
 
@@ -75,11 +75,11 @@ export function Dashboard() {
         </Chart>
       </div>
       <div className="panel">
-        <h2>Ultimos lancamentos</h2>
+        <h2>Últimos lançamentos</h2>
         <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>Data</th><th>Tipo</th><th>Placa</th><th>Conjunto</th><th>Descricao</th><th>Valor</th></tr>
+              <tr><th>Data</th><th>Tipo</th><th>Placa</th><th>Conjunto</th><th>Descrição</th><th>Valor</th></tr>
             </thead>
             <tbody>
               {data.ultimosLancamentos.map((item: any) => (
@@ -108,3 +108,5 @@ function Chart({ title, children }: { title: string; children: ReactElement }) {
     </div>
   );
 }
+
+

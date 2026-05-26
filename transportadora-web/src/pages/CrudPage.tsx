@@ -1,9 +1,10 @@
-import { Eye, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+﻿import { Eye, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Toast } from '../components/Toast';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../services/api';
-import { date, maskPlate, money } from '../utils/formatters';
+import { apiErrorMessage } from '../utils/apiError';
+import { date, money } from '../utils/formatters';
 import { carrocerias, crudResources, Field, Resource, tiposImplemento } from './resources';
 
 type Mode = 'create' | 'edit' | 'view';
@@ -30,8 +31,8 @@ export function CrudPage({ resource }: { resource: Resource }) {
       const { data } = await api.get(resource.endpoint, { params: { page, limit, search, ...resource.fixedParams } });
       setRows(data.data);
       setTotal(data.total);
-    } catch {
-      setToast({ type: 'error', message: 'Nao foi possivel carregar os registros.' });
+    } catch (requestError) {
+      setToast({ type: 'error', message: await apiErrorMessage(requestError, 'Não foi possível carregar os registros.') });
     } finally {
       setLoading(false);
     }
@@ -44,15 +45,18 @@ export function CrudPage({ resource }: { resource: Resource }) {
   async function remove(item: any) {
     try {
       await api.delete(`${resource.endpoint}/${item.id}`);
-      setToast({ type: 'success', message: 'Registro excluido com sucesso.' });
+      setToast({ type: 'success', message: 'Registro excluído com sucesso.' });
       setPendingDelete(null);
       load();
-    } catch {
+    } catch (requestError) {
       setToast({
         type: 'error',
-        message: resource.path === 'caminhoes'
-          ? 'Nao foi possivel excluir o cavalo porque ele possui vinculos. Para remover carreta/dolly, edite a composicao.'
-          : 'Nao foi possivel excluir o registro.',
+        message: await apiErrorMessage(
+          requestError,
+          resource.path === 'caminhoes'
+            ? 'Não foi possível excluir o cavalo porque ele possui vínculos. Para remover carreta/dolly, edite a composição.'
+            : 'Não foi possível excluir o registro.',
+        ),
       });
     }
   }
@@ -63,7 +67,7 @@ export function CrudPage({ resource }: { resource: Resource }) {
       <div className="page-header">
         <div>
           <h1>{resource.title}</h1>
-          <p>{resource.path === 'caminhoes' ? 'Cadastre o cavalo e os implementos vinculados em uma unica operacao.' : 'Cadastro, edicao, detalhes e exclusao.'}</p>
+          <p>{resource.path === 'caminhoes' ? 'Cadastre o cavalo e os implementos vinculados em uma única operação.' : 'Cadastro, edição, detalhes e exclusão.'}</p>
         </div>
         {canWrite && (
           <button className="button primary" onClick={() => setModal({ mode: 'create', item: {} })}>
@@ -110,7 +114,7 @@ export function CrudPage({ resource }: { resource: Resource }) {
           <span>{total} registros</span>
           <button className="button" disabled={page === 1} onClick={() => setPage(page - 1)}>Anterior</button>
           <strong>{page}</strong>
-          <button className="button" disabled={page * limit >= total} onClick={() => setPage(page + 1)}>Proxima</button>
+          <button className="button" disabled={page * limit >= total} onClick={() => setPage(page + 1)}>Próxima</button>
         </div>
       </div>
       {modal && (
@@ -122,7 +126,7 @@ export function CrudPage({ resource }: { resource: Resource }) {
             onClose={() => setModal(null)}
             onSaved={() => {
               setModal(null);
-              setToast({ type: 'success', message: modal.mode === 'create' ? 'Cadastro completo salvo com sucesso.' : 'Composicao atualizada com sucesso.' });
+              setToast({ type: 'success', message: modal.mode === 'create' ? 'Cadastro completo salvo com sucesso.' : 'Composição atualizada com sucesso.' });
               load();
             }}
           />
@@ -142,7 +146,7 @@ export function CrudPage({ resource }: { resource: Resource }) {
       )}
       {pendingDelete && (
         <ConfirmModal
-          title={resource.path === 'caminhoes' ? 'Excluir cavalo mecanico' : 'Excluir registro'}
+          title={resource.path === 'caminhoes' ? 'Excluir cavalo mecânico' : 'Excluir registro'}
           message="Esta ação não pode ser desfeita. Confirma a exclusão?"
           onCancel={() => setPendingDelete(null)}
           onConfirm={() => remove(pendingDelete)}
@@ -154,13 +158,13 @@ export function CrudPage({ resource }: { resource: Resource }) {
 
 const implementoFields: Field[] = [
   { name: 'id', label: 'ID', hidden: true },
-  { name: 'placa', label: 'Placa', mask: maskPlate },
+  { name: 'placa', label: 'Placa' },
   { name: 'tipo', label: 'Tipo', type: 'select', required: true, options: tiposImplemento },
   { name: 'carroceria', label: 'Carroceria', type: 'select', required: true, options: carrocerias },
   { name: 'quantidadeEixos', label: 'Eixos', type: 'select', required: true, options: [{ label: '2 eixos', value: '2' }, { label: '3 eixos', value: '3' }] },
   { name: 'capacidadeCarga', label: 'Capacidade', type: 'number' },
-  { name: 'status', label: 'Status', type: 'select', options: [{ label: 'Ativo', value: 'ATIVO' }, { label: 'Inativo', value: 'INATIVO' }, { label: 'Manutencao', value: 'MANUTENCAO' }] },
-  { name: 'observacoes', label: 'Observacoes', type: 'textarea' },
+  { name: 'status', label: 'Status', type: 'select', options: [{ label: 'Ativo', value: 'ATIVO' }, { label: 'Inativo', value: 'INATIVO' }, { label: 'Manutenção', value: 'MANUTENCAO' }] },
+  { name: 'observacoes', label: 'Observações', type: 'textarea' },
 ];
 
 function FragmentRows({ group, grouped, tableFields, resource, canWrite, onView, onEdit, onDelete }: {
@@ -189,7 +193,7 @@ function FragmentRows({ group, grouped, tableFields, resource, canWrite, onView,
           <td className="actions">
             <button className="icon-button" title="Visualizar" onClick={() => onView(row)}><Eye size={17} /></button>
             {canWrite && <button className="icon-button" title="Editar" onClick={() => onEdit(row)}><Pencil size={17} /></button>}
-            {canWrite && <button className="icon-button danger" title={resource.path === 'caminhoes' ? 'Excluir cavalo mecanico' : 'Excluir'} onClick={() => onDelete(row)}><Trash2 size={17} /></button>}
+            {canWrite && <button className="icon-button danger" title={resource.path === 'caminhoes' ? 'Excluir cavalo mecânico' : 'Excluir'} onClick={() => onDelete(row)}><Trash2 size={17} /></button>}
           </td>
         </tr>
       ))}
@@ -219,7 +223,7 @@ function CaminhaoCompletoModal({ resource, mode, item, onClose, onSaved }: { res
       }),
     )
       .then((entries) => setRelationOptions(Object.fromEntries(entries)))
-      .catch(() => setError('Nao foi possivel carregar as opcoes de relacionamento.'));
+      .catch(() => setError('Não foi possível carregar as opções de relacionamento.'));
   }, [cavaloFields]);
 
   function update(field: Field, value: string | boolean) {
@@ -268,9 +272,8 @@ function CaminhaoCompletoModal({ resource, mode, item, onClose, onSaved }: { res
         : await api.patch(`${resource.endpoint}/${item.id}/composicao`, payload);
       onSaved(response.data);
     } catch (requestError: any) {
-      const response = requestError.response?.data;
-      const message = Array.isArray(response?.message) ? response.message.join(' ') : response?.message;
-      setError(message === 'Internal server error' ? 'Nao foi possivel salvar a composicao. Verifique placas duplicadas e tente novamente.' : message || 'Verifique os campos e tente novamente.');
+      const message = await apiErrorMessage(requestError, 'Verifique os campos e tente novamente.');
+      setError(message === 'Internal server error' ? 'Não foi possível salvar a composição. Verifique placas duplicadas e tente novamente.' : message);
     }
   }
 
@@ -278,12 +281,12 @@ function CaminhaoCompletoModal({ resource, mode, item, onClose, onSaved }: { res
     <div className="modal-backdrop">
       <form className="modal large-modal" onSubmit={submit}>
         <div className="modal-header">
-          <h2>{mode === 'create' ? 'Novo caminhao' : 'Editar caminhao'}</h2>
+          <h2>{mode === 'create' ? 'Novo cavalo mecânico' : 'Editar cavalo mecânico'}</h2>
           <button type="button" className="icon-button" onClick={onClose}><X size={18} /></button>
         </div>
         <div className="form-section">
           <div className="section-title">
-            <h3>Cavalo mecanico</h3>
+            <h3>Cavalo mecânico</h3>
           </div>
           <div className="form-grid">
             {cavaloFields.filter((field) => shouldRenderField(field, form)).map((field) => (
@@ -360,7 +363,7 @@ function FieldControl({ field, value, relationOptions = {}, onChange }: { field:
 
 function CompositionDrawing({ cavalo, implementos }: { cavalo: any; implementos: any[] }) {
   return (
-    <div className="composition-drawing" aria-label="Desenho da composicao">
+    <div className="composition-drawing" aria-label="Desenho da composição">
       <VehicleSketch type="CAVALO" label={cavalo.placa || 'Cavalo'} />
       {implementos.map((item, index) => (
         <VehicleSketch
@@ -445,8 +448,8 @@ function compositionImplementos(item: any) {
 }
 
 function ConfirmModal({ title, message, onCancel, onConfirm }: { title: string; message: string; onCancel: () => void; onConfirm: () => void }) {
-  const visibleMessage = title === 'Excluir cavalo mecanico'
-    ? 'Esta acao remove o cavalo mecanico inteiro, nao apenas a carreta. Para remover uma carreta ou dolly, edite o cavalo e altere a composicao.'
+  const visibleMessage = title === 'Excluir cavalo mecânico'
+    ? 'Esta ação remove o cavalo mecânico inteiro, não apenas a carreta. Para remover uma carreta ou dolly, edite o cavalo e altere a composição.'
     : message;
 
   return (
@@ -492,7 +495,7 @@ function RecordModal({ resource, mode, item, onClose, onSaved }: { resource: Res
         setRelationOptions(Object.fromEntries(entries.map(([name, options]) => [name, options])));
         setRelationRows(Object.fromEntries(entries.map(([name, , rows]) => [name, rows])));
       })
-      .catch(() => setError('Nao foi possivel carregar as opcoes de relacionamento.'));
+      .catch(() => setError('Não foi possível carregar as opções de relacionamento.'));
   }
 
   useEffect(() => {
@@ -534,9 +537,7 @@ function RecordModal({ resource, mode, item, onClose, onSaved }: { resource: Res
         : await api.patch(`${resource.endpoint}/${item.id}`, payload);
       onSaved(response?.data);
     } catch (requestError: any) {
-      const response = requestError.response?.data;
-      const message = Array.isArray(response?.message) ? response.message.join(' ') : response?.message;
-      setError(message || 'Verifique os campos e tente novamente.');
+      setError(await apiErrorMessage(requestError, 'Verifique os campos e tente novamente.'));
     }
   }
 
@@ -634,7 +635,7 @@ function renderValue(value: any, field: Field) {
   if (field.relation?.objectKey && value === undefined) return '-';
   if (field.type === 'money') return money(value);
   if (field.type === 'date') return date(value);
-  if (field.type === 'checkbox') return value ? 'Sim' : 'Nao';
+  if (field.type === 'checkbox') return value ? 'Sim' : 'Não';
   if (field.options?.length) return field.options.find((option) => option.value === value)?.label || value || '-';
   if (typeof value === 'object') return JSON.stringify(value);
   return value || '-';
@@ -648,7 +649,7 @@ function groupRowsByOperationalStatus(resource: Resource, rows: any[]) {
 
   const labels: Record<string, string> = {
     ATIVO: 'Ativos',
-    MANUTENCAO: 'Em manutencao',
+    MANUTENCAO: 'Em manutenção',
     INATIVO: 'Inativos',
     SEM_STATUS: 'Sem status',
   };
@@ -734,11 +735,11 @@ function validateComposicao(cavalo: any, implementos: any[]) {
   const carretas = implementos.filter((item) => item.tipo !== 'DOLLY');
   const dollys = implementos.filter((item) => item.tipo === 'DOLLY');
 
-  if (carretas.length > 2) return 'A composicao deve ter no maximo duas carretas/reboques.';
-  if (dollys.length > 1) return 'A composicao deve ter no maximo um dolly.';
-  if (dollys.length && carretas.length === 1) return 'Se houver apenas uma carreta, nao informe dolly.';
+  if (carretas.length > 2) return 'A composição deve ter no máximo duas carretas/reboques.';
+  if (dollys.length > 1) return 'A composição deve ter no máximo um dolly.';
+  if (dollys.length && carretas.length === 1) return 'Se houver apenas uma carreta, não informe dolly.';
   if (carretas.length === 2 && !dollys.length) return 'Se houver segunda carreta, informe dolly.';
-  if (dollys.length && cavaloEixos(cavalo.tipoCavalo) < 3) return 'Rodotrem deve usar cavalo trucado ou tracado.';
+  if (dollys.length && cavaloEixos(cavalo.tipoCavalo) < 3) return 'Rodotrem deve usar cavalo trucado ou traçado.';
   if (carretas.some((item) => ![2, 3].includes(Number(item.quantidadeEixos)))) return 'Carretas devem ter 2 ou 3 eixos.';
   return '';
 }
@@ -780,3 +781,6 @@ function sanitize(form: any, fields: Field[], mode: Mode) {
   }
   return payload;
 }
+
+
+

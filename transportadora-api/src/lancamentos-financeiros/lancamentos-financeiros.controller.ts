@@ -1,4 +1,4 @@
-import { Controller } from '@nestjs/common';
+﻿import { Controller } from '@nestjs/common';
 import { CrudController } from '../common/crud/crud.controller';
 import { CreateLancamentoFinanceiroDto } from './dto/create-lancamento-financeiro.dto';
 import { UpdateLancamentoFinanceiroDto } from './dto/update-lancamento-financeiro.dto';
@@ -10,3 +10,7 @@ export class LancamentosFinanceirosController extends CrudController<CreateLanca
     super(service);
   }
 }
+
+
+
+

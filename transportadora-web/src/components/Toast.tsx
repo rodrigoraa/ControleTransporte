@@ -1,4 +1,4 @@
-type ToastProps = {
+﻿type ToastProps = {
   message: string;
   type: 'success' | 'error';
   onClose: () => void;
@@ -11,3 +11,4 @@ export function Toast({ message, type, onClose }: ToastProps) {
     </div>
   );
 }
+

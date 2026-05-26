@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+﻿import { Injectable } from '@nestjs/common';
 import { CrudService } from '../common/crud/crud.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { ComposicoesCavaloService } from './composicoes-cavalo.service';
@@ -52,7 +52,7 @@ export class CaminhoesService extends CrudService<CreateCaminhaoDto, UpdateCamin
           cavaloMecanicoId: cavalo.id,
           acao: 'CRIACAO_COM_CONJUNTO',
           dadosDepois: JSON.parse(JSON.stringify({ cavalo, conjunto })),
-          observacoes: 'Cadastro completo de cavalo mecanico com implementos',
+          observacoes: 'Cadastro completo de cavalo mecânico com implementos',
         },
       });
 
@@ -74,7 +74,7 @@ export class CaminhoesService extends CrudService<CreateCaminhaoDto, UpdateCamin
         acao: 'ATUALIZACAO',
         dadosAntes: JSON.parse(JSON.stringify(antes)),
         dadosDepois: JSON.parse(JSON.stringify(depois)),
-        observacoes: 'Alteracao de cavalo mecanico registrada automaticamente',
+        observacoes: 'Alteração de cavalo mecânico registrada automaticamente',
       },
     });
     if ((antes as any).motoristaId !== (depois as any).motoristaId) {
@@ -133,7 +133,7 @@ export class CaminhoesService extends CrudService<CreateCaminhaoDto, UpdateCamin
             acao: 'ENCERRAMENTO_COMPOSICAO',
             dadosAntes: JSON.parse(JSON.stringify(conjunto)),
             dadosDepois: JSON.parse(JSON.stringify(updatedConjunto)),
-            observacoes: 'Composicao encerrada por alteracao no cadastro do cavalo mecanico',
+            observacoes: 'Composição encerrada por alteracao no cadastro do cavalo mecânico',
           },
         });
       }
@@ -176,7 +176,7 @@ export class CaminhoesService extends CrudService<CreateCaminhaoDto, UpdateCamin
           acao: 'ALTERACAO_COMPOSICAO',
           dadosAntes: JSON.parse(JSON.stringify(antes)),
           dadosDepois: JSON.parse(JSON.stringify({ cavalo: current, conjunto })),
-          observacoes: 'Alteracao de carretas/dolly vinculados ao cavalo mecanico',
+          observacoes: 'Alteração de carretas/dolly vinculados ao cavalo mecânico',
         },
       });
 
@@ -235,7 +235,7 @@ export class CaminhoesService extends CrudService<CreateCaminhaoDto, UpdateCamin
         acao,
         dadosAntes: JSON.parse(JSON.stringify(antes)),
         dadosDepois: JSON.parse(JSON.stringify(depois)),
-        observacoes: 'Vinculo de cavalo mecanico registrado automaticamente',
+        observacoes: 'Vínculo de cavalo mecânico registrado automaticamente',
       },
     });
   }
@@ -257,3 +257,7 @@ export class CaminhoesService extends CrudService<CreateCaminhaoDto, UpdateCamin
     return Object.fromEntries(Object.entries(data).map(([key, value]) => [key, value === '' ? null : value])) as T;
   }
 }
+
+
+
+

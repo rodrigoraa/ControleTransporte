@@ -1,11 +1,12 @@
-import { TipoLancamento, UnidadeQuantidade } from '@prisma/client';
-import { Type } from 'class-transformer';
-import { IsDate, IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, Matches, Min } from 'class-validator';
+﻿import { TipoLancamento, UnidadeQuantidade } from '@prisma/client';
+import { Transform, Type } from 'class-transformer';
+import { IsDate, IsEnum, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreateLancamentoFinanceiroDto {
   @Type(() => Date) @IsDate() data!: Date;
-  @IsOptional() @IsString() @Matches(/^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/) placa?: string | null;
-  @IsString() @IsNotEmpty() motoristaId!: string;
+  @Transform(({ value }) => (typeof value === 'string' && !value.trim() ? null : typeof value === 'string' ? value.trim().toUpperCase() : value))
+  @IsOptional() @IsString() placa?: string | null;
+  @IsOptional() @IsString() motoristaId?: string | null;
   @IsOptional() @IsString() fornecedorId?: string | null;
   @IsOptional() @IsString() caminhaoId?: string | null;
   @IsOptional() @IsString() cavaloMecanicoId?: string | null;
@@ -20,3 +21,7 @@ export class CreateLancamentoFinanceiroDto {
   @Type(() => Number) @IsNumber() @Min(0) valorUnitario!: number;
   @IsOptional() @IsString() observacoes?: string;
 }
+
+
+
+

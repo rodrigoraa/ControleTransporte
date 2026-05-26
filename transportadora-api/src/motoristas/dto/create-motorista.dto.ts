@@ -1,4 +1,4 @@
-import { StatusGeral } from '@prisma/client';
+﻿import { StatusGeral } from '@prisma/client';
 import { Type } from 'class-transformer';
 import { IsDate, IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
@@ -12,3 +12,7 @@ export class CreateMotoristaDto {
   @IsOptional() @IsEnum(StatusGeral) status?: StatusGeral | null;
   @IsOptional() @IsString() observacoes?: string;
 }
+
+
+
+

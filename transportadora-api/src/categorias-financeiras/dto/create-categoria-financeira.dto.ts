@@ -1,4 +1,4 @@
-import { TipoLancamento } from '@prisma/client';
+﻿import { TipoLancamento } from '@prisma/client';
 import { IsBoolean, IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreateCategoriaFinanceiraDto {
@@ -7,3 +7,7 @@ export class CreateCategoriaFinanceiraDto {
   @IsOptional() @IsBoolean() ativo?: boolean;
   @IsOptional() @IsString() observacoes?: string | null;
 }
+
+
+
+

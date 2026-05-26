@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+﻿import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class PaginationDto {
@@ -27,3 +27,7 @@ export class PaginationDto {
   @IsString()
   ativo?: string;
 }
+
+
+
+

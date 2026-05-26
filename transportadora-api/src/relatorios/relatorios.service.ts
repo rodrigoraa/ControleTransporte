@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+﻿import { Injectable } from '@nestjs/common';
 import { TipoLancamento } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { RelatorioFinanceiroQueryDto } from './dto/relatorio-financeiro-query.dto';
@@ -138,7 +138,7 @@ export class RelatoriosService {
     const header = [
       'Data',
       'Tipo',
-      'Cavalo mecanico',
+      'Cavalo mecânico',
       'Conjunto operacional',
       'Tipo do conjunto',
       'Eixos do conjunto',
@@ -175,12 +175,51 @@ export class RelatoriosService {
   }
 
   async exportarPdf(filters: RelatorioFinanceiroQueryDto) {
+    const relatorio = await this.financeiros({ ...filters, page: 1, limit: 50 });
     const rows = await this.exportRows(filters);
     const lines = [
-      'Relatorio financeiro',
+      'Relatório financeiro',
       `Gerado em: ${new Date().toLocaleString('pt-BR')}`,
       '',
-      ...rows.slice(0, 100).map((item) => `${item.data.toISOString().slice(0, 10)} | ${item.tipoLancamento} | ${item.cavaloMecanico?.placa || item.placa} | ${this.formatConjuntoResumo(item.conjunto)} | ${item.descricao || '-'} | ${Number(item.valorTotal).toFixed(2)}`),
+      'Resumo financeiro',
+      `Total de despesas: ${this.formatCurrency(relatorio.totalDespesas)}`,
+      `Total de faturamento: ${this.formatCurrency(relatorio.totalFaturamento)}`,
+      `Saldo final: ${this.formatCurrency(relatorio.saldoFinal)}`,
+      `Total de lançamentos: ${relatorio.total}`,
+      '',
+      'Lancamentos encontrados',
+      'Data | Placa | Valor unitario | Valor total',
+      ...(rows.length
+        ? rows.map((item) => `${this.formatDate(item.data)} | ${item.cavaloMecanico?.placa || item.placa || '-'} | ${this.formatCurrency(item.valorUnitario)} | ${this.formatCurrency(item.valorTotal)}`)
+        : ['Nenhum lançamento encontrado para os filtros informados.']),
+      '',
+      'Despesas por cavalo mecânico',
+      ...this.formatPdfGroup(relatorio.despesasPorCavaloMecanico),
+      '',
+      'Despesas por motorista',
+      ...this.formatPdfGroup(relatorio.despesasPorMotorista),
+      '',
+      'Faturamento por cavalo mecânico',
+      ...this.formatPdfGroup(relatorio.faturamentoPorCavaloMecanico),
+      '',
+      'Faturamento por motorista',
+      ...this.formatPdfGroup(relatorio.faturamentoPorMotorista),
+      '',
+      'Resumo por composição do cavalo',
+      ...(relatorio.conjuntosPorCavalo.length
+        ? relatorio.conjuntosPorCavalo.map((item: any) =>
+            [
+              item.cavalo || '-',
+              item.conjunto || '-',
+              item.tipoConjunto || '-',
+              item.quantidadeTotalEixos != null ? `${item.quantidadeTotalEixos} eixos` : '-',
+              `${item.quantidadeLancamentos} lanc.`,
+              `Desp. ${this.formatCurrency(item.totalDespesas)}`,
+              `Fat. ${this.formatCurrency(item.totalFaturamento)}`,
+              `Saldo ${this.formatCurrency(item.saldo)}`,
+            ].join(' | '),
+          )
+        : ['Nenhum conjunto encontrado para os filtros informados.']),
     ];
     return this.simplePdf(lines);
   }
@@ -214,26 +253,78 @@ export class RelatoriosService {
   }
 
   private simplePdf(lines: string[]) {
-    const escaped = lines.map((line, index) => `BT /F1 10 Tf 40 ${780 - index * 14} Td (${line.replace(/[()\\]/g, '\\$&')}) Tj ET`).join('\n');
+    const wrappedLines = lines.flatMap((line) => this.wrapPdfLine(line));
+    const linesPerPage = 52;
+    const pages: string[][] = [];
+    for (let index = 0; index < wrappedLines.length; index += linesPerPage) {
+      pages.push(wrappedLines.slice(index, index + linesPerPage));
+    }
+    if (!pages.length) pages.push([]);
+
+    const fontObjectId = 3 + pages.length * 2;
+    const pageObjectIds = pages.map((_, index) => 3 + index * 2);
+    const contentObjectIds = pages.map((_, index) => 4 + index * 2);
     const objects = [
-      '1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj',
-      '2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj',
-      '3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj',
-      '4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj',
-      `5 0 obj << /Length ${Buffer.byteLength(escaped)} >> stream\n${escaped}\nendstream endobj`,
+      `1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj`,
+      `2 0 obj << /Type /Pages /Kids [${pageObjectIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pages.length} >> endobj`,
+      ...pages.flatMap((pageLines, index) => {
+        const content = pageLines.map((line, lineIndex) => `BT /F1 10 Tf 40 ${780 - lineIndex * 14} Td (${this.escapePdfText(line)}) Tj ET`).join('\n');
+        return [
+          `${pageObjectIds[index]} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${fontObjectId} 0 R >> >> /Contents ${contentObjectIds[index]} 0 R >> endobj`,
+          `${contentObjectIds[index]} 0 obj << /Length ${Buffer.byteLength(content, 'latin1')} >> stream\n${content}\nendstream endobj`,
+        ];
+      }),
+      `${fontObjectId} 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj`,
     ];
     let pdf = '%PDF-1.4\n';
     const offsets = [0];
     for (const object of objects) {
-      offsets.push(Buffer.byteLength(pdf));
+      offsets.push(Buffer.byteLength(pdf, 'latin1'));
       pdf += `${object}\n`;
     }
-    const xrefOffset = Buffer.byteLength(pdf);
+    const xrefOffset = Buffer.byteLength(pdf, 'latin1');
     pdf += `xref\n0 ${objects.length + 1}\n`;
     pdf += '0000000000 65535 f \n';
     pdf += offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`).join('');
     pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
-    return Buffer.from(pdf);
+    return Buffer.from(pdf, 'latin1');
+  }
+
+  private wrapPdfLine(line: string) {
+    const normalized = this.normalizePdfText(line);
+    if (normalized.length <= 105) return [normalized];
+    const parts: string[] = [];
+    let current = '';
+    for (const word of normalized.split(' ')) {
+      if (`${current} ${word}`.trim().length > 105) {
+        parts.push(current);
+        current = word;
+      } else {
+        current = `${current} ${word}`.trim();
+      }
+    }
+    if (current) parts.push(current);
+    return parts;
+  }
+
+  private escapePdfText(line: string) {
+    return this.normalizePdfText(line).replace(/[()\\]/g, '\\$&');
+  }
+
+  private normalizePdfText(line: string) {
+    return String(line).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7E]/g, '-');
+  }
+
+  private formatPdfGroup(rows: Array<{ label: string; total: number }>) {
+    return rows.length ? rows.map((row) => `${row.label || 'Sem cadastro'} | ${this.formatCurrency(row.total)}`) : ['Nenhum registro encontrado.'];
+  }
+
+  private formatCurrency(value: unknown) {
+    return `R$ ${Number(value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+
+  private formatDate(value: Date) {
+    return value.toISOString().slice(0, 10).split('-').reverse().join('/');
   }
 
   private async sum(where: any) {
@@ -336,3 +427,9 @@ export class RelatoriosService {
       .join(' / ');
   }
 }
+
+
+
+
+
+

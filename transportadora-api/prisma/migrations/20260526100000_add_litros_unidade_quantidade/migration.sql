@@ -1,0 +1,1 @@
+ALTER TYPE "UnidadeQuantidade" ADD VALUE IF NOT EXISTS 'LITROS';

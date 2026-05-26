@@ -1,6 +1,6 @@
-import { TipoConjuntoOperacional, TipoLancamento } from '@prisma/client';
+﻿import { TipoConjuntoOperacional, TipoLancamento } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsDateString, IsEnum, IsIn, IsInt, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
+import { IsDateString, IsEnum, IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class RelatorioFinanceiroQueryDto {
   @IsOptional() @IsDateString() dataInicial?: string;
@@ -15,9 +15,13 @@ export class RelatorioFinanceiroQueryDto {
   @IsOptional() @IsEnum(TipoLancamento) tipoLancamento?: TipoLancamento;
   @IsOptional() @IsEnum(TipoConjuntoOperacional) tipoConjunto?: TipoConjuntoOperacional;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(20) quantidadeEixos?: number;
-  @IsOptional() @Matches(/^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/) placa?: string;
+  @IsOptional() @IsString() placa?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(500) limit?: number;
   @IsOptional() @IsIn(['data', 'valorTotal']) orderBy?: 'data' | 'valorTotal';
   @IsOptional() @IsIn(['asc', 'desc']) orderDirection?: 'asc' | 'desc';
 }
+
+
+
+

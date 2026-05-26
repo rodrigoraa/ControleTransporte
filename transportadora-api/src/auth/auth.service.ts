@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Injectable, UnauthorizedException } from '@nestjs/common';
+﻿import { HttpException, HttpStatus, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
@@ -25,7 +25,7 @@ export class AuthService {
     const valid = user ? await bcrypt.compare(dto.senha, user.senha) : false;
     if (!user || !valid || !user.ativo) {
       this.registerFailedAttempt(dto.email);
-      throw new UnauthorizedException('Credenciais invalidas');
+      throw new UnauthorizedException('E-mail ou senha inválidos.');
     }
     this.attempts.delete(dto.email.toLowerCase());
 
@@ -40,7 +40,7 @@ export class AuthService {
   async forgotPassword(dto: ForgotPasswordDto) {
     const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (!user || !user.ativo) {
-      return { message: 'Se o email existir, as instrucoes de recuperacao serao enviadas.' };
+      return { message: 'Se o e-mail existir, as instruções de recuperação serão enviadas.' };
     }
 
     const temporaryPassword = this.generateTemporaryPassword();
@@ -58,7 +58,7 @@ export class AuthService {
     });
 
     const response: Record<string, string> = {
-      message: 'Senha temporaria gerada. Altere a senha apos entrar.',
+      message: 'Senha temporária gerada. Altere a senha após entrar.',
     };
     if (this.config.get('NODE_ENV') !== 'production') response.temporaryPassword = temporaryPassword;
     return response;
@@ -90,3 +90,7 @@ export class AuthService {
     return `Tmp${randomBytes(6).toString('base64url')}!${randomBytes(1).readUInt8()}`;
   }
 }
+
+
+
+

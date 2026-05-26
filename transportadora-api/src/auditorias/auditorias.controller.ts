@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+﻿import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { PerfilUsuario } from '@prisma/client';
 import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -17,3 +17,7 @@ export class AuditoriasController {
     return this.service.findAll(query);
   }
 }
+
+
+
+

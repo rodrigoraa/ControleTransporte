@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+﻿import { BadRequestException, Injectable } from '@nestjs/common';
 import { CrudService } from '../common/crud/crud.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateFornecedorDto } from './dto/create-fornecedor.dto';
@@ -32,7 +32,7 @@ export class FornecedoresService extends CrudService<CreateFornecedorDto, Update
         acao: 'ATUALIZACAO',
         dadosAntes: JSON.parse(JSON.stringify(antes)),
         dadosDepois: JSON.parse(JSON.stringify(depois)),
-        observacoes: 'Alteracao de fornecedor registrada automaticamente',
+        observacoes: 'Alteração de fornecedor registrada automaticamente',
       },
     });
     return depois;
@@ -41,7 +41,7 @@ export class FornecedoresService extends CrudService<CreateFornecedorDto, Update
   async remove(id: string) {
     const totalLancamentos = await this.prisma.lancamentoFinanceiro.count({ where: { fornecedorId: id } });
     if (totalLancamentos > 0) {
-      throw new BadRequestException('Nao foi possivel excluir: fornecedor possui despesas ou faturamentos vinculados ao historico.');
+      throw new BadRequestException('Não foi possível excluir: fornecedor possui despesas vinculadas ao histórico.');
     }
     return super.remove(id);
   }
@@ -80,3 +80,7 @@ export class FornecedoresService extends CrudService<CreateFornecedorDto, Update
     );
   }
 }
+
+
+
+

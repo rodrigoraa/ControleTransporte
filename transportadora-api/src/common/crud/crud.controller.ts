@@ -1,4 +1,4 @@
-import { Body, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+﻿import { Body, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { PerfilUsuario } from '@prisma/client';
 import { Roles } from '../decorators/roles.decorator';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
@@ -37,3 +37,7 @@ export abstract class CrudController<CreateDto extends object, UpdateDto extends
     return this.service.remove(id);
   }
 }
+
+
+
+

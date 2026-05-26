@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+﻿import { Injectable } from '@nestjs/common';
 import { CrudService } from '../common/crud/crud.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateImplementoDto } from './dto/create-implemento.dto';
@@ -19,7 +19,7 @@ export class ImplementosService extends CrudService<CreateImplementoDto, UpdateI
         acao: 'ATUALIZACAO',
         dadosAntes: JSON.parse(JSON.stringify(antes)),
         dadosDepois: JSON.parse(JSON.stringify(depois)),
-        observacoes: 'Alteracao de implemento registrada automaticamente',
+        observacoes: 'Alteração de implemento registrada automaticamente',
       },
     });
     return depois;
@@ -48,3 +48,7 @@ export class ImplementosService extends CrudService<CreateImplementoDto, UpdateI
     return data;
   }
 }
+
+
+
+

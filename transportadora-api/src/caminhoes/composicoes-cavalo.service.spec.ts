@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException } from '@nestjs/common';
+﻿import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Prisma, TipoCavaloMecanico, TipoImplemento } from '@prisma/client';
 import { ComposicoesCavaloService } from './composicoes-cavalo.service';
 
@@ -50,3 +50,7 @@ describe('ComposicoesCavaloService', () => {
     await expect(service.runCompositionTransaction(prisma, jest.fn())).rejects.toBeInstanceOf(ConflictException);
   });
 });
+
+
+
+

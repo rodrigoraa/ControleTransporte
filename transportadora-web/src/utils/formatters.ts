@@ -1,4 +1,4 @@
-export const money = (value: number | string | null | undefined) =>
+﻿export const money = (value: number | string | null | undefined) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0));
 
 export const date = (value: string | Date | null | undefined) => {
@@ -18,3 +18,4 @@ export const maskPhone = (value: string) =>
   value.replace(/\D/g, '').replace(/(\d{2})(\d{0,5})(\d{0,4})/, (_, a, b, c) => `(${a}) ${b}${c ? `-${c}` : ''}`).slice(0, 15);
 
 export const maskPlate = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 7);
+

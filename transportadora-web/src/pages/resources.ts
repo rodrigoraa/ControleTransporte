@@ -1,4 +1,4 @@
-﻿import { maskDocument, maskPhone, maskPlate } from '../utils/formatters';
+﻿import { maskDocument, maskPhone } from '../utils/formatters';
 
 export type Field = {
   name: string;
@@ -33,13 +33,13 @@ export type Resource = {
 const statusGeral = [
   { label: 'Ativo', value: 'ATIVO' },
   { label: 'Inativo', value: 'INATIVO' },
-  { label: 'Manutencao', value: 'MANUTENCAO' },
+  { label: 'Manutenção', value: 'MANUTENCAO' },
 ];
 
 const tiposCavalo = [
   { label: 'Simples / Toco (4x2) - 2 eixos, para cargas menores', value: 'SIMPLES_TOCO_4X2' },
-  { label: 'Trucado (6x2) - 3 eixos, um eixo traseiro com tracao', value: 'TRUCADO_6X2' },
-  { label: 'Tracado (6x4) - 3 eixos, dois eixos com tracao', value: 'TRACADO_6X4' },
+  { label: 'Trucado (6x2) - 3 eixos, um eixo traseiro com tração', value: 'TRUCADO_6X2' },
+  { label: 'Traçado (6x4) - 3 eixos, dois eixos com tração', value: 'TRACADO_6X4' },
 ];
 
 export const tiposImplemento = [
@@ -50,7 +50,7 @@ export const tiposImplemento = [
 ];
 
 export const carrocerias = [
-  { label: 'Bau', value: 'BAU' },
+  { label: 'Baú', value: 'BAU' },
   { label: 'Graneleiro', value: 'GRANELEIRO' },
   { label: 'Sider', value: 'SIDER' },
   { label: 'Tanque', value: 'TANQUE' },
@@ -60,19 +60,19 @@ export const carrocerias = [
 
 const lancamentoFields: Field[] = [
   { name: 'data', label: 'Data', type: 'date', required: true, table: true },
-  { name: 'cavaloMecanicoId', label: 'Cavalo mecanico', type: 'select', required: true, table: true, relation: { endpoint: '/caminhoes', labelKey: 'placa', fallbackKey: 'modelo', objectKey: 'cavaloMecanico' } },
+  { name: 'cavaloMecanicoId', label: 'Cavalo mecânico', type: 'select', required: true, table: true, relation: { endpoint: '/caminhoes', labelKey: 'placa', fallbackKey: 'modelo', objectKey: 'cavaloMecanico' } },
   { name: 'conjuntoId', label: 'Conjunto usado', type: 'select', table: true, hidden: true, relation: { endpoint: '/conjuntos', labelKey: 'nome', fallbackKey: 'tipo', objectKey: 'conjunto' } },
-  { name: 'motoristaId', label: 'Motorista', type: 'select', required: true, table: true, relation: { endpoint: '/motoristas', labelKey: 'nome', fallbackKey: 'cpf', objectKey: 'motorista' } },
+  { name: 'motoristaId', label: 'Motorista', type: 'select', table: true, relation: { endpoint: '/motoristas', labelKey: 'nome', fallbackKey: 'cpf', objectKey: 'motorista' } },
   { name: 'fornecedorId', label: 'Fornecedor', type: 'select', required: true, table: true, relation: { endpoint: '/fornecedores', labelKey: 'nome', fallbackKey: 'documento', objectKey: 'fornecedor' } },
   { name: 'clienteId', label: 'Cliente', type: 'select', relation: { endpoint: '/clientes', labelKey: 'nome', fallbackKey: 'documento', objectKey: 'cliente' } },
   { name: 'tipoLancamento', label: 'Tipo', type: 'select', required: true, table: true, options: [{ label: 'Despesa', value: 'DESPESA' }, { label: 'Faturamento', value: 'FATURAMENTO' }] },
   { name: 'categoriaId', label: 'Categoria', type: 'select', table: true, relation: { endpoint: '/categorias-financeiras', labelKey: 'nome', fallbackKey: 'tipoLancamento', objectKey: 'categoriaFinanceira' } },
-  { name: 'descricao', label: 'Descricao', table: true },
+  { name: 'descricao', label: 'Descrição', table: true },
   { name: 'quantidade', label: 'Quantidade', type: 'number', required: true },
-  { name: 'unidadeQuantidade', label: 'Unidade da quantidade', type: 'select', required: true, options: [{ label: 'KG', value: 'KG' }, { label: 'Unidade', value: 'UNIDADE' }] },
-  { name: 'valorUnitario', label: 'Valor unitario', type: 'money', required: true, table: true },
+  { name: 'unidadeQuantidade', label: 'Unidade da quantidade', type: 'select', required: true, options: [{ label: 'KG', value: 'KG' }, { label: 'Litros', value: 'LITROS' }, { label: 'Unidade', value: 'UNIDADE' }] },
+  { name: 'valorUnitario', label: 'Valor unitário', type: 'money', required: true, table: true },
   { name: 'valorTotal', label: 'Valor total', type: 'money', table: true },
-  { name: 'observacoes', label: 'Observacoes', type: 'textarea' },
+  { name: 'observacoes', label: 'Observações', type: 'textarea' },
 ];
 
 export const crudResources: Resource[] = [
@@ -84,9 +84,9 @@ export const crudResources: Resource[] = [
       { name: 'nome', label: 'Nome', required: true, table: true },
       { name: 'documento', label: 'CPF/CNPJ', table: true, mask: maskDocument },
       { name: 'telefone', label: 'Telefone', table: true, mask: maskPhone },
-      { name: 'email', label: 'Email', type: 'email', table: true },
-      { name: 'endereco', label: 'Endereco' },
-      { name: 'observacoes', label: 'Observacoes', type: 'textarea' },
+      { name: 'email', label: 'E-mail', type: 'email', table: true },
+      { name: 'endereco', label: 'Endereço' },
+      { name: 'observacoes', label: 'Observações', type: 'textarea' },
       { name: 'ativo', label: 'Ativo', type: 'checkbox', required: true },
     ],
   },
@@ -102,16 +102,16 @@ export const crudResources: Resource[] = [
       { name: 'validadeCnh', label: 'Validade CNH', type: 'date' },
       { name: 'telefone', label: 'Telefone', table: true, mask: maskPhone },
       { name: 'status', label: 'Status', type: 'select', options: statusGeral },
-      { name: 'observacoes', label: 'Observacoes', type: 'textarea' },
+      { name: 'observacoes', label: 'Observações', type: 'textarea' },
     ],
   },
   {
-    title: 'Cavalos mecanicos',
+    title: 'Cavalos mecânicos',
     path: 'caminhoes',
     endpoint: '/caminhoes',
     fields: [
-      { name: 'placa', label: 'Placa do cavalo', required: true, table: true, mask: maskPlate },
-      { name: 'composicaoAtual', label: 'Composicao atual', table: true, hidden: true },
+      { name: 'placa', label: 'Placa do cavalo', required: true, table: true },
+      { name: 'composicaoAtual', label: 'Composição atual', table: true, hidden: true },
       { name: 'marca', label: 'Marca', table: true },
       { name: 'modelo', label: 'Modelo', table: true },
       { name: 'ano', label: 'Ano', type: 'number', table: true },
@@ -121,7 +121,7 @@ export const crudResources: Resource[] = [
       { name: 'chassi', label: 'Chassi' },
       { name: 'renavam', label: 'Renavam' },
       { name: 'status', label: 'Status', type: 'select', options: statusGeral, table: true },
-      { name: 'observacoes', label: 'Observacoes', type: 'textarea' },
+      { name: 'observacoes', label: 'Observações', type: 'textarea' },
     ],
   },
   {
@@ -132,9 +132,9 @@ export const crudResources: Resource[] = [
       { name: 'nome', label: 'Nome', required: true, table: true },
       { name: 'documento', label: 'CPF/CNPJ', table: true, mask: maskDocument },
       { name: 'telefone', label: 'Telefone', table: true, mask: maskPhone },
-      { name: 'email', label: 'Email', type: 'email', table: true },
-      { name: 'endereco', label: 'Endereco' },
-      { name: 'observacoes', label: 'Observacoes', type: 'textarea' },
+      { name: 'email', label: 'E-mail', type: 'email', table: true },
+      { name: 'endereco', label: 'Endereço' },
+      { name: 'observacoes', label: 'Observações', type: 'textarea' },
       { name: 'ativo', label: 'Ativo', type: 'checkbox' },
     ],
   },
@@ -146,7 +146,7 @@ export const crudResources: Resource[] = [
       { name: 'nome', label: 'Nome', required: true, table: true },
       { name: 'tipoLancamento', label: 'Tipo', type: 'select', table: true, options: [{ label: 'Despesa', value: 'DESPESA' }, { label: 'Faturamento', value: 'FATURAMENTO' }] },
       { name: 'ativo', label: 'Ativo', type: 'checkbox', table: true },
-      { name: 'observacoes', label: 'Observacoes', type: 'textarea' },
+      { name: 'observacoes', label: 'Observações', type: 'textarea' },
     ],
   },
   {
@@ -179,14 +179,14 @@ export const crudResources: Resource[] = [
       }),
   },
   {
-    title: 'Usuarios',
+    title: 'Usuários',
     path: 'users',
     endpoint: '/users',
     fields: [
       { name: 'nome', label: 'Nome', required: true, table: true },
-      { name: 'email', label: 'Email', type: 'email', required: true, table: true },
+      { name: 'email', label: 'E-mail', type: 'email', required: true, table: true },
       { name: 'senha', label: 'Senha', type: 'password' },
-      { name: 'perfil', label: 'Perfil', type: 'select', table: true, options: [{ label: 'Admin', value: 'ADMIN' }, { label: 'Usuario', value: 'USUARIO' }] },
+      { name: 'perfil', label: 'Perfil', type: 'select', table: true, options: [{ label: 'Admin', value: 'ADMIN' }, { label: 'Usuário', value: 'USUARIO' }] },
       { name: 'ativo', label: 'Ativo', type: 'checkbox', table: true },
     ],
   },
@@ -199,10 +199,14 @@ export const crudResources: Resource[] = [
       { name: 'createdAt', label: 'Data', type: 'date', table: true },
       { name: 'entidade', label: 'Entidade', table: true },
       { name: 'entidadeId', label: 'Registro', table: true },
-      { name: 'acao', label: 'Acao', table: true },
-      { name: 'usuarioId', label: 'Usuario' },
+      { name: 'acao', label: 'Ação', table: true },
+      { name: 'usuarioId', label: 'Usuário' },
       { name: 'dadosAntes', label: 'Dados anteriores', type: 'textarea' },
       { name: 'dadosDepois', label: 'Dados novos', type: 'textarea' },
     ],
   },
 ];
+
+
+
+
