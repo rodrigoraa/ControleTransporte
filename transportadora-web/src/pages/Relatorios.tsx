@@ -1,4 +1,5 @@
-﻿import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
+import { BarChart3, Download, FileSpreadsheet, FileText, Filter, Search } from 'lucide-react';
 import { api } from '../services/api';
 import { apiErrorMessage } from '../utils/apiError';
 import { money } from '../utils/formatters';
@@ -40,6 +41,7 @@ export function Relatorios() {
     tipos: [],
     placas: [],
   });
+  const activeFilters = Object.values(filters).filter(Boolean).length;
 
   useEffect(() => {
     api.get('/relatorios/opcoes').then((response) => setOptions(response.data));
@@ -90,13 +92,36 @@ export function Relatorios() {
 
   return (
     <section className="page">
-      <div className="page-header">
+      <div className="page-header report-header">
         <div>
           <h1>Relatórios</h1>
-          <p>Filtros por período, motorista, cavalo, implemento, conjunto, tipo de conjunto, quantidade de eixos e financeiro.</p>
+          <p>Indicadores financeiros por período, frota, composição e categoria.</p>
         </div>
+        {financeiro && (
+          <div className="actions">
+            <button className="button" type="button" onClick={() => exportReport('csv')}>
+              <FileSpreadsheet size={18} />
+              Excel
+            </button>
+            <button className="button primary" type="button" onClick={() => exportReport('pdf')}>
+              <Download size={18} />
+              PDF
+            </button>
+          </div>
+        )}
       </div>
-      <form className="panel report-filters" onSubmit={submit}>
+
+      <form className="panel report-filters report-filter-panel" onSubmit={submit}>
+        <div className="filter-heading wide">
+          <div>
+            <span><Filter size={16} /> Filtros</span>
+            <strong>{activeFilters ? `${activeFilters} filtros ativos` : 'Visão geral'}</strong>
+          </div>
+          <button className="button primary" disabled={loading}>
+            <Search size={18} />
+            {loading ? 'Gerando...' : 'Gerar relatório'}
+          </button>
+        </div>
         <label>Data inicial<input type="date" value={filters.dataInicial || ''} onChange={(e) => setFilters({ ...filters, dataInicial: e.target.value })} /></label>
         <label>Data final<input type="date" value={filters.dataFinal || ''} onChange={(e) => setFilters({ ...filters, dataFinal: e.target.value })} /></label>
         <SelectFilter label="Motorista" name="motoristaId" value={filters.motoristaId || ''} options={options.motoristas} onChange={updateFilter} />
@@ -112,25 +137,33 @@ export function Relatorios() {
         <SelectFilter label="Categoria" name="categoriaId" value={filters.categoriaId || ''} options={options.categorias} onChange={updateFilter} />
         <SelectFilter label="Ordenar por" name="orderBy" value={filters.orderBy || ''} options={[{ value: 'data', label: 'Data' }, { value: 'valorTotal', label: 'Valor total' }]} onChange={updateFilter} />
         <SelectFilter label="Direção" name="orderDirection" value={filters.orderDirection || ''} options={[{ value: 'desc', label: 'Decrescente' }, { value: 'asc', label: 'Crescente' }]} onChange={updateFilter} />
-        <button className="button primary" disabled={loading}>{loading ? 'Gerando...' : 'Gerar relatório'}</button>
       </form>
+
       {error && <div className="form-error">{error}</div>}
       {financeiro && (
         <>
           <div className="stats-grid">
-            <article className="stat-card"><span>Total de despesas</span><strong>{money(financeiro.totalDespesas)}</strong></article>
-            <article className="stat-card"><span>Total de faturamento</span><strong>{money(financeiro.totalFaturamento)}</strong></article>
-            <article className="stat-card"><span>Saldo final</span><strong>{money(financeiro.saldoFinal)}</strong></article>
+            <article className="stat-card stat-danger"><span>Total de despesas</span><strong>{money(financeiro.totalDespesas)}</strong></article>
+            <article className="stat-card stat-success"><span>Total de faturamento</span><strong>{money(financeiro.totalFaturamento)}</strong></article>
+            <article className={`stat-card ${financeiro.saldoFinal >= 0 ? 'stat-info' : 'stat-danger'}`}><span>Saldo final</span><strong>{money(financeiro.saldoFinal)}</strong></article>
+            <article className="stat-card stat-neutral"><span>Lançamentos</span><strong>{financeiro.total}</strong></article>
           </div>
-          <div className="panel">
+
+          <div className="panel report-table-panel">
             <div className="panel-title-row">
               <div>
                 <h2>Lançamentos encontrados</h2>
                 <p>Detalhamento das despesas e faturamentos, incluindo a composição registrada no momento do lançamento.</p>
               </div>
               <div className="actions">
-                <button className="button" type="button" onClick={() => exportReport('csv')}>Exportar Excel</button>
-                <button className="button" type="button" onClick={() => exportReport('pdf')}>Exportar PDF</button>
+                <button className="button" type="button" onClick={() => exportReport('csv')}>
+                  <FileSpreadsheet size={18} />
+                  Exportar Excel
+                </button>
+                <button className="button" type="button" onClick={() => exportReport('pdf')}>
+                  <FileText size={18} />
+                  Exportar PDF
+                </button>
               </div>
             </div>
             <div className="table-wrap">
@@ -145,7 +178,7 @@ export function Relatorios() {
                   {financeiro.historico.map((item: any) => (
                     <tr key={item.id}>
                       <td>{new Date(item.data).toLocaleDateString('pt-BR')}</td>
-                      <td>{item.tipoLancamento}</td>
+                      <td><TipoBadge tipo={item.tipoLancamento} /></td>
                       <td>{item.cavaloMecanico?.placa || item.placa}</td>
                       <td>{labelConjunto(item.conjunto)}</td>
                       <td>{labelImplementos(item.conjunto)}</td>
@@ -153,8 +186,8 @@ export function Relatorios() {
                       <td>{labelPessoa(item.fornecedor) !== '-' ? labelPessoa(item.fornecedor) : labelPessoa(item.cliente)}</td>
                       <td>{item.categoriaFinanceira?.nome || '-'}</td>
                       <td>{Number(item.quantidade).toLocaleString('pt-BR')} {item.unidadeQuantidade}</td>
-                      <td>{money(item.valorUnitario)}</td>
-                      <td>{money(item.valorTotal)}</td>
+                      <td className="money-cell">{money(item.valorUnitario)}</td>
+                      <td className={`money-cell ${item.tipoLancamento === 'DESPESA' ? 'negative' : 'positive'}`}>{money(item.valorTotal)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -167,6 +200,7 @@ export function Relatorios() {
               <button className="button" type="button" disabled={financeiro.page * financeiro.limit >= financeiro.total || loading} onClick={() => loadReport(financeiro.page + 1)}>Próxima</button>
             </div>
           </div>
+
           <div className="report-grid">
             <Group title="Despesas por cavalo mecânico" rows={financeiro.despesasPorCavaloMecanico} />
             <Group title="Despesas por motorista" rows={financeiro.despesasPorMotorista} />
@@ -181,25 +215,39 @@ export function Relatorios() {
 }
 
 function Group({ title, rows }: { title: string; rows: any[] }) {
+  const total = rows.reduce((sum, row) => sum + Number(row.total || 0), 0);
   return (
-    <div className="panel">
-      <h2>{title}</h2>
-      <div className="table-wrap">
-        <table>
-          <thead><tr><th>Nome</th><th>Total</th></tr></thead>
-          <tbody>
-            {rows.map((row, index) => <tr key={index}><td>{row.label}</td><td>{money(row.total)}</td></tr>)}
-          </tbody>
-        </table>
+    <div className="panel report-group-card">
+      <div className="group-title">
+        <h2>{title}</h2>
+        <BarChart3 size={18} />
       </div>
+      {!rows.length && <div className="empty-inline">Nenhum registro encontrado.</div>}
+      {rows.map((row, index) => {
+        const percent = total ? Math.max(4, Math.round((Number(row.total || 0) / total) * 100)) : 0;
+        return (
+          <div className="group-row" key={index}>
+            <div>
+              <strong>{row.label}</strong>
+              <span>{money(row.total)}</span>
+            </div>
+            <div className="group-meter"><span style={{ width: `${percent}%` }} /></div>
+          </div>
+        );
+      })}
     </div>
   );
 }
 
 function ConjuntosPorCavalo({ rows }: { rows: any[] }) {
   return (
-    <div className="panel">
-      <h2>Resumo por composição do cavalo</h2>
+    <div className="panel report-table-panel">
+      <div className="panel-title-row">
+        <div>
+          <h2>Resumo por composição do cavalo</h2>
+          <p>Resultado consolidado por cavalo e conjunto operacional.</p>
+        </div>
+      </div>
       <div className="table-wrap">
         <table>
           <thead>
@@ -215,9 +263,9 @@ function ConjuntosPorCavalo({ rows }: { rows: any[] }) {
                 <td>{row.quantidadeTotalEixos ?? '-'}</td>
                 <td>{row.implementos || '-'}</td>
                 <td>{row.quantidadeLancamentos}</td>
-                <td>{money(row.totalDespesas)}</td>
-                <td>{money(row.totalFaturamento)}</td>
-                <td>{money(row.saldo)}</td>
+                <td className="money-cell negative">{money(row.totalDespesas)}</td>
+                <td className="money-cell positive">{money(row.totalFaturamento)}</td>
+                <td className={`money-cell ${row.saldo >= 0 ? 'positive' : 'negative'}`}>{money(row.saldo)}</td>
               </tr>
             ))}
           </tbody>
@@ -239,6 +287,11 @@ function SelectFilter({ label, name, value, options, disabled, onChange }: { lab
   );
 }
 
+function TipoBadge({ tipo }: { tipo: string }) {
+  const despesa = tipo === 'DESPESA';
+  return <span className={`type-badge ${despesa ? 'danger' : 'success'}`}>{despesa ? 'Despesa' : 'Faturamento'}</span>;
+}
+
 function labelPessoa(item: any) {
   if (!item) return '-';
   return [item.nome, item.documento || item.cpf].filter(Boolean).join(' - ') || '-';
@@ -258,8 +311,3 @@ function labelImplementos(conjunto: any) {
     return [vinculo.ordem ? `${vinculo.ordem}.` : null, implemento?.placa || 'Sem placa', implemento?.tipo, implemento?.carroceria, implemento?.quantidadeEixos != null ? `${implemento.quantidadeEixos} eixos` : null].filter(Boolean).join(' ');
   }).join(' / ');
 }
-
-
-
-
-
