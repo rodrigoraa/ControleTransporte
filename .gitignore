@@ -38,11 +38,6 @@ build/
 .build/
 coverage/
 
-# The current repo only has the frontend build available.
-# Keep it versioned until the frontend source project is restored.
-!transportadora-web/dist/
-!transportadora-web/dist/**
-
 # Caches
 .cache/
 .parcel-cache/

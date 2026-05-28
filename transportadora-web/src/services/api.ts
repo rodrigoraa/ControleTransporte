@@ -1,7 +1,8 @@
-﻿import axios from 'axios';
+import axios from 'axios';
+import { API_BASE_URL, LOGIN_URL } from '../config/env';
 
 export const api = axios.create({
-  baseURL: `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api`,
+  baseURL: API_BASE_URL,
 });
 
 api.interceptors.request.use((config) => {
@@ -16,9 +17,8 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       sessionStorage.removeItem('token');
       sessionStorage.removeItem('user');
-      if (!window.location.pathname.includes('/login')) window.location.href = '/login';
+      if (!window.location.hash.includes('/login')) window.location.assign(LOGIN_URL);
     }
     return Promise.reject(error);
   },
 );
-

@@ -7,10 +7,15 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const config = app.get(ConfigService);
+  const allowedOrigins = config
+    .getOrThrow<string>('FRONTEND_URL')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
 
   app.use(helmet());
   app.enableCors({
-    origin: config.getOrThrow<string>('FRONTEND_URL'),
+    origin: allowedOrigins,
     credentials: true,
   });
   app.setGlobalPrefix('api');

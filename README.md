@@ -325,12 +325,16 @@ cp .env.example transportadora-web/.env
 Exemplo de variaveis:
 
 ```env
-DATABASE_URL="postgresql://postgres:postgres@localhost:5433/controle_transporte?schema=public"
+DATABASE_URL="postgresql://postgres:SUA_SENHA_LOCAL@localhost:5433/controle_transporte?schema=public"
 JWT_SECRET="dev-local-controle-transporte-jwt-secret-32"
 JWT_EXPIRES_IN="8h"
 PORT=3000
 FRONTEND_URL="http://localhost:5173"
 VITE_API_URL="http://localhost:3000"
+VITE_BASE_PATH="/"
+ADMIN_NAME="Administrador"
+ADMIN_EMAIL="admin@transportadora.com"
+ADMIN_PASSWORD="troque-esta-senha-local"
 ```
 
 ## Banco de dados
@@ -358,16 +362,11 @@ npm run prisma:seed --workspace transportadora-api
 Login inicial criado pelo seed:
 
 ```txt
-admin@transportadora.com
-admin123
+ADMIN_EMAIL
+ADMIN_PASSWORD
 ```
 
-Usuario operacional criado pelo seed:
-
-```txt
-usuario@transportadora.com
-usuario123
-```
+Defina `ADMIN_EMAIL` e `ADMIN_PASSWORD` no `.env` antes de executar o seed. Nao use senha padrao em producao.
 
 ## Rodando o sistema
 
@@ -1053,7 +1052,7 @@ Payload:
 ```json
 {
   "email": "admin@transportadora.com",
-  "senha": "admin123"
+  "senha": "senha-configurada-no-seed"
 }
 ```
 
@@ -1308,29 +1307,28 @@ Backend:
 | `JWT_SECRET` | Chave secreta para assinar tokens JWT. Deve ser longa e privada. |
 | `JWT_EXPIRES_IN` | Tempo de validade do token. Exemplo: `8h`. |
 | `PORT` | Porta da API. |
-| `FRONTEND_URL` | Origem liberada no CORS. |
+| `FRONTEND_URL` | Origem liberada no CORS. Use virgulas para mais de uma origem. |
+| `ADMIN_EMAIL` | E-mail do administrador criado pelo seed. |
+| `ADMIN_PASSWORD` | Senha do administrador criado pelo seed. Deve ser forte e privada. |
 
 Frontend:
 
 | Variavel | Uso |
 | --- | --- |
 | `VITE_API_URL` | URL base da API consumida pelo React. |
+| `VITE_BASE_PATH` | Caminho base do frontend. No GitHub Pages use `/<nome-do-repositorio>/`. |
 
 ### Deploy
 
 Fluxo recomendado:
 
 ```txt
-1. Provisionar servidor ou ambiente cloud.
-2. Configurar PostgreSQL gerenciado ou container persistente.
-3. Configurar variaveis de ambiente.
-4. Rodar migrations.
-5. Gerar build do backend.
-6. Gerar build do frontend.
-7. Servir frontend por Nginx/Apache/CDN.
-8. Rodar API como servico com PM2, Docker ou systemd.
-9. Configurar proxy reverso com HTTPS.
-10. Configurar backup e monitoramento.
+1. Provisionar banco PostgreSQL no Supabase.
+2. Configurar a API no Render com variaveis de ambiente.
+3. Configurar `VITE_API_URL` como secret do GitHub Actions.
+4. Publicar o frontend no GitHub Pages.
+5. Rodar migrations contra o banco de producao.
+6. Configurar backup e monitoramento.
 ```
 
 Comandos de build:

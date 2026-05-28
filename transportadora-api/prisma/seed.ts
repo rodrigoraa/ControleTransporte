@@ -5,15 +5,24 @@ import * as bcrypt from 'bcrypt';
 const prisma = new PrismaClient();
 
 async function main() {
+  const adminEmail = process.env.ADMIN_EMAIL;
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  const adminName = process.env.ADMIN_NAME || 'Administrador';
+
+  if (!adminEmail) throw new Error('ADMIN_EMAIL deve ser informado para executar o seed.');
+  if (!adminPassword || adminPassword.length < 12) {
+    throw new Error('ADMIN_PASSWORD deve ser informado e ter pelo menos 12 caracteres.');
+  }
+
   await prisma.user.upsert({
     where: {
-      email: 'admin@transportadora.com',
+      email: adminEmail,
     },
     update: {},
     create: {
-      nome: 'Administrador',
-      email: 'admin@transportadora.com',
-      senha: await bcrypt.hash('admin123', 10),
+      nome: adminName,
+      email: adminEmail,
+      senha: await bcrypt.hash(adminPassword, 10),
       perfil: PerfilUsuario.ADMIN,
     },
   });

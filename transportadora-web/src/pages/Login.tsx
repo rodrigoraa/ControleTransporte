@@ -5,8 +5,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { api } from '../services/api';
 
 export function Login() {
-  const [email, setEmail] = useState('admin@transportadora.com');
-  const [senha, setSenha] = useState('admin123');
+  const [email, setEmail] = useState('');
+  const [senha, setSenha] = useState('');
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
