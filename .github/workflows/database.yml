@@ -25,6 +25,10 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - run: npm run prisma:generate --workspace transportadora-api
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
       - run: npm run prisma:deploy --workspace transportadora-api
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
