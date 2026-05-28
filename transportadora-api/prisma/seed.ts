@@ -18,16 +18,22 @@ async function main() {
     where: {
       email: adminEmail,
     },
-    update: {},
+    update: {
+      nome: adminName,
+      senha: await bcrypt.hash(adminPassword, 10),
+      perfil: PerfilUsuario.ADMIN,
+      ativo: true,
+    },
     create: {
       nome: adminName,
       email: adminEmail,
       senha: await bcrypt.hash(adminPassword, 10),
       perfil: PerfilUsuario.ADMIN,
+      ativo: true,
     },
   });
 
-  console.log('Usuario administrador criado.');
+  console.log('Usuario administrador sincronizado.');
 }
 
 main()
