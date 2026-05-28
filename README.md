@@ -326,6 +326,7 @@ Exemplo de variaveis:
 
 ```env
 DATABASE_URL="postgresql://postgres:SUA_SENHA_LOCAL@localhost:5433/controle_transporte?schema=public"
+DIRECT_URL="postgresql://postgres:SUA_SENHA_LOCAL@localhost:5433/controle_transporte?schema=public"
 JWT_SECRET="dev-local-controle-transporte-jwt-secret-32"
 JWT_EXPIRES_IN="8h"
 PORT=3000
@@ -1303,7 +1304,8 @@ Backend:
 
 | Variavel | Uso |
 | --- | --- |
-| `DATABASE_URL` | URL de conexao com PostgreSQL. |
+| `DATABASE_URL` | URL de conexao usada pela aplicacao. No Supabase, pode usar a URL pooler. |
+| `DIRECT_URL` | URL direta do PostgreSQL usada pelo Prisma para migrations. No Supabase, use a URL direta. |
 | `JWT_SECRET` | Chave secreta para assinar tokens JWT. Deve ser longa e privada. |
 | `JWT_EXPIRES_IN` | Tempo de validade do token. Exemplo: `8h`. |
 | `PORT` | Porta da API. |
@@ -1337,6 +1339,18 @@ Comandos de build:
 npm run build --workspace transportadora-api
 npm run build --workspace transportadora-web
 ```
+
+Render para o backend, usando `Root Directory` como `transportadora-api`:
+
+```bash
+# Build Command
+npm install --include=dev && npm run prisma:generate && npm run build
+
+# Start Command
+npm run prisma:deploy && npm run start
+```
+
+Nao rode `npx prisma db seed` automaticamente no Start Command de producao. Execute o seed manualmente apenas quando precisar criar o usuario inicial, com `ADMIN_EMAIL` e `ADMIN_PASSWORD` configurados.
 
 ### Backup
 
