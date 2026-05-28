@@ -38,4 +38,5 @@ describe('crudResources', () => {
     expect(field('caminhoes', 'composicaoAtual')?.hidden).toBe(true);
   });
 });
+//teste
 
