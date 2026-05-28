@@ -5,9 +5,9 @@ import * as bcrypt from 'bcrypt';
 const prisma = new PrismaClient();
 
 async function main() {
-  const adminEmail = process.env.ADMIN_EMAIL;
+  const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
   const adminPassword = process.env.ADMIN_PASSWORD;
-  const adminName = process.env.ADMIN_NAME || 'Administrador';
+  const adminName = process.env.ADMIN_NAME?.trim() || 'Administrador';
 
   if (!adminEmail) throw new Error('ADMIN_EMAIL deve ser informado para executar o seed.');
   if (!adminPassword || adminPassword.length < 12) {

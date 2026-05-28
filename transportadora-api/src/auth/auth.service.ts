@@ -20,14 +20,15 @@ export class AuthService {
   ) {}
 
   async login(dto: LoginDto) {
-    this.assertLoginAllowed(dto.email);
-    const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    const email = this.normalizeEmail(dto.email);
+    this.assertLoginAllowed(email);
+    const user = await this.prisma.user.findUnique({ where: { email } });
     const valid = user ? await bcrypt.compare(dto.senha, user.senha) : false;
     if (!user || !valid || !user.ativo) {
-      this.registerFailedAttempt(dto.email);
+      this.registerFailedAttempt(email);
       throw new UnauthorizedException('E-mail ou senha inválidos.');
     }
-    this.attempts.delete(dto.email.toLowerCase());
+    this.attempts.delete(email);
 
     const payload = { sub: user.id, email: user.email, perfil: user.perfil };
     const token = await this.jwt.signAsync(payload, {
@@ -38,7 +39,8 @@ export class AuthService {
   }
 
   async forgotPassword(dto: ForgotPasswordDto) {
-    const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    const email = this.normalizeEmail(dto.email);
+    const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user || !user.ativo) {
       return { message: 'Se o e-mail existir, as instruções de recuperação serão enviadas.' };
     }
@@ -72,7 +74,7 @@ export class AuthService {
   }
 
   private registerFailedAttempt(email: string) {
-    const key = email.toLowerCase();
+    const key = this.normalizeEmail(email);
     const now = Date.now();
     const current = this.attempts.get(key);
     const attempt = current && now - current.firstAttemptAt < 10 * 60 * 1000
@@ -84,6 +86,10 @@ export class AuthService {
     }
 
     this.attempts.set(key, attempt);
+  }
+
+  private normalizeEmail(email: string) {
+    return email.trim().toLowerCase();
   }
 
   private generateTemporaryPassword() {
