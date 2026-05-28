@@ -36,7 +36,7 @@ jobs:
       - run: npm run prisma:seed --workspace transportadora-api
         if: ${{ inputs.run_seed == 'true' }}
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.DIRECT_URL }}
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
           ADMIN_NAME: ${{ secrets.ADMIN_NAME }}
           ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
