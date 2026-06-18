@@ -1310,3 +1310,10 @@ tbody tr:hover {
     flex: 1;
   }
 }
+.page-loading {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  color: #475569;
+  font-weight: 600;
+}

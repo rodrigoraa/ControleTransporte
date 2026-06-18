@@ -14,10 +14,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: { sub: string; email: string }) {
+  async validate(payload: { sub: string; email: string; version?: string }) {
     const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
-    if (!user || !user.ativo) throw new UnauthorizedException('Usuário inativo ou inexistente.');
-    const { senha, ...safeUser } = user;
+    if (!user || !user.ativo || !payload.version || user.updatedAt.toISOString() !== payload.version) {
+      throw new UnauthorizedException('Sessão expirada, usuário inativo ou inexistente.');
+    }
+    const { senha: _senha, ...safeUser } = user;
     return safeUser;
   }
 }

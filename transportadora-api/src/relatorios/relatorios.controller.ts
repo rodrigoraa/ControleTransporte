@@ -1,5 +1,5 @@
-﻿import { Controller, Get, Header, Query, Res, UseGuards } from '@nestjs/common';
-import { Response } from 'express';
+import { Controller, Get, Header, Query, Res, UseGuards } from '@nestjs/common';
+import { FastifyReply } from 'fastify';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RelatorioFinanceiroQueryDto } from './dto/relatorio-financeiro-query.dto';
 import { RelatoriosService } from './relatorios.service';
@@ -26,15 +26,11 @@ export class RelatoriosController {
   }
 
   @Get('financeiros/exportar.pdf')
-  async exportarPdf(@Query() query: RelatorioFinanceiroQueryDto, @Res() response: Response) {
+  async exportarPdf(@Query() query: RelatorioFinanceiroQueryDto, @Res() response: FastifyReply) {
     const pdf = await this.service.exportarPdf(query);
-    response.setHeader('Content-Type', 'application/pdf');
-    response.setHeader('Content-Disposition', 'attachment; filename="relatorio-financeiro.pdf"');
-    response.send(pdf);
+    return response
+      .header('Content-Type', 'application/pdf')
+      .header('Content-Disposition', 'attachment; filename="relatorio-financeiro.pdf"')
+      .send(pdf);
   }
 }
-
-
-
-
-

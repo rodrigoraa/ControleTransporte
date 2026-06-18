@@ -1,24 +1,36 @@
-﻿import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { PerfilUsuario } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
-import { PrismaService } from '../common/prisma/prisma.service';
 import { PaginationDto } from '../common/crud/pagination.dto';
+import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {}
 
   private safe(user: any) {
-    const { senha, ...rest } = user;
+    const { senha: _senha, ...rest } = user;
     return rest;
   }
 
   async create(dto: CreateUserDto) {
-    const exists = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    const email = this.normalizeEmail(dto.email);
+    const exists = await this.prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
+    });
     if (exists) throw new ConflictException('E-mail já cadastrado. Use outro e-mail ou edite o usuário existente.');
     const user = await this.prisma.user.create({
-      data: { ...dto, senha: await bcrypt.hash(dto.senha, 10) },
+      data: {
+        ...dto,
+        email,
+        senha: await bcrypt.hash(dto.senha, this.bcryptRounds()),
+      },
     });
     await this.prisma.auditoria.create({
       data: { entidade: 'User', entidadeId: user.id, acao: 'CRIACAO', dadosDepois: this.safe(user) },
@@ -30,7 +42,12 @@ export class UsersService {
     const page = query.page || 1;
     const limit = query.limit || 10;
     const where = query.search
-      ? { OR: [{ nome: { contains: query.search, mode: 'insensitive' as const } }, { email: { contains: query.search, mode: 'insensitive' as const } }] }
+      ? {
+          OR: [
+            { nome: { contains: query.search, mode: 'insensitive' as const } },
+            { email: { contains: query.search, mode: 'insensitive' as const } },
+          ],
+        }
       : {};
     const [data, total] = await Promise.all([
       this.prisma.user.findMany({ where, skip: (page - 1) * limit, take: limit, orderBy: { nome: 'asc' } }),
@@ -46,10 +63,24 @@ export class UsersService {
   }
 
   async update(id: string, dto: UpdateUserDto) {
-    await this.findOne(id);
+    const current = await this.prisma.user.findUnique({ where: { id } });
+    if (!current) throw new NotFoundException('Usuário não encontrado.');
+    await this.assertAdminContinuity(current, dto);
+
     const data = { ...dto } as any;
-    if (dto.senha) data.senha = await bcrypt.hash(dto.senha, 10);
-    const before = await this.findOne(id);
+    if (dto.email) {
+      data.email = this.normalizeEmail(dto.email);
+      const duplicate = await this.prisma.user.findFirst({
+        where: {
+          id: { not: id },
+          email: { equals: data.email, mode: 'insensitive' },
+        },
+      });
+      if (duplicate) throw new ConflictException('E-mail já cadastrado em outro usuário.');
+    }
+    if (dto.senha) data.senha = await bcrypt.hash(dto.senha, this.bcryptRounds());
+
+    const before = this.safe(current);
     const user = await this.prisma.user.update({ where: { id }, data });
     await this.prisma.auditoria.create({
       data: { entidade: 'User', entidadeId: id, acao: 'ATUALIZACAO', dadosAntes: before, dadosDepois: this.safe(user) },
@@ -58,15 +89,41 @@ export class UsersService {
   }
 
   async remove(id: string) {
-    const before = await this.findOne(id);
+    const current = await this.prisma.user.findUnique({ where: { id } });
+    if (!current) throw new NotFoundException('Usuário não encontrado.');
+    await this.assertAdminContinuity(current, { ativo: false });
+
+    const before = this.safe(current);
     await this.prisma.user.delete({ where: { id } });
     await this.prisma.auditoria.create({
       data: { entidade: 'User', entidadeId: id, acao: 'EXCLUSAO', dadosAntes: before },
     });
     return { message: 'Usuário excluído com sucesso.' };
   }
+
+  private async assertAdminContinuity(
+    current: { perfil: PerfilUsuario; ativo: boolean },
+    changes: Pick<UpdateUserDto, 'perfil' | 'ativo'>,
+  ) {
+    const removesActiveAdmin =
+      current.perfil === PerfilUsuario.ADMIN &&
+      current.ativo &&
+      (changes.perfil === PerfilUsuario.USUARIO || changes.ativo === false);
+    if (!removesActiveAdmin) return;
+
+    const activeAdmins = await this.prisma.user.count({
+      where: { perfil: PerfilUsuario.ADMIN, ativo: true },
+    });
+    if (activeAdmins <= 1) {
+      throw new ConflictException('Não é possível remover ou desativar o último administrador ativo.');
+    }
+  }
+
+  private normalizeEmail(email: string) {
+    return email.trim().toLowerCase();
+  }
+
+  private bcryptRounds() {
+    return this.config.get<number>('BCRYPT_ROUNDS') || 12;
+  }
 }
-
-
-
-

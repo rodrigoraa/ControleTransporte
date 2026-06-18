@@ -5,7 +5,7 @@ import { CreateUserDto } from './create-user.dto';
 export class UpdateUserDto extends PartialType(CreateUserDto) {
   @IsOptional()
   @IsString()
-  @MinLength(6)
+  @MinLength(12)
   senha?: string;
 }
 

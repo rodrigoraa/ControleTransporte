@@ -1,0 +1,82 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-controle_transporte}
+      POSTGRES_USER: ${POSTGRES_USER:-controle_transporte}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD deve ser informado}
+    volumes:
+      - postgres_production_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-controle_transporte} -d ${POSTGRES_DB:-controle_transporte}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    security_opt:
+      - no-new-privileges:true
+
+  migrate:
+    build:
+      context: .
+      dockerfile: transportadora-api/Dockerfile
+      target: migrate
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-controle_transporte}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-controle_transporte}?schema=public
+      DIRECT_URL: postgresql://${POSTGRES_USER:-controle_transporte}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-controle_transporte}?schema=public
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
+      ADMIN_NAME: ${ADMIN_NAME:-Administrador}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+
+  api:
+    build:
+      context: .
+      dockerfile: transportadora-api/Dockerfile
+      target: runtime
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-controle_transporte}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-controle_transporte}?schema=public
+      DATABASE_POOL_MODE: direct
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET deve ser informado}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-8h}
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
+      FRONTEND_URL: ${FRONTEND_URL:?FRONTEND_URL deve ser informado}
+      TRUST_PROXY: "true"
+      MAX_BODY_BYTES: ${MAX_BODY_BYTES:-1048576}
+      PORT: 3000
+      HOST: 0.0.0.0
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  web:
+    build:
+      context: .
+      dockerfile: transportadora-web/Dockerfile
+      args:
+        VITE_API_URL: ""
+        VITE_BASE_PATH: "/"
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  postgres_production_data:

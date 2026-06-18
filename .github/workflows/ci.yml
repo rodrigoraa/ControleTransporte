@@ -1,0 +1,35 @@
+name: Quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.17.0
+          cache: npm
+      - run: npm ci
+      - run: npm run prisma:generate --workspace transportadora-api
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/controle_transporte?schema=public
+          DIRECT_URL: postgresql://postgres:postgres@localhost:5432/controle_transporte?schema=public
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+        env:
+          VITE_API_URL: https://api.example.invalid
+          VITE_BASE_PATH: /
+      - run: npm run audit:prod

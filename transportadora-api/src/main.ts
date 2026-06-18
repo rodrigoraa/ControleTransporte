@@ -1,11 +1,18 @@
 ﻿import { BadRequestException, ValidationError, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import helmet from '@fastify/helmet';
 import { NestFactory } from '@nestjs/core';
-import helmet from 'helmet';
+import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestFastifyApplication>(
+    AppModule,
+    new FastifyAdapter({
+      bodyLimit: numberEnv('MAX_BODY_BYTES', 1_048_576),
+      trustProxy: booleanEnv('TRUST_PROXY'),
+    }),
+  );
   const config = app.get(ConfigService);
   const allowedOrigins = config
     .getOrThrow<string>('FRONTEND_URL')
@@ -13,10 +20,15 @@ async function bootstrap() {
     .map((origin) => origin.trim())
     .filter(Boolean);
 
-  app.use(helmet());
+  await app.register(helmet, {
+    contentSecurityPolicy: false,
+  });
   app.enableCors({
     origin: allowedOrigins,
-    credentials: true,
+    credentials: false,
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'X-Request-Id'],
+    exposedHeaders: ['Content-Disposition', 'X-Request-Id'],
   });
   app.setGlobalPrefix('api');
   app.useGlobalPipes(
@@ -28,10 +40,27 @@ async function bootstrap() {
     }),
   );
 
-  await app.listen(config.get<number>('PORT') || 3000);
+  app.enableShutdownHooks();
+
+  await app.listen({
+    port: config.get<number>('PORT') || 3000,
+    host: config.get<string>('HOST') || '0.0.0.0',
+  });
 }
 
-bootstrap();
+bootstrap().catch((error) => {
+  console.error('Falha ao iniciar a API.', error);
+  process.exit(1);
+});
+
+function booleanEnv(name: string) {
+  return ['1', 'true', 'yes', 'on'].includes(String(process.env[name] || '').toLowerCase());
+}
+
+function numberEnv(name: string, fallback: number) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
 
 function formatValidationErrors(errors: ValidationError[], parentPath = ''): string[] {
   return errors.flatMap((error) => {
@@ -69,7 +98,8 @@ function fieldLabel(path: string) {
     const index = Number(implementoMatch[1]) + 1;
     return `${baseFieldLabel(implementoMatch[2])} do implemento ${index}`;
   }
-  return baseFieldLabel(path.split('.').at(-1) || path);
+  const parts = path.split('.');
+  return baseFieldLabel(parts[parts.length - 1] || path);
 }
 
 function baseFieldLabel(field: string) {

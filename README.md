@@ -1298,6 +1298,20 @@ npm run test
 
 Esta secao resume cuidados para colocar o sistema em ambiente real de transportadora.
 
+### O que ja esta preparado
+
+- API com Fastify, headers de seguranca, CORS restrito e limite de corpo.
+- Rate limit global e limites mais rigorosos no login e na recuperacao de senha.
+- Recuperacao temporaria de senha bloqueada por padrao e sempre bloqueada em producao enquanto nao houver SMTP.
+- Tokens invalidados quando o usuario e alterado, desativado ou tem a senha redefinida.
+- Protecao contra remocao ou desativacao do ultimo administrador ativo.
+- Health checks em `/api/health` e `/api/health/ready`.
+- Logs HTTP estruturados com `X-Request-Id`.
+- Encerramento gracioso da API.
+- Imagens Docker separadas para migrations, API e frontend.
+- Nginx com proxy para `/api`, CSP e cache seguro de assets.
+- Pipeline de CI com lint, testes, build e auditoria das dependencias de producao.
+
 ### Variaveis obrigatorias
 
 Backend:
@@ -1306,10 +1320,14 @@ Backend:
 | --- | --- |
 | `DATABASE_URL` | URL de conexao usada pela aplicacao. No Supabase, pode usar a URL pooler. |
 | `DIRECT_URL` | URL direta do PostgreSQL usada pelo Prisma para migrations. No Supabase, use a URL direta. |
-| `JWT_SECRET` | Chave secreta para assinar tokens JWT. Deve ser longa e privada. |
+| `DATABASE_POOL_MODE` | `auto`, `direct` ou `transaction`. Use `transaction` para pooler transacional. |
+| `JWT_SECRET` | Chave secreta para assinar tokens JWT. Em producao deve ter pelo menos 64 caracteres aleatorios. |
 | `JWT_EXPIRES_IN` | Tempo de validade do token. Exemplo: `8h`. |
+| `BCRYPT_ROUNDS` | Custo do hash de senha. Valor recomendado: `12`. |
 | `PORT` | Porta da API. |
 | `FRONTEND_URL` | Origem liberada no CORS. Use virgulas para mais de uma origem. |
+| `TRUST_PROXY` | Use `true` quando a API estiver atras de proxy reverso confiavel. |
+| `MAX_BODY_BYTES` | Limite de corpo das requisicoes. Padrao: `1048576`. |
 | `ADMIN_EMAIL` | E-mail do administrador criado pelo seed. |
 | `ADMIN_PASSWORD` | Senha do administrador criado pelo seed. Deve ser forte e privada. |
 
@@ -1317,10 +1335,50 @@ Frontend:
 
 | Variavel | Uso |
 | --- | --- |
-| `VITE_API_URL` | URL base da API consumida pelo React. |
+| `VITE_API_URL` | URL base da API. Pode ficar vazia quando frontend e API usam o mesmo dominio. |
 | `VITE_BASE_PATH` | Caminho base do frontend. No GitHub Pages use `/<nome-do-repositorio>/`. |
 
 ### Deploy
+
+#### Opcao portatil com Docker Compose
+
+Copie o modelo e substitua todos os segredos:
+
+```bash
+cp .env.production.example .env.production
+```
+
+Suba banco, migration, API e frontend:
+
+```bash
+docker compose --env-file .env.production -f compose.production.yml up -d --build
+```
+
+Crie ou sincronize o primeiro administrador somente quando necessario:
+
+```bash
+docker compose --env-file .env.production -f compose.production.yml run --rm migrate npm run prisma:seed --workspace transportadora-api
+```
+
+O frontend fica em `http://servidor:8080` por padrao. Em ambiente publico, coloque esse servico atras de um proxy, load balancer ou CDN com HTTPS.
+
+Verificacao:
+
+```bash
+curl https://transporte.exemplo.com/api/health
+curl https://transporte.exemplo.com/api/health/ready
+```
+
+Antes de publicar uma versao:
+
+```bash
+npm ci
+npm run prisma:generate --workspace transportadora-api
+npm run check
+npm run audit:prod
+```
+
+#### Opcao com servicos gerenciados
 
 Fluxo recomendado:
 
@@ -1340,14 +1398,14 @@ npm run build --workspace transportadora-api
 npm run build --workspace transportadora-web
 ```
 
-Render para o backend, usando `Root Directory` como `transportadora-api`:
+Render para o backend, mantendo a raiz do repositorio:
 
 ```bash
 # Build Command
-npm install --include=dev && npm run prisma:generate && npm run build
+npm ci && npm run prisma:generate --workspace transportadora-api && npm run build --workspace transportadora-api
 
 # Start Command
-npm run prisma:deploy && npm run start
+npm run prisma:deploy --workspace transportadora-api && npm run start --workspace transportadora-api
 ```
 
 Nao rode `npx prisma db seed` automaticamente no Start Command de producao. Execute o seed manualmente apenas quando precisar criar o usuario inicial, com `ADMIN_EMAIL` e `ADMIN_PASSWORD` configurados.
@@ -1426,9 +1484,9 @@ Monitorar:
 - Crescimento do banco.
 - Execucao de backups.
 
-### SMTP futuro
+### Recuperacao de senha e SMTP
 
-O sistema ja possui base para recuperacao de senha, mas em producao o ideal e integrar SMTP real para envio de emails.
+Enquanto nao houver SMTP, a recuperacao automatica fica desabilitada em producao e nao altera a senha silenciosamente. Em desenvolvimento, o fluxo temporario so pode ser habilitado explicitamente com `ALLOW_INSECURE_PASSWORD_RECOVERY=true`.
 
 Variaveis futuras sugeridas:
 

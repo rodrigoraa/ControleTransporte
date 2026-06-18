@@ -1,10 +1,16 @@
 {
   "name": "controle-transporte",
   "private": true,
+  "engines": {
+    "node": ">=22.13 <25"
+  },
   "scripts": {
     "dev": "concurrently \"npm run dev --workspace transportadora-api\" \"npm run dev --workspace transportadora-web\"",
     "build": "npm run build --workspace transportadora-api && npm run build --workspace transportadora-web",
     "test": "npm run test --workspace transportadora-api && npm run test --workspace transportadora-web",
+    "lint": "npm run lint --workspace transportadora-api && npm run lint --workspace transportadora-web",
+    "check": "npm run lint && npm run test && npm run build",
+    "audit:prod": "npm audit --omit=dev --omit=optional --audit-level=high",
     "prisma:deploy": "npm run prisma:deploy --workspace transportadora-api",
     "install:all": "npm install --workspaces"
   },
@@ -12,7 +18,15 @@
     "transportadora-api",
     "transportadora-web"
   ],
+  "overrides": {
+    "@nestjs/common": "11.1.27",
+    "@nestjs/core": "11.1.27",
+    "form-data": "4.0.6"
+  },
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "concurrently": "^8.2.2",
+    "eslint": "^10.5.0",
+    "globals": "^17.3.0",
+    "typescript-eslint": "^8.61.1"
   }
 }

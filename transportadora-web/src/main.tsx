@@ -1,14 +1,15 @@
-﻿import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import ReactDOM from 'react-dom/client';
-import { Navigate, Route, HashRouter as Router, Routes } from 'react-router-dom';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { HashRouter as Router, Navigate, Route, Routes } from 'react-router-dom';
 import { AppLayout } from './components/AppLayout';
-import { CrudPage } from './pages/CrudPage';
-import { Dashboard } from './pages/Dashboard';
-import { Login } from './pages/Login';
-import { Relatorios } from './pages/Relatorios';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { crudResources } from './pages/resources';
 import './styles.css';
+
+const CrudPage = lazy(() => import('./pages/CrudPage').then((module) => ({ default: module.CrudPage })));
+const Dashboard = lazy(() => import('./pages/Dashboard').then((module) => ({ default: module.Dashboard })));
+const Login = lazy(() => import('./pages/Login').then((module) => ({ default: module.Login })));
+const Relatorios = lazy(() => import('./pages/Relatorios').then((module) => ({ default: module.Relatorios })));
 
 function ProtectedApp() {
   const { user } = useAuth();
@@ -40,9 +41,10 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <Router>
       <AuthProvider>
-        <Root />
+        <Suspense fallback={<div className="page-loading">Carregando...</div>}>
+          <Root />
+        </Suspense>
       </AuthProvider>
     </Router>
   </React.StrictMode>,
 );
-

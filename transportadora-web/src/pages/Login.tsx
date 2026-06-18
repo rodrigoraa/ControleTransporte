@@ -35,8 +35,8 @@ export function Login() {
     try {
       const { data } = await api.post('/auth/forgot-password', { email });
       setInfo(data.temporaryPassword ? `${data.message} Senha temporária: ${data.temporaryPassword}` : data.message);
-    } catch {
-      setError('Não foi possível iniciar a recuperação de senha.');
+    } catch (requestError: any) {
+      setError(requestError.response?.data?.message || 'Não foi possível iniciar a recuperação de senha.');
     } finally {
       setLoading(false);
     }

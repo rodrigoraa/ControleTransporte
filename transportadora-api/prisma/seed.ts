@@ -13,6 +13,10 @@ async function main() {
   if (!adminPassword || adminPassword.length < 12) {
     throw new Error('ADMIN_PASSWORD deve ser informado e ter pelo menos 12 caracteres.');
   }
+  const bcryptRounds = Number(process.env.BCRYPT_ROUNDS || 12);
+  if (!Number.isInteger(bcryptRounds) || bcryptRounds < 10 || bcryptRounds > 15) {
+    throw new Error('BCRYPT_ROUNDS deve ser um numero inteiro entre 10 e 15.');
+  }
 
   await prisma.user.upsert({
     where: {
@@ -20,14 +24,14 @@ async function main() {
     },
     update: {
       nome: adminName,
-      senha: await bcrypt.hash(adminPassword, 10),
+      senha: await bcrypt.hash(adminPassword, bcryptRounds),
       perfil: PerfilUsuario.ADMIN,
       ativo: true,
     },
     create: {
       nome: adminName,
       email: adminEmail,
-      senha: await bcrypt.hash(adminPassword, 10),
+      senha: await bcrypt.hash(adminPassword, bcryptRounds),
       perfil: PerfilUsuario.ADMIN,
       ativo: true,
     },

@@ -40,7 +40,7 @@ export function CrudPage({ resource }: { resource: Resource }) {
 
   useEffect(() => {
     load();
-  }, [resource.endpoint, page]);
+  }, [resource.path, page]);
 
   async function remove(item: any) {
     try {
