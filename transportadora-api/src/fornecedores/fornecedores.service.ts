@@ -1,4 +1,5 @@
-﻿import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { AuditActor } from '../common/audit/audit-context';
 import { CrudService } from '../common/crud/crud.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateFornecedorDto } from './dto/create-fornecedor.dto';
@@ -10,8 +11,8 @@ export class FornecedoresService extends CrudService<CreateFornecedorDto, Update
     super(prisma, 'fornecedor', ['nome', 'documento', 'telefone', 'email']);
   }
 
-  async create(dto: CreateFornecedorDto) {
-    const criado = await super.create(dto);
+  async create(dto: CreateFornecedorDto, actor?: AuditActor) {
+    const criado = await super.create(dto, actor);
     await this.prisma.historicoFornecedor.create({
       data: {
         fornecedorId: criado.id,
@@ -23,9 +24,9 @@ export class FornecedoresService extends CrudService<CreateFornecedorDto, Update
     return criado;
   }
 
-  async update(id: string, dto: UpdateFornecedorDto) {
+  async update(id: string, dto: UpdateFornecedorDto, actor?: AuditActor) {
     const antes = await this.findOne(id);
-    const depois = await super.update(id, dto);
+    const depois = await super.update(id, dto, actor);
     await this.prisma.historicoFornecedor.create({
       data: {
         fornecedorId: id,
@@ -38,12 +39,12 @@ export class FornecedoresService extends CrudService<CreateFornecedorDto, Update
     return depois;
   }
 
-  async remove(id: string) {
+  async remove(id: string, actor?: AuditActor) {
     const totalLancamentos = await this.prisma.lancamentoFinanceiro.count({ where: { fornecedorId: id } });
     if (totalLancamentos > 0) {
       throw new BadRequestException('Não foi possível excluir: fornecedor possui despesas vinculadas ao histórico.');
     }
-    return super.remove(id);
+    return super.remove(id, actor);
   }
 
   async historico(id: string) {
@@ -80,7 +81,3 @@ export class FornecedoresService extends CrudService<CreateFornecedorDto, Update
     );
   }
 }
-
-
-
-

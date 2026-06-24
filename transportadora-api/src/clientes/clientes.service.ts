@@ -1,4 +1,5 @@
-﻿import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { AuditActor } from '../common/audit/audit-context';
 import { CrudService } from '../common/crud/crud.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateClienteDto } from './dto/create-cliente.dto';
@@ -10,8 +11,8 @@ export class ClientesService extends CrudService<CreateClienteDto, UpdateCliente
     super(prisma, 'cliente', ['nome', 'documento', 'telefone', 'email']);
   }
 
-  async create(dto: CreateClienteDto) {
-    const criado = await super.create(dto);
+  async create(dto: CreateClienteDto, actor?: AuditActor) {
+    const criado = await super.create(dto, actor);
     await this.prisma.historicoCliente.create({
       data: {
         clienteId: criado.id,
@@ -23,9 +24,9 @@ export class ClientesService extends CrudService<CreateClienteDto, UpdateCliente
     return criado;
   }
 
-  async update(id: string, dto: UpdateClienteDto) {
+  async update(id: string, dto: UpdateClienteDto, actor?: AuditActor) {
     const antes = await this.findOne(id);
-    const depois = await super.update(id, dto);
+    const depois = await super.update(id, dto, actor);
     await this.prisma.historicoCliente.create({
       data: {
         clienteId: id,
@@ -38,12 +39,12 @@ export class ClientesService extends CrudService<CreateClienteDto, UpdateCliente
     return depois;
   }
 
-  async remove(id: string) {
+  async remove(id: string, actor?: AuditActor) {
     const totalLancamentos = await this.prisma.lancamentoFinanceiro.count({ where: { clienteId: id } });
     if (totalLancamentos > 0) {
       throw new BadRequestException('Não foi possível excluir: cliente possui faturamentos vinculados ao histórico.');
     }
-    return super.remove(id);
+    return super.remove(id, actor);
   }
 
   async historico(id: string) {
@@ -80,7 +81,3 @@ export class ClientesService extends CrudService<CreateClienteDto, UpdateCliente
     );
   }
 }
-
-
-
-

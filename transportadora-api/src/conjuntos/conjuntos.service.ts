@@ -1,5 +1,6 @@
-﻿import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma, TipoCavaloMecanico, TipoConjuntoOperacional, TipoImplemento } from '@prisma/client';
+import { AuditActor } from '../common/audit/audit-context';
 import { CrudService } from '../common/crud/crud.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateConjuntoDto } from './dto/create-conjunto.dto';
@@ -14,7 +15,7 @@ export class ConjuntosService extends CrudService<CreateConjuntoDto, UpdateConju
     });
   }
 
-  async create(dto: CreateConjuntoDto) {
+  async create(dto: CreateConjuntoDto, actor?: AuditActor) {
     const cavalo = await this.getCavalo(dto.cavaloMecanicoId);
     await this.validateComposition(dto, cavalo);
     const implementos = await this.getImplementosInOrder(dto.implementoIds);
@@ -45,11 +46,11 @@ export class ConjuntosService extends CrudService<CreateConjuntoDto, UpdateConju
         observacoes: 'Conjunto operacional engatado ao cavalo mecânico',
       },
     });
-    await this.audit('CRIACAO', created.id, null, created);
+    await this.audit('CRIACAO', created.id, null, created, actor);
     return created;
   }
 
-  async update(id: string, dto: UpdateConjuntoDto) {
+  async update(id: string, dto: UpdateConjuntoDto, actor?: AuditActor) {
     const before = await this.findOne(id);
     const cavaloMecanicoId = dto.cavaloMecanicoId ?? before.cavaloMecanicoId;
     const implementoIds: string[] = dto.implementoIds ?? before.implementos.map((item: any) => item.implementoId);
@@ -95,7 +96,7 @@ export class ConjuntosService extends CrudService<CreateConjuntoDto, UpdateConju
     } else {
       await this.registrarHistoricoCavalo(updated.cavaloMecanicoId, 'ATUALIZACAO_ENGATE', before, updated);
     }
-    await this.audit('ATUALIZACAO', id, before, updated);
+    await this.audit('ATUALIZACAO', id, before, updated, actor);
     return updated;
   }
 
@@ -198,7 +199,3 @@ export class ConjuntosService extends CrudService<CreateConjuntoDto, UpdateConju
     });
   }
 }
-
-
-
-

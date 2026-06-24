@@ -1,4 +1,5 @@
-﻿import { Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { AuditActor } from '../common/audit/audit-context';
 import { CrudService } from '../common/crud/crud.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateImplementoDto } from './dto/create-implemento.dto';
@@ -10,9 +11,9 @@ export class ImplementosService extends CrudService<CreateImplementoDto, UpdateI
     super(prisma, 'implemento', ['placa', 'tipo', 'carroceria']);
   }
 
-  async update(id: string, dto: UpdateImplementoDto) {
+  async update(id: string, dto: UpdateImplementoDto, actor?: AuditActor) {
     const antes = await this.findOne(id);
-    const depois = await super.update(id, dto);
+    const depois = await super.update(id, dto, actor);
     await this.prisma.historicoImplemento.create({
       data: {
         implementoId: id,
@@ -48,7 +49,3 @@ export class ImplementosService extends CrudService<CreateImplementoDto, UpdateI
     return data;
   }
 }
-
-
-
-

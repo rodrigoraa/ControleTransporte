@@ -7,6 +7,7 @@ import { crudResources } from './pages/resources';
 import './styles.css';
 
 const CrudPage = lazy(() => import('./pages/CrudPage').then((module) => ({ default: module.CrudPage })));
+const Auditorias = lazy(() => import('./pages/Auditorias').then((module) => ({ default: module.Auditorias })));
 const Dashboard = lazy(() => import('./pages/Dashboard').then((module) => ({ default: module.Dashboard })));
 const Login = lazy(() => import('./pages/Login').then((module) => ({ default: module.Login })));
 const Relatorios = lazy(() => import('./pages/Relatorios').then((module) => ({ default: module.Relatorios })));
@@ -19,7 +20,8 @@ function ProtectedApp() {
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/relatorios" element={<Relatorios />} />
-        {crudResources.map((resource) => (
+        <Route path="/auditorias" element={<Auditorias />} />
+        {crudResources.filter((resource) => resource.path !== 'auditorias').map((resource) => (
           <Route key={resource.path} path={`/${resource.path}`} element={<CrudPage resource={resource} />} />
         ))}
       </Routes>

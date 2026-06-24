@@ -1,5 +1,6 @@
-﻿import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { AuditActor, auditUserId } from '../audit/audit-context';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaginationDto } from './pagination.dto';
 
@@ -83,10 +84,10 @@ export abstract class CrudService<CreateDto extends object, UpdateDto extends ob
     throw error;
   }
 
-  async create(dto: CreateDto) {
+  async create(dto: CreateDto, actor?: AuditActor) {
     try {
       const created = await this.repo.create({ data: this.normalizeCreate(this.emptyStringsToNull(dto) as CreateDto), include: this.include });
-      await this.audit('CRIACAO', created?.id, null, created);
+      await this.audit('CRIACAO', created?.id, null, created, actor);
       return created;
     } catch (error) {
       this.handlePrismaError(error);
@@ -116,35 +117,36 @@ export abstract class CrudService<CreateDto extends object, UpdateDto extends ob
     return item;
   }
 
-  async update(id: string, dto: UpdateDto) {
+  async update(id: string, dto: UpdateDto, actor?: AuditActor) {
     const before = await this.findOne(id);
     try {
       const updated = await this.repo.update({ where: { id }, data: this.normalizeUpdate(this.emptyStringsToNull(dto) as UpdateDto), include: this.include });
-      await this.audit('ATUALIZACAO', id, before, updated);
+      await this.audit('ATUALIZACAO', id, before, updated, actor);
       return updated;
     } catch (error) {
       this.handlePrismaError(error);
     }
   }
 
-  async remove(id: string) {
+  async remove(id: string, actor?: AuditActor) {
     const before = await this.findOne(id);
     try {
       await this.repo.delete({ where: { id } });
-      await this.audit('EXCLUSAO', id, before, null);
+      await this.audit('EXCLUSAO', id, before, null, actor);
       return { message: 'Registro excluído com sucesso.' };
     } catch {
       throw new BadRequestException('Não foi possível excluir: o registro possui vínculos com outros cadastros ou lançamentos.');
     }
   }
 
-  protected async audit(acao: string, entidadeId?: string | null, dadosAntes?: unknown, dadosDepois?: unknown) {
+  protected async audit(acao: string, entidadeId?: string | null, dadosAntes?: unknown, dadosDepois?: unknown, actor?: AuditActor) {
     try {
       await this.prisma.auditoria.create({
         data: {
           entidade: this.model,
           entidadeId: entidadeId || null,
           acao,
+          usuarioId: auditUserId(actor),
           dadosAntes: dadosAntes == null ? undefined : JSON.parse(JSON.stringify(dadosAntes)),
           dadosDepois: dadosDepois == null ? undefined : JSON.parse(JSON.stringify(dadosDepois)),
         },
@@ -154,7 +156,3 @@ export abstract class CrudService<CreateDto extends object, UpdateDto extends ob
     }
   }
 }
-
-
-
-

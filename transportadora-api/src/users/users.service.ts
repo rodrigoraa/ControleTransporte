@@ -2,6 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { ConfigService } from '@nestjs/config';
 import { PerfilUsuario } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { AuditActor, auditUserId } from '../common/audit/audit-context';
 import { PaginationDto } from '../common/crud/pagination.dto';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -19,7 +20,7 @@ export class UsersService {
     return rest;
   }
 
-  async create(dto: CreateUserDto) {
+  async create(dto: CreateUserDto, actor?: AuditActor) {
     const email = this.normalizeEmail(dto.email);
     const exists = await this.prisma.user.findFirst({
       where: { email: { equals: email, mode: 'insensitive' } },
@@ -33,7 +34,7 @@ export class UsersService {
       },
     });
     await this.prisma.auditoria.create({
-      data: { entidade: 'User', entidadeId: user.id, acao: 'CRIACAO', dadosDepois: this.safe(user) },
+      data: { entidade: 'User', entidadeId: user.id, acao: 'CRIACAO', usuarioId: auditUserId(actor), dadosDepois: this.safe(user) },
     });
     return this.safe(user);
   }
@@ -62,7 +63,7 @@ export class UsersService {
     return this.safe(user);
   }
 
-  async update(id: string, dto: UpdateUserDto) {
+  async update(id: string, dto: UpdateUserDto, actor?: AuditActor) {
     const current = await this.prisma.user.findUnique({ where: { id } });
     if (!current) throw new NotFoundException('Usuário não encontrado.');
     await this.assertAdminContinuity(current, dto);
@@ -83,12 +84,12 @@ export class UsersService {
     const before = this.safe(current);
     const user = await this.prisma.user.update({ where: { id }, data });
     await this.prisma.auditoria.create({
-      data: { entidade: 'User', entidadeId: id, acao: 'ATUALIZACAO', dadosAntes: before, dadosDepois: this.safe(user) },
+      data: { entidade: 'User', entidadeId: id, acao: 'ATUALIZACAO', usuarioId: auditUserId(actor), dadosAntes: before, dadosDepois: this.safe(user) },
     });
     return this.safe(user);
   }
 
-  async remove(id: string) {
+  async remove(id: string, actor?: AuditActor) {
     const current = await this.prisma.user.findUnique({ where: { id } });
     if (!current) throw new NotFoundException('Usuário não encontrado.');
     await this.assertAdminContinuity(current, { ativo: false });
@@ -96,7 +97,7 @@ export class UsersService {
     const before = this.safe(current);
     await this.prisma.user.delete({ where: { id } });
     await this.prisma.auditoria.create({
-      data: { entidade: 'User', entidadeId: id, acao: 'EXCLUSAO', dadosAntes: before },
+      data: { entidade: 'User', entidadeId: id, acao: 'EXCLUSAO', usuarioId: auditUserId(actor), dadosAntes: before },
     });
     return { message: 'Usuário excluído com sucesso.' };
   }

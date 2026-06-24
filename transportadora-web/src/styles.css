@@ -1318,6 +1318,265 @@ tbody tr:hover {
   font-weight: 600;
 }
 
+.audit-page {
+  gap: 18px;
+}
+
+.audit-header {
+  align-items: center;
+}
+
+.audit-stats {
+  grid-template-columns: repeat(4, minmax(170px, 1fr));
+}
+
+.audit-filters {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.4fr) repeat(4, minmax(150px, 1fr)) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.audit-filters .search-box {
+  width: 100%;
+}
+
+.audit-list-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.audit-list-panel > .table-wrap {
+  border-width: 0 0 1px;
+  border-radius: 0;
+}
+
+.audit-list-panel > .pagination {
+  padding: 0 18px 18px;
+}
+
+.audit-table-wrap table {
+  min-width: 1080px;
+}
+
+.audit-action-badge,
+.audit-count,
+.audit-change-type {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  border-radius: 999px;
+  padding: 0 9px;
+  font-size: 12px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.audit-action-badge.info {
+  color: #145767;
+  background: #e8f3f5;
+  border: 1px solid #b9d3dc;
+}
+
+.audit-action-badge.success,
+.audit-change-type.adicionado {
+  color: #0f6b34;
+  background: #eaf8ef;
+  border: 1px solid #bce7c9;
+}
+
+.audit-action-badge.danger,
+.audit-change-type.removido {
+  color: #8f1d14;
+  background: #fff0ed;
+  border: 1px solid #fac6bf;
+}
+
+.audit-action-badge.neutral,
+.audit-change-type.alterado {
+  color: #7a4d00;
+  background: #fff4d6;
+  border: 1px solid #f2c94c;
+}
+
+.audit-count {
+  min-width: 34px;
+  color: #145767;
+  background: #e8f3f5;
+  border: 1px solid #c7dde3;
+}
+
+.audit-subtext,
+.audit-user small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.audit-user {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.audit-user svg {
+  margin-top: 2px;
+  color: var(--brand);
+  flex: 0 0 auto;
+}
+
+.audit-user strong {
+  display: block;
+}
+
+.audit-muted {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.audit-modal {
+  display: grid;
+  gap: 18px;
+}
+
+.audit-modal .modal-header {
+  align-items: flex-start;
+}
+
+.audit-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.audit-detail-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 8px;
+  align-items: start;
+  padding: 12px;
+  border: 1px solid #dce6ea;
+  border-radius: 8px;
+  background: #f9fbfc;
+}
+
+.audit-detail-item svg {
+  color: var(--brand);
+}
+
+.audit-detail-item span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.audit-detail-item strong {
+  grid-column: 1 / -1;
+  color: #10242c;
+  overflow-wrap: anywhere;
+}
+
+.audit-section {
+  display: grid;
+  gap: 12px;
+}
+
+.audit-change-list {
+  display: grid;
+  gap: 10px;
+}
+
+.audit-change {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #dce6ea;
+  border-radius: 8px;
+  background: #f9fbfc;
+}
+
+.audit-change-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.audit-change-title strong {
+  color: #10242c;
+  overflow-wrap: anywhere;
+}
+
+.audit-change-values {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.audit-change-values svg {
+  color: var(--muted);
+}
+
+.audit-value-box {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.audit-value-box span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.audit-value-box code {
+  min-height: 38px;
+  display: block;
+  padding: 9px 10px;
+  border: 1px solid #dce6ea;
+  border-radius: 8px;
+  color: #172026;
+  background: white;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.audit-json-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.audit-json {
+  border: 1px solid #dce6ea;
+  border-radius: 8px;
+  background: #f9fbfc;
+}
+
+.audit-json summary {
+  padding: 12px;
+  color: #10242c;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.audit-json pre {
+  max-height: 320px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  border-top: 1px solid #dce6ea;
+  color: #172026;
+  background: white;
+  font-size: 12px;
+}
+
 /* Login */
 .login-page {
   min-height: 100vh;
@@ -1700,6 +1959,24 @@ tbody tr:hover {
   .login-brand {
     display: flex;
     margin: 0 0 12px;
+  }
+
+  .audit-stats,
+  .audit-detail-grid,
+  .audit-json-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .audit-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .audit-change-values {
+    grid-template-columns: 1fr;
+  }
+
+  .audit-change-values svg {
+    display: none;
   }
 }
 

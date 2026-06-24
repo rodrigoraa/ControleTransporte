@@ -1,6 +1,6 @@
-﻿import { BadRequestException, Injectable } from '@nestjs/common';
-import { TipoLancamento } from '@prisma/client';
-import { Prisma } from '@prisma/client';
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { Prisma, TipoLancamento } from '@prisma/client';
+import { AuditActor } from '../common/audit/audit-context';
 import { CrudService } from '../common/crud/crud.service';
 import { PaginationDto } from '../common/crud/pagination.dto';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -21,7 +21,7 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
     });
   }
 
-  async create(dto: CreateLancamentoFinanceiroDto) {
+  async create(dto: CreateLancamentoFinanceiroDto, actor?: AuditActor) {
     const data = await this.prepareData(this.cleanData(dto));
     const created = await this.repo.create({
       data: { ...data, valorTotal: new Prisma.Decimal(dto.quantidade).mul(dto.valorUnitario) },
@@ -35,7 +35,7 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
         categoriaFinanceira: true,
       },
     });
-    await this.audit('CRIACAO', created?.id, null, created);
+    await this.audit('CRIACAO', created?.id, null, created, actor);
     return created;
   }
 
@@ -43,7 +43,7 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
     return dto;
   }
 
-  async update(id: string, dto: UpdateLancamentoFinanceiroDto) {
+  async update(id: string, dto: UpdateLancamentoFinanceiroDto, actor?: AuditActor) {
     const current = await this.findOne(id);
     const quantidade = dto.quantidade ?? Number(current.quantidade);
     const valorUnitario = dto.valorUnitario ?? Number(current.valorUnitario);
@@ -82,7 +82,7 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
         categoriaFinanceira: true,
       },
     });
-    await this.audit('ATUALIZACAO', id, current, updated);
+    await this.audit('ATUALIZACAO', id, current, updated, actor);
     return updated;
   }
 
@@ -193,7 +193,3 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
     return normalized;
   }
 }
-
-
-
-

@@ -1,4 +1,5 @@
-﻿import { Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { AuditActor } from '../common/audit/audit-context';
 import { CrudService } from '../common/crud/crud.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateMotoristaDto } from './dto/create-motorista.dto';
@@ -10,9 +11,9 @@ export class MotoristasService extends CrudService<CreateMotoristaDto, UpdateMot
     super(prisma, 'motorista', ['nome', 'cpf', 'cnh', 'telefone']);
   }
 
-  async update(id: string, dto: UpdateMotoristaDto) {
+  async update(id: string, dto: UpdateMotoristaDto, actor?: AuditActor) {
     const antes = await this.findOne(id);
-    const depois = await super.update(id, dto);
+    const depois = await super.update(id, dto, actor);
     await this.prisma.historicoMotorista.create({
       data: {
         motoristaId: id,
@@ -73,7 +74,3 @@ export class MotoristasService extends CrudService<CreateMotoristaDto, UpdateMot
     );
   }
 }
-
-
-
-

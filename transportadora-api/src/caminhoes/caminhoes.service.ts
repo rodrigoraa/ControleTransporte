@@ -1,4 +1,5 @@
-﻿import { Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { AuditActor } from '../common/audit/audit-context';
 import { CrudService } from '../common/crud/crud.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { ComposicoesCavaloService } from './composicoes-cavalo.service';
@@ -22,10 +23,10 @@ export class CaminhoesService extends CrudService<CreateCaminhaoDto, UpdateCamin
     });
   }
 
-  async create(dto: CreateCaminhaoDto) {
+  async create(dto: CreateCaminhaoDto, actor?: AuditActor) {
     const { implementos = [], conjuntoStatus, conjuntoObservacoes, ...cavaloDto } = dto;
 
-    if (!implementos.length) return super.create(cavaloDto as CreateCaminhaoDto);
+    if (!implementos.length) return super.create(cavaloDto as CreateCaminhaoDto, actor);
 
     this.composicoes.validateComposition(implementos, cavaloDto.tipoCavalo);
 
@@ -59,15 +60,15 @@ export class CaminhoesService extends CrudService<CreateCaminhaoDto, UpdateCamin
       return { ...cavalo, conjuntoAtual: conjunto };
     });
 
-    await this.audit('CRIACAO_COMPLETA', created.id, null, created);
+    await this.audit('CRIACAO_COMPLETA', created.id, null, created, actor);
     return created;
   }
 
-  async update(id: string, dto: UpdateCaminhaoDto) {
-    if (dto.implementos !== undefined) return this.atualizarComposicao(id, dto);
+  async update(id: string, dto: UpdateCaminhaoDto, actor?: AuditActor) {
+    if (dto.implementos !== undefined) return this.atualizarComposicao(id, dto, actor);
 
     const antes = await this.findOne(id);
-    const depois = await super.update(id, dto);
+    const depois = await super.update(id, dto, actor);
     await this.prisma.historicoCavaloMecanico.create({
       data: {
         cavaloMecanicoId: id,
@@ -81,7 +82,7 @@ export class CaminhoesService extends CrudService<CreateCaminhaoDto, UpdateCamin
       await this.registrarHistoricoMotorista((antes as any).motoristaId, 'REMOCAO_CAVALO', antes, depois);
       await this.registrarHistoricoMotorista((depois as any).motoristaId, 'VINCULO_CAVALO', antes, depois);
     }
-    await this.audit('HISTORICO_CAVALO_MECANICO', id, antes, depois);
+    await this.audit('HISTORICO_CAVALO_MECANICO', id, antes, depois, actor);
     return depois;
   }
 
@@ -94,7 +95,7 @@ export class CaminhoesService extends CrudService<CreateCaminhaoDto, UpdateCamin
     };
   }
 
-  async atualizarComposicao(id: string, dto: UpdateCaminhaoDto) {
+  async atualizarComposicao(id: string, dto: UpdateCaminhaoDto, actor?: AuditActor) {
     const antes = await this.findOne(id);
     const { implementos = [], conjuntoStatus, conjuntoObservacoes, ...cavaloDto } = dto;
 
@@ -187,7 +188,7 @@ export class CaminhoesService extends CrudService<CreateCaminhaoDto, UpdateCamin
       await this.registrarHistoricoMotorista((antes as any).motoristaId, 'REMOCAO_CAVALO', antes, depois);
       await this.registrarHistoricoMotorista((depois as any).motoristaId, 'VINCULO_CAVALO', antes, depois);
     }
-    await this.audit('ATUALIZACAO_COMPOSICAO', id, antes, depois);
+    await this.audit('ATUALIZACAO_COMPOSICAO', id, antes, depois, actor);
     return depois;
   }
 
@@ -257,7 +258,3 @@ export class CaminhoesService extends CrudService<CreateCaminhaoDto, UpdateCamin
     return Object.fromEntries(Object.entries(data).map(([key, value]) => [key, value === '' ? null : value])) as T;
   }
 }
-
-
-
-

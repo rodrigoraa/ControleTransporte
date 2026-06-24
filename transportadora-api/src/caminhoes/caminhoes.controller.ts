@@ -1,6 +1,8 @@
-﻿import { Body, Controller, Get, Param, Patch, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, UseGuards } from '@nestjs/common';
 import { PerfilUsuario } from '@prisma/client';
+import { AuditActor } from '../common/audit/audit-context';
 import { CrudController } from '../common/crud/crud.controller';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CaminhoesService } from './caminhoes.service';
@@ -28,11 +30,7 @@ export class CaminhoesController extends CrudController<CreateCaminhaoDto, Updat
   @UseGuards(JwtAuthGuard)
   @Patch(':id/composicao')
   @Roles(PerfilUsuario.ADMIN)
-  atualizarComposicao(@Param('id') id: string, @Body() dto: UpdateCaminhaoDto) {
-    return this.service.atualizarComposicao(id, dto);
+  atualizarComposicao(@Param('id') id: string, @Body() dto: UpdateCaminhaoDto, @CurrentUser() user: AuditActor) {
+    return this.service.atualizarComposicao(id, dto, user);
   }
 }
-
-
-
-
