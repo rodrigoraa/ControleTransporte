@@ -1547,6 +1547,108 @@ tbody tr:hover {
   white-space: pre-wrap;
 }
 
+.audit-empty-value {
+  min-height: 38px;
+  display: grid;
+  align-items: center;
+  padding: 9px 10px;
+  border: 1px dashed #cbd8dd;
+  border-radius: 8px;
+  color: var(--muted);
+  background: #f7fafb;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.audit-structured-value {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #dce6ea;
+  border-radius: 8px;
+  background: white;
+}
+
+.audit-structured-value > strong {
+  color: #10242c;
+  font-size: 13px;
+}
+
+.audit-structured-value > small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.audit-mini-list {
+  display: grid;
+  gap: 8px;
+}
+
+.audit-object-value {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #e2eaee;
+  border-radius: 8px;
+  background: #f9fbfc;
+}
+
+.audit-object-value.compact {
+  padding: 9px;
+}
+
+.audit-object-value > strong {
+  color: #10242c;
+  overflow-wrap: anywhere;
+}
+
+.audit-object-value dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px 10px;
+  margin: 0;
+}
+
+.audit-object-value dl div {
+  min-width: 0;
+}
+
+.audit-object-value dt {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.audit-object-value dd {
+  margin: 2px 0 0;
+  color: #172026;
+  font-size: 12px;
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
+
+.audit-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.audit-chip-list span {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #c7dde3;
+  border-radius: 999px;
+  padding: 0 8px;
+  color: #145767;
+  background: #eef7f8;
+  font-size: 11px;
+  font-weight: 850;
+}
+
 .audit-json-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -296,7 +296,68 @@ function ValueBox({ label, value }: { label: string; value: unknown }) {
   return (
     <div className="audit-value-box">
       <span>{label}</span>
-      <code>{formatValue(value)}</code>
+      <AuditValue value={value} />
+    </div>
+  );
+}
+
+function AuditValue({ value }: { value: unknown }) {
+  if (value === null || value === undefined || value === '') {
+    return <div className="audit-empty-value">Sem informação</div>;
+  }
+
+  if (Array.isArray(value)) {
+    return <AuditArrayValue items={value} />;
+  }
+
+  if (isPlainObject(value)) {
+    return <AuditObjectValue value={value} />;
+  }
+
+  return <code>{formatValue(value)}</code>;
+}
+
+function AuditArrayValue({ items }: { items: unknown[] }) {
+  if (!items.length) return <div className="audit-empty-value">Nenhum item</div>;
+
+  return (
+    <div className="audit-structured-value">
+      <strong>{items.length} {items.length === 1 ? 'item' : 'itens'}</strong>
+      <div className="audit-mini-list">
+        {items.slice(0, 4).map((item, index) => (
+          isPlainObject(item)
+            ? <AuditObjectValue key={recordKey(item, index)} value={item} compact />
+            : <AuditValue key={recordKey(item, index)} value={item} />
+        ))}
+      </div>
+      {items.length > 4 && <small>+ {items.length - 4} item(ns)</small>}
+    </div>
+  );
+}
+
+function AuditObjectValue({ value, compact = false }: { value: Record<string, unknown>; compact?: boolean }) {
+  const title = recordTitle(value);
+  const facts = objectFacts(value).slice(0, compact ? 5 : 8);
+  const chips = objectChips(value).slice(0, 6);
+
+  return (
+    <div className={`audit-object-value ${compact ? 'compact' : ''}`}>
+      <strong>{title}</strong>
+      {facts.length > 0 && (
+        <dl>
+          {facts.map(([key, item]) => (
+            <div key={key}>
+              <dt>{fieldLabel(key)}</dt>
+              <dd>{formatShortValue(item)}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {chips.length > 0 && (
+        <div className="audit-chip-list">
+          {chips.map((chip) => <span key={chip}>{chip}</span>)}
+        </div>
+      )}
     </div>
   );
 }
@@ -320,6 +381,112 @@ function formatValue(value: unknown) {
   if (typeof value === 'boolean') return value ? 'Sim' : 'Não';
   if (typeof value === 'object') return JSON.stringify(value);
   return String(value);
+}
+
+function formatShortValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '-';
+  if (typeof value === 'boolean') return value ? 'Sim' : 'Não';
+  if (Array.isArray(value)) return `${value.length} ${value.length === 1 ? 'item' : 'itens'}`;
+  if (isPlainObject(value)) return recordTitle(value);
+  const text = String(value);
+  if (isIsoDate(text)) return formatDateTime(text);
+  return text.length > 80 ? `${text.slice(0, 77)}...` : text;
+}
+
+function recordTitle(value: Record<string, unknown>): string {
+  const fields = ['nome', 'placa', 'email', 'documento', 'cpf', 'cnh', 'descricao', 'tipo', 'id'];
+  for (const field of fields) {
+    const item = value[field];
+    if (typeof item === 'string' && item.trim()) return formatShortValue(item);
+  }
+
+  const implemento = value.implemento;
+  if (isPlainObject(implemento)) return recordTitle(implemento);
+
+  const cavalo = value.cavalo || value.cavaloMecanico;
+  if (isPlainObject(cavalo)) return recordTitle(cavalo);
+
+  return 'Registro';
+}
+
+function objectFacts(value: Record<string, unknown>) {
+  const priority = [
+    'tipo',
+    'status',
+    'placa',
+    'nome',
+    'motoristaId',
+    'categoriaCnh',
+    'quantidadeTotalEixos',
+    'capacidadeTotal',
+    'quantidadeEixos',
+    'capacidadeCarga',
+    'valorTotal',
+    'valorUnitario',
+    'quantidade',
+    'unidadeQuantidade',
+    'data',
+    'observacoes',
+  ];
+  const hidden = new Set(['id', 'createdAt', 'updatedAt', 'implementos', 'conjuntos', 'cavalo', 'cavaloMecanico', 'implemento']);
+  const entries = Object.entries(value)
+    .filter(([key, item]) => !hidden.has(key) && item !== null && item !== undefined && item !== '')
+    .filter(([, item]) => !isPlainObject(item) && !Array.isArray(item));
+
+  return entries.sort(([left], [right]) => {
+    const leftIndex = priority.indexOf(left);
+    const rightIndex = priority.indexOf(right);
+    if (leftIndex === -1 && rightIndex === -1) return left.localeCompare(right);
+    if (leftIndex === -1) return 1;
+    if (rightIndex === -1) return -1;
+    return leftIndex - rightIndex;
+  });
+}
+
+function objectChips(value: Record<string, unknown>) {
+  const chips: string[] = [];
+  const implementos = Array.isArray(value.implementos) ? value.implementos : [];
+  for (const item of implementos) {
+    if (!isPlainObject(item)) continue;
+    const implemento = isPlainObject(item.implemento) ? item.implemento : item;
+    const label = [implemento.tipo, implemento.placa].filter((part) => typeof part === 'string' && part.trim()).join(' ');
+    if (label) chips.push(label);
+  }
+  return chips;
+}
+
+function recordKey(value: unknown, index: number) {
+  if (isPlainObject(value) && typeof value.id === 'string') return value.id;
+  return String(index);
+}
+
+function fieldLabel(value: string) {
+  const labels: Record<string, string> = {
+    categoriaCnh: 'Categoria CNH',
+    motoristaId: 'Motorista',
+    quantidadeTotalEixos: 'Total de eixos',
+    capacidadeTotal: 'Capacidade total',
+    quantidadeEixos: 'Eixos',
+    capacidadeCarga: 'Capacidade',
+    valorTotal: 'Valor total',
+    valorUnitario: 'Valor unitário',
+    unidadeQuantidade: 'Unidade',
+  };
+  if (labels[value]) return labels[value];
+  return value
+    .replace(/Id$/, '')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/_/g, ' ')
+    .toLowerCase()
+    .replace(/^\w/, (letter) => letter.toUpperCase());
+}
+
+function isIsoDate(value: string) {
+  return /^\d{4}-\d{2}-\d{2}T/.test(value) && !Number.isNaN(new Date(value).getTime());
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function actionClass(action: string) {
