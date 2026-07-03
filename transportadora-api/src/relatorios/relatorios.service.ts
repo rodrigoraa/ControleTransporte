@@ -151,13 +151,13 @@ export class RelatoriosService {
       'Eixos do conjunto',
       'Capacidade do conjunto',
       'Implementos do conjunto',
-      'Implemento especifico',
+      'Implemento específico',
       'Motorista',
       'Fornecedor/Cliente',
       'Categoria',
       'Quantidade',
       'Unidade',
-      'Valor unitario',
+      'Valor unitário',
       'Valor total',
     ];
     const body = rows.map((item) => [
@@ -294,9 +294,9 @@ export class RelatoriosService {
     rect(0, pageHeight, pageWidth, 92, [15, 48, 63]);
     rect(0, pageHeight - 92, pageWidth, 5, [31, 122, 140]);
     text('Controle Transporte', margin, pageHeight - 43, { size: 11, font: 'bold', color: [148, 213, 220] });
-    text('Relatorio financeiro', margin, pageHeight - 67, { size: 23, font: 'bold', color: [255, 255, 255] });
+    text('Relatório financeiro', margin, pageHeight - 67, { size: 23, font: 'bold', color: [255, 255, 255] });
     text(`Gerado em ${new Date().toLocaleString('pt-BR')}`, pageWidth - margin, pageHeight - 47, { size: 9, align: 'right', color: [203, 213, 225] });
-    text(`${relatorio.total} lancamentos`, pageWidth - margin, pageHeight - 68, { size: 10, font: 'bold', align: 'right', color: [255, 255, 255] });
+    text(`${relatorio.total} lançamentos`, pageWidth - margin, pageHeight - 68, { size: 10, font: 'bold', align: 'right', color: [255, 255, 255] });
     y = pageHeight - 120;
 
     const cards = [
@@ -315,7 +315,7 @@ export class RelatoriosService {
     });
     y -= 94;
 
-    sectionTitle('Lancamentos encontrados');
+    sectionTitle('Lançamentos encontrados');
     if (rows.length) {
       table(
         ['Data', 'Tipo', 'Placa', 'Motorista', 'Categoria', 'Valor total'],
@@ -331,16 +331,16 @@ export class RelatoriosService {
         ['left', 'left', 'left', 'left', 'left', 'right'],
       );
     } else {
-      emptyMessage('Nenhum lancamento encontrado para os filtros informados.');
+      emptyMessage('Nenhum lançamento encontrado para os filtros informados.');
     }
 
     sectionTitle('Resumo por grupo');
-    table(['Despesas por cavalo mecanico', 'Total'], this.pdfGroupRows(relatorio.despesasPorCavaloMecanico), [390, 133], ['left', 'right']);
+    table(['Despesas por cavalo mecânico', 'Total'], this.pdfGroupRows(relatorio.despesasPorCavaloMecanico), [390, 133], ['left', 'right']);
     table(['Despesas por motorista', 'Total'], this.pdfGroupRows(relatorio.despesasPorMotorista), [390, 133], ['left', 'right']);
-    table(['Faturamento por cavalo mecanico', 'Total'], this.pdfGroupRows(relatorio.faturamentoPorCavaloMecanico), [390, 133], ['left', 'right']);
+    table(['Faturamento por cavalo mecânico', 'Total'], this.pdfGroupRows(relatorio.faturamentoPorCavaloMecanico), [390, 133], ['left', 'right']);
     table(['Faturamento por motorista', 'Total'], this.pdfGroupRows(relatorio.faturamentoPorMotorista), [390, 133], ['left', 'right']);
 
-    sectionTitle('Resumo por composicao do cavalo');
+    sectionTitle('Resumo por composição do cavalo');
     if (relatorio.conjuntosPorCavalo.length) {
       table(
         ['Cavalo', 'Conjunto', 'Tipo', 'Lanc.', 'Despesas', 'Faturamento', 'Saldo'],
@@ -362,7 +362,7 @@ export class RelatoriosService {
 
     pages.forEach((page, index) => {
       page.push(`BT /F1 8 Tf ${rgb([100, 116, 139])} rg ${margin} 28 Td (${this.escapePdfText('Controle Transporte')}) Tj ET`);
-      page.push(`BT /F1 8 Tf ${rgb([100, 116, 139])} rg ${pageWidth - margin - 58} 28 Td (${this.escapePdfText(`Pagina ${index + 1} de ${pages.length}`)}) Tj ET`);
+      page.push(`BT /F1 8 Tf ${rgb([100, 116, 139])} rg ${pageWidth - margin - 58} 28 Td (${this.escapePdfText(`Página ${index + 1} de ${pages.length}`)}) Tj ET`);
     });
 
     return this.renderPdf(pages);
@@ -405,7 +405,7 @@ export class RelatoriosService {
   }
 
   private normalizePdfText(line: string) {
-    return String(line).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7E]/g, '-');
+    return String(line).replace(/[^\x20-\x7E\xA0-\xFF]/g, '-');
   }
 
   private truncatePdfText(value: string, maxLength: number) {

@@ -28,7 +28,7 @@ export class HealthController {
         timestamp: new Date().toISOString(),
       };
     } catch {
-      throw new ServiceUnavailableException('Banco de dados indisponivel.');
+      throw new ServiceUnavailableException('Banco de dados indisponível.');
     }
   }
 }

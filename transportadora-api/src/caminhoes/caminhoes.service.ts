@@ -152,7 +152,7 @@ export class CaminhoesService extends CrudService<CreateCaminhaoDto, UpdateCamin
             acao: 'ENCERRAMENTO_COMPOSICAO',
             dadosAntes: JSON.parse(JSON.stringify(conjunto)),
             dadosDepois: JSON.parse(JSON.stringify(updatedConjunto)),
-            observacoes: 'Composição encerrada por alteracao no cadastro do cavalo mecânico',
+            observacoes: 'Composição encerrada por alteração no cadastro do cavalo mecânico',
           },
         });
       }

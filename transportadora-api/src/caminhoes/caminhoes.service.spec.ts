@@ -116,7 +116,7 @@ describe('CaminhoesService', () => {
     }));
   });
 
-  it('encerra composicao anterior e cria nova composicao com dolly registrando historico', async () => {
+  it('encerra composição anterior e cria nova composição com dolly registrando histórico', async () => {
     const { prisma, state, tx } = makePrisma();
     const service = makeService(prisma);
     state.implementos.push({ id: 'imp-1', placa: 'CAR1A01', tipo: TipoImplemento.CARRETA, quantidadeEixos: 3, capacidadeCarga: new Prisma.Decimal(30000) });
@@ -158,7 +158,7 @@ describe('CaminhoesService', () => {
     })).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('bloqueia exclusao quando ha lancamentos financeiros vinculados ao cavalo', async () => {
+  it('bloqueia exclusão quando há lançamentos financeiros vinculados ao cavalo', async () => {
     const { prisma, state } = makePrisma();
     const service = makeService(prisma);
     state.conjuntos = [];

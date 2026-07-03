@@ -40,7 +40,7 @@ const navGroups = [
   },
   {
     id: 'analises',
-    label: 'Analises',
+    label: 'Análises',
     icon: BarChart3,
     items: [
       { to: '/relatorios', label: 'Relatórios', icon: BarChart3 },

@@ -18,7 +18,7 @@ export class ClientesService extends CrudService<CreateClienteDto, UpdateCliente
         clienteId: criado.id,
         acao: 'CRIACAO',
         dadosDepois: JSON.parse(JSON.stringify(criado)),
-        observacoes: 'Criacao de cliente registrada automaticamente',
+        observacoes: 'Criação de cliente registrada automaticamente',
       },
     });
     return criado;

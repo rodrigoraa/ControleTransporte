@@ -208,7 +208,7 @@ export class ConjuntosService extends CrudService<CreateConjuntoDto, UpdateConju
         acao,
         dadosAntes: JSON.parse(JSON.stringify(antes)),
         dadosDepois: JSON.parse(JSON.stringify(depois)),
-        observacoes: 'Historico de engate do conjunto operacional',
+        observacoes: 'Histórico de engate do conjunto operacional',
       },
     });
   }

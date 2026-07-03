@@ -18,7 +18,7 @@ export class FornecedoresService extends CrudService<CreateFornecedorDto, Update
         fornecedorId: criado.id,
         acao: 'CRIACAO',
         dadosDepois: JSON.parse(JSON.stringify(criado)),
-        observacoes: 'Criacao de fornecedor registrada automaticamente',
+        observacoes: 'Criação de fornecedor registrada automaticamente',
       },
     });
     return criado;

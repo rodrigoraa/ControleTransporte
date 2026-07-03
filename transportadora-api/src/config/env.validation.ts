@@ -4,7 +4,7 @@ const poolModes = new Set(['auto', 'direct', 'transaction']);
 
 export function validateEnv(config: Record<string, unknown>) {
   for (const key of requiredEnv) {
-    if (!config[key]) throw new Error(`Variavel de ambiente obrigatoria ausente: ${key}`);
+    if (!config[key]) throw new Error(`Variável de ambiente obrigatória ausente: ${key}`);
   }
 
   const nodeEnv = String(config.NODE_ENV || 'development');
@@ -18,7 +18,7 @@ export function validateEnv(config: Record<string, unknown>) {
     throw new Error(`JWT_SECRET deve ter pelo menos ${minimumSecretLength} caracteres neste ambiente.`);
   }
   if (nodeEnv === 'production' && /dev|local|example|troque|secret/i.test(jwtSecret)) {
-    throw new Error('JWT_SECRET de producao nao pode usar um valor de exemplo ou desenvolvimento.');
+    throw new Error('JWT_SECRET de produção não pode usar um valor de exemplo ou desenvolvimento.');
   }
 
   if (!/^\d+[smhd]$/.test(String(config.JWT_EXPIRES_IN))) {
@@ -39,7 +39,7 @@ export function validateEnv(config: Record<string, unknown>) {
       throw new Error('FRONTEND_URL aceita apenas origens HTTP ou HTTPS.');
     }
     if (nodeEnv === 'production' && parsed.protocol !== 'https:' && !isLocalHost(parsed.hostname)) {
-      throw new Error('FRONTEND_URL deve usar HTTPS em producao.');
+      throw new Error('FRONTEND_URL deve usar HTTPS em produção.');
     }
   }
 
@@ -64,7 +64,7 @@ export function validateEnv(config: Record<string, unknown>) {
 function validateDatabaseUrl(name: string, value: unknown) {
   const parsed = parseUrl(name, String(value));
   if (!['postgres:', 'postgresql:'].includes(parsed.protocol)) {
-    throw new Error(`${name} deve ser uma URL PostgreSQL valida.`);
+    throw new Error(`${name} deve ser uma URL PostgreSQL válida.`);
   }
 }
 
@@ -72,14 +72,14 @@ function parseUrl(name: string, value: string) {
   try {
     return new URL(value);
   } catch {
-    throw new Error(`${name} possui uma URL invalida.`);
+    throw new Error(`${name} possui uma URL inválida.`);
   }
 }
 
 function parseInteger(value: unknown, name: string, minimum: number, maximum: number) {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
-    throw new Error(`${name} deve ser um numero inteiro entre ${minimum} e ${maximum}.`);
+    throw new Error(`${name} deve ser um número inteiro entre ${minimum} e ${maximum}.`);
   }
   return parsed;
 }

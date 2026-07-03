@@ -17,9 +17,9 @@ export function Dashboard() {
   if (!data) return <div className="loading">Carregando dashboard...</div>;
 
   const cards = [
-    ['Total faturado no mes', data.cards.totalFaturadoMes, 'money'],
-    ['Total de despesas no mes', data.cards.totalDespesasMes, 'money'],
-    ['Saldo do mes', data.cards.saldoMes, 'money'],
+    ['Total faturado no mês', data.cards.totalFaturadoMes, 'money'],
+    ['Total de despesas no mês', data.cards.totalDespesasMes, 'money'],
+    ['Saldo do mês', data.cards.saldoMes, 'money'],
     ['Cavalos mecânicos ativos', data.cards.cavalosMecanicosAtivos, 'number'],
     ['Implementos ativos', data.cards.implementosAtivos, 'number'],
     ['Conjuntos ativos', data.cards.conjuntosAtivos, 'number'],
@@ -32,7 +32,7 @@ export function Dashboard() {
       <div className="page-header">
         <div>
           <h1>Dashboard</h1>
-          <p>Resumo financeiro, frota e composicoes operacionais.</p>
+          <p>Resumo financeiro, frota e composições operacionais.</p>
         </div>
       </div>
       <div className="stats-grid">

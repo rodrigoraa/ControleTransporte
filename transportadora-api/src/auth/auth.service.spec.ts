@@ -1,7 +1,7 @@
 import { AuthService } from './auth.service';
 
 describe('AuthService', () => {
-  it('nao altera senha quando a recuperacao insegura esta desabilitada', async () => {
+  it('não altera senha quando a recuperação insegura está desabilitada', async () => {
     const prisma = {
       user: {
         findUnique: jest.fn(),

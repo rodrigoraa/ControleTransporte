@@ -18,7 +18,7 @@ describe('validateEnv', () => {
     expect(result.DATABASE_POOL_MODE).toBe('auto');
   });
 
-  it('exige segredo forte e HTTPS em producao', () => {
+  it('exige segredo forte e HTTPS em produção', () => {
     expect(() =>
       validateEnv({
         ...baseConfig,
@@ -29,7 +29,7 @@ describe('validateEnv', () => {
     ).toThrow(/JWT_SECRET/);
   });
 
-  it('aceita configuracao segura de producao', () => {
+  it('aceita configuração segura de produção', () => {
     const result = validateEnv({
       ...baseConfig,
       NODE_ENV: 'production',
