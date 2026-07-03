@@ -4,10 +4,11 @@ import { Toast } from '../components/Toast';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../services/api';
 import { apiErrorMessage } from '../utils/apiError';
-import { date, money } from '../utils/formatters';
+import { date, maskPlate, money } from '../utils/formatters';
 import { carrocerias, crudResources, Field, Resource, tiposImplemento } from './resources';
 
 type Mode = 'create' | 'edit' | 'view';
+const relationPageLimit = 100;
 
 export function CrudPage({ resource }: { resource: Resource }) {
   const [rows, setRows] = useState<any[]>([]);
@@ -158,7 +159,7 @@ export function CrudPage({ resource }: { resource: Resource }) {
 
 const implementoFields: Field[] = [
   { name: 'id', label: 'ID', hidden: true },
-  { name: 'placa', label: 'Placa' },
+  { name: 'placa', label: 'Placa', mask: maskPlate },
   { name: 'tipo', label: 'Tipo', type: 'select', required: true, options: tiposImplemento },
   { name: 'carroceria', label: 'Carroceria', type: 'select', required: true, options: carrocerias },
   { name: 'quantidadeEixos', label: 'Eixos', type: 'select', required: true, options: [{ label: '2 eixos', value: '2' }, { label: '3 eixos', value: '3' }] },
@@ -166,6 +167,27 @@ const implementoFields: Field[] = [
   { name: 'status', label: 'Status', type: 'select', options: [{ label: 'Ativo', value: 'ATIVO' }, { label: 'Inativo', value: 'INATIVO' }, { label: 'Manutenção', value: 'MANUTENCAO' }] },
   { name: 'observacoes', label: 'Observações', type: 'textarea' },
 ];
+
+async function loadRelationRows(field: Field) {
+  if (!field.relation) return [];
+
+  const rows: any[] = [];
+  let page = 1;
+  let total = 0;
+
+  do {
+    const { data } = await api.get(field.relation.endpoint, {
+      params: { page, limit: relationPageLimit, ...field.relation.params },
+    });
+    const pageRows = Array.isArray(data.data) ? data.data : [];
+    rows.push(...pageRows);
+    total = Number(data.total || rows.length);
+    if (!pageRows.length) break;
+    page += 1;
+  } while (rows.length < total);
+
+  return rows;
+}
 
 function FragmentRows({ group, grouped, tableFields, resource, canWrite, onView, onEdit, onDelete }: {
   group: { key: string; title: string; rows: any[] };
@@ -212,10 +234,10 @@ function CaminhaoCompletoModal({ resource, mode, item, onClose, onSaved }: { res
     const fields = cavaloFields.filter((field) => field.relation);
     Promise.all(
       fields.map(async (field) => {
-        const { data } = await api.get(field.relation!.endpoint, { params: { page: 1, limit: 100, ...field.relation!.params } });
+        const rows = await loadRelationRows(field);
         return [
           field.name,
-          data.data.map((row: any) => ({
+          rows.map((row: any) => ({
             value: row[field.relation?.valueKey || 'id'],
             label: relationLabel(row, field),
           })),
@@ -483,12 +505,12 @@ function RecordModal({ resource, mode, item, onClose, onSaved }: { resource: Res
 
     await Promise.all(
       fields.map(async (field) => {
-        const { data } = await api.get(field.relation!.endpoint, { params: { page: 1, limit: 100, ...field.relation!.params } });
-        const options = data.data.map((row: any) => ({
+        const rows = await loadRelationRows(field);
+        const options = rows.map((row: any) => ({
           value: row[field.relation?.valueKey || 'id'],
           label: relationLabel(row, field),
         }));
-        return [field.name, options, data.data] as const;
+        return [field.name, options, rows] as const;
       }),
     )
       .then((entries) => {
@@ -560,7 +582,7 @@ function RecordModal({ resource, mode, item, onClose, onSaved }: { resource: Res
                 {field.type === 'select' ? (
                   <>
                     <div className="relation-control">
-                      <select disabled={readonly} value={form[field.name] || ''} required={field.required && !readonly} onChange={(e) => update(field, e.target.value)}>
+                      <select disabled={readonly} value={form[field.name] || ''} required={isRequiredForMode(field, mode, readonly)} onChange={(e) => update(field, e.target.value)}>
                         <option value="">Selecione</option>
                         {(field.relation ? relationOptions[field.name] : field.options)?.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                       </select>
@@ -586,7 +608,7 @@ function RecordModal({ resource, mode, item, onClose, onSaved }: { resource: Res
                 ) : field.type === 'checkbox' ? (
                   <input disabled={readonly} type="checkbox" checked={Boolean(form[field.name])} onChange={(e) => update(field, e.target.checked)} />
                 ) : (
-                  <input disabled={readonly} type={field.type === 'money' ? 'number' : field.type || 'text'} step={field.type === 'money' ? '0.01' : undefined} value={form[field.name] || ''} required={field.required && !readonly} onChange={(e) => update(field, e.target.value)} />
+                  <input disabled={readonly} type={field.type === 'money' ? 'number' : field.type || 'text'} step={field.type === 'money' ? '0.01' : undefined} value={form[field.name] || ''} required={isRequiredForMode(field, mode, readonly)} onChange={(e) => update(field, e.target.value)} />
                 )}
               </label>
             );
@@ -764,6 +786,12 @@ function shouldRenderField(field: Field, form: any) {
   if (field.name === 'valorTotal' || field.hidden) return false;
   if (field.showWhen?.hasValue) return Boolean(form[field.showWhen.field]);
   return true;
+}
+
+function isRequiredForMode(field: Field, mode: Mode, readonly: boolean) {
+  if (readonly) return false;
+  if (mode === 'edit' && field.name === 'senha') return false;
+  return Boolean(field.required);
 }
 
 function sanitize(form: any, fields: Field[], mode: Mode) {

@@ -26,6 +26,24 @@ export class ImplementosService extends CrudService<CreateImplementoDto, UpdateI
     return depois;
   }
 
+  async remove(id: string, actor?: AuditActor) {
+    await this.assertNoRelatedRecords([
+      {
+        count: this.prisma.lancamentoFinanceiro.count({ where: { implementoId: id } }),
+        message: 'Não foi possível excluir: implemento possui lançamentos financeiros vinculados ao histórico.',
+      },
+      {
+        count: this.prisma.conjuntoImplemento.count({ where: { implementoId: id } }),
+        message: 'Não foi possível excluir: implemento pertence a uma composição. Edite a composição para preservar o histórico.',
+      },
+      {
+        count: this.prisma.historicoImplemento.count({ where: { implementoId: id } }),
+        message: 'Não foi possível excluir: implemento possui histórico registrado. Inative o cadastro para preservar os dados.',
+      },
+    ]);
+    return super.remove(id, actor);
+  }
+
   async historico(id: string) {
     await this.findOne(id);
     return this.prisma.historicoImplemento.findMany({

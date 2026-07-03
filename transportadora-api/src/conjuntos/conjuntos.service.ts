@@ -108,6 +108,20 @@ export class ConjuntosService extends CrudService<CreateConjuntoDto, UpdateConju
     });
   }
 
+  async remove(id: string, actor?: AuditActor) {
+    await this.assertNoRelatedRecords([
+      {
+        count: this.prisma.lancamentoFinanceiro.count({ where: { conjuntoId: id } }),
+        message: 'Não foi possível excluir: conjunto possui lançamentos financeiros vinculados ao histórico.',
+      },
+      {
+        count: this.prisma.historicoConjuntoOperacional.count({ where: { conjuntoId: id } }),
+        message: 'Não foi possível excluir: conjunto possui histórico registrado. Inative o cadastro para preservar os dados.',
+      },
+    ]);
+    return super.remove(id, actor);
+  }
+
   private async validateComposition(dto: CreateConjuntoDto, cavalo?: { tipoCavalo?: TipoCavaloMecanico | null }) {
     if (!dto.cavaloMecanicoId) throw new BadRequestException('Conjunto operacional deve ter um cavalo mecânico.');
     if ((!dto.implementoIds || dto.implementoIds.length === 0) && !dto.justificativaSemImplemento) {

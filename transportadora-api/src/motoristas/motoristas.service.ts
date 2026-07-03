@@ -26,6 +26,24 @@ export class MotoristasService extends CrudService<CreateMotoristaDto, UpdateMot
     return depois;
   }
 
+  async remove(id: string, actor?: AuditActor) {
+    await this.assertNoRelatedRecords([
+      {
+        count: this.prisma.lancamentoFinanceiro.count({ where: { motoristaId: id } }),
+        message: 'Não foi possível excluir: motorista possui lançamentos financeiros vinculados ao histórico.',
+      },
+      {
+        count: this.prisma.cavaloMecanico.count({ where: { motoristaId: id } }),
+        message: 'Não foi possível excluir: motorista está vinculado a um cavalo mecânico.',
+      },
+      {
+        count: this.prisma.historicoMotorista.count({ where: { motoristaId: id } }),
+        message: 'Não foi possível excluir: motorista possui histórico registrado. Inative o cadastro para preservar os dados.',
+      },
+    ]);
+    return super.remove(id, actor);
+  }
+
   async historico(id: string) {
     await this.findOne(id);
     const [alteracoes, cavalosAtuais, lancamentos, historicosCavalos] = await Promise.all([

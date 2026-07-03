@@ -37,6 +37,11 @@ describe('crudResources', () => {
     expect(field('caminhoes', 'composicaoAtual')?.table).toBe(true);
     expect(field('caminhoes', 'composicaoAtual')?.hidden).toBe(true);
   });
+
+  it('marca senha como obrigatoria na criacao de usuarios e normaliza placa do cavalo', () => {
+    expect(field('users', 'senha')?.required).toBe(true);
+    expect(field('caminhoes', 'placa')?.mask?.('abc-1d23')).toBe('ABC1D23');
+  });
 });
 //teste
 

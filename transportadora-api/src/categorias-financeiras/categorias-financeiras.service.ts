@@ -1,4 +1,5 @@
-﻿import { Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { AuditActor } from '../common/audit/audit-context';
 import { CrudService } from '../common/crud/crud.service';
 import { PaginationDto } from '../common/crud/pagination.dto';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -17,8 +18,14 @@ export class CategoriasFinanceirasService extends CrudService<CreateCategoriaFin
     if (query.ativo !== undefined) where.ativo = query.ativo === 'true';
     return where;
   }
+
+  async remove(id: string, actor?: AuditActor) {
+    await this.assertNoRelatedRecords([
+      {
+        count: this.prisma.lancamentoFinanceiro.count({ where: { categoriaId: id } }),
+        message: 'Não foi possível excluir: categoria possui lançamentos financeiros vinculados ao histórico.',
+      },
+    ]);
+    return super.remove(id, actor);
+  }
 }
-
-
-
-

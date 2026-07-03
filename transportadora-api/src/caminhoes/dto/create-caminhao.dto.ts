@@ -1,9 +1,10 @@
-﻿import { StatusGeral, TipoCavaloMecanico } from '@prisma/client';
-import { Type } from 'class-transformer';
+import { StatusGeral, TipoCavaloMecanico } from '@prisma/client';
+import { Transform, Type } from 'class-transformer';
 import { IsArray, IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, Max, Min, ValidateNested } from 'class-validator';
 import { CreateImplementoDto } from '../../implementos/dto/create-implemento.dto';
 
 export class CreateCaminhaoDto {
+  @Transform(({ value }) => (typeof value === 'string' ? value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 7) : value))
   @IsString() @IsNotEmpty() placa!: string;
   @IsOptional() @IsString() marca?: string | null;
   @IsOptional() @IsString() modelo?: string | null;
@@ -19,7 +20,3 @@ export class CreateCaminhaoDto {
   @IsOptional() @IsEnum(StatusGeral) conjuntoStatus?: StatusGeral | null;
   @IsOptional() @IsString() conjuntoObservacoes?: string | null;
 }
-
-
-
-

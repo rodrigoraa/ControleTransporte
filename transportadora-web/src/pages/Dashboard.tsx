@@ -1,7 +1,7 @@
 ﻿import { ReactElement, useEffect, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from '../services/api';
-import { money } from '../utils/formatters';
+import { date, money } from '../utils/formatters';
 
 export function Dashboard() {
   const [data, setData] = useState<any>(null);
@@ -84,7 +84,7 @@ export function Dashboard() {
             <tbody>
               {data.ultimosLancamentos.map((item: any) => (
                 <tr key={item.id}>
-                  <td>{new Date(item.data).toLocaleDateString('pt-BR')}</td>
+                  <td>{date(item.data)}</td>
                   <td>{item.tipoLancamento}</td>
                   <td>{item.cavaloMecanico?.placa || item.placa}</td>
                   <td>{item.conjunto?.nome || '-'}</td>

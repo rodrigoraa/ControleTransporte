@@ -72,16 +72,18 @@ function makePrisma() {
       $transaction: jest.fn(async (callback: any) => callback(tx)),
       auditoria: { create: jest.fn(async (args: any) => args) },
       historicoMotorista: { create: jest.fn(async (args: any) => args) },
-      historicoCavaloMecanico: { create: jest.fn(async (args: any) => args) },
+      historicoCavaloMecanico: { create: jest.fn(async (args: any) => args), count: jest.fn(async () => 0) },
       historicoConjuntoOperacional: { create: jest.fn(async (args: any) => args) },
       cavaloMecanico: {
         findUnique: jest.fn(async () => state.cavalo),
       },
       conjunto: {
         findMany: jest.fn(async () => state.conjuntos),
+        count: jest.fn(async () => state.conjuntos.length),
       },
       lancamentoFinanceiro: {
         findMany: jest.fn(async () => []),
+        count: jest.fn(async () => 0),
       },
     } as any,
   };
@@ -154,6 +156,16 @@ describe('CaminhoesService', () => {
         { placa: 'CAR1A02', tipo: TipoImplemento.CARRETA, carroceria: 'GRANELEIRO' as any, quantidadeEixos: 2 },
       ],
     })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('bloqueia exclusao quando ha lancamentos financeiros vinculados ao cavalo', async () => {
+    const { prisma, state } = makePrisma();
+    const service = makeService(prisma);
+    state.conjuntos = [];
+    prisma.lancamentoFinanceiro.count.mockResolvedValueOnce(1);
+    jest.spyOn(service as any, 'findOne').mockResolvedValue({ ...state.cavalo, conjuntos: [] });
+
+    await expect(service.remove('cav-1')).rejects.toThrow(/lançamentos financeiros/);
   });
 });
 

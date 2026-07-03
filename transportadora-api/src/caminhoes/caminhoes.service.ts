@@ -95,6 +95,24 @@ export class CaminhoesService extends CrudService<CreateCaminhaoDto, UpdateCamin
     };
   }
 
+  async remove(id: string, actor?: AuditActor) {
+    await this.assertNoRelatedRecords([
+      {
+        count: this.prisma.lancamentoFinanceiro.count({ where: { cavaloMecanicoId: id } }),
+        message: 'Não foi possível excluir: cavalo mecânico possui lançamentos financeiros vinculados ao histórico.',
+      },
+      {
+        count: this.prisma.conjunto.count({ where: { cavaloMecanicoId: id } }),
+        message: 'Não foi possível excluir: cavalo mecânico possui composições registradas. Inative o cadastro para preservar os dados.',
+      },
+      {
+        count: this.prisma.historicoCavaloMecanico.count({ where: { cavaloMecanicoId: id } }),
+        message: 'Não foi possível excluir: cavalo mecânico possui histórico registrado. Inative o cadastro para preservar os dados.',
+      },
+    ]);
+    return super.remove(id, actor);
+  }
+
   async atualizarComposicao(id: string, dto: UpdateCaminhaoDto, actor?: AuditActor) {
     const antes = await this.findOne(id);
     const { implementos = [], conjuntoStatus, conjuntoObservacoes, ...cavaloDto } = dto;

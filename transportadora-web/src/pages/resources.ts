@@ -1,4 +1,4 @@
-﻿import { maskDocument, maskPhone } from '../utils/formatters';
+﻿import { maskDocument, maskPhone, maskPlate } from '../utils/formatters';
 
 export type Field = {
   name: string;
@@ -110,7 +110,7 @@ export const crudResources: Resource[] = [
     path: 'caminhoes',
     endpoint: '/caminhoes',
     fields: [
-      { name: 'placa', label: 'Placa do cavalo', required: true, table: true },
+      { name: 'placa', label: 'Placa do cavalo', required: true, table: true, mask: maskPlate },
       { name: 'composicaoAtual', label: 'Composição atual', table: true, hidden: true },
       { name: 'marca', label: 'Marca', table: true },
       { name: 'modelo', label: 'Modelo', table: true },
@@ -185,7 +185,7 @@ export const crudResources: Resource[] = [
     fields: [
       { name: 'nome', label: 'Nome', required: true, table: true },
       { name: 'email', label: 'E-mail', type: 'email', required: true, table: true },
-      { name: 'senha', label: 'Senha', type: 'password' },
+      { name: 'senha', label: 'Senha', type: 'password', required: true },
       { name: 'perfil', label: 'Perfil', type: 'select', table: true, options: [{ label: 'Admin', value: 'ADMIN' }, { label: 'Usuário', value: 'USUARIO' }] },
       { name: 'ativo', label: 'Ativo', type: 'checkbox', table: true },
     ],

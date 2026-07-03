@@ -46,6 +46,12 @@ export abstract class CrudService<CreateDto extends object, UpdateDto extends ob
     return dto;
   }
 
+  protected async assertNoRelatedRecords(checks: Array<{ count: Promise<number>; message: string }>) {
+    for (const check of checks) {
+      if ((await check.count) > 0) throw new BadRequestException(check.message);
+    }
+  }
+
   private emptyStringsToNull(data: any): any {
     const dateFields = new Set(['data', 'dataAdmissao', 'validadeCnh', 'dataInicio', 'dataFim', 'dataColocacaoConjunto', 'dataRemocaoConjunto']);
     return Object.fromEntries(

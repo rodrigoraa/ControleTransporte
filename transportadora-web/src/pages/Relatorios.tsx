@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import { BarChart3, Download, FileSpreadsheet, FileText, Filter, Search } from 'lucide-react';
 import { api } from '../services/api';
 import { apiErrorMessage } from '../utils/apiError';
-import { money } from '../utils/formatters';
+import { date, money } from '../utils/formatters';
 
 type Option = { value: string; label: string; cavaloMecanicoId?: string | null; tipo?: string; quantidadeTotalEixos?: number };
 type ReportOptions = {
@@ -177,7 +177,7 @@ export function Relatorios() {
                   )}
                   {financeiro.historico.map((item: any) => (
                     <tr key={item.id}>
-                      <td>{new Date(item.data).toLocaleDateString('pt-BR')}</td>
+                      <td>{date(item.data)}</td>
                       <td><TipoBadge tipo={item.tipoLancamento} /></td>
                       <td>{item.cavaloMecanico?.placa || item.placa}</td>
                       <td>{labelConjunto(item.conjunto)}</td>
