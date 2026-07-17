@@ -214,8 +214,8 @@ function FragmentRows({ group, grouped, tableFields, resource, canWrite, onView,
           {tableFields.map((field) => <td key={field.name}>{renderRowValue(row, field, resource)}</td>)}
           <td className="actions">
             <button className="icon-button" title="Visualizar" onClick={() => onView(row)}><Eye size={17} /></button>
-            {canWrite && <button className="icon-button" title="Editar" onClick={() => onEdit(row)}><Pencil size={17} /></button>}
-            {canWrite && <button className="icon-button danger" title={resource.path === 'caminhoes' ? 'Excluir cavalo mecânico' : 'Excluir'} onClick={() => onDelete(row)}><Trash2 size={17} /></button>}
+            {canWrite && !row.protegido && <button className="icon-button" title="Editar" onClick={() => onEdit(row)}><Pencil size={17} /></button>}
+            {canWrite && !row.protegido && <button className="icon-button danger" title={resource.path === 'caminhoes' ? 'Excluir cavalo mecânico' : 'Excluir'} onClick={() => onDelete(row)}><Trash2 size={17} /></button>}
           </td>
         </tr>
       ))}
@@ -497,6 +497,7 @@ function RecordModal({ resource, mode, item, onClose, onSaved }: { resource: Res
   const [relationRows, setRelationRows] = useState<Record<string, any[]>>({});
   const [quickCreate, setQuickCreate] = useState<{ field: Field; resource: Resource } | null>(null);
   const [error, setError] = useState('');
+  const { user, logout } = useAuth();
   const readonly = mode === 'view';
 
   async function loadRelations() {
@@ -557,6 +558,18 @@ function RecordModal({ resource, mode, item, onClose, onSaved }: { resource: Res
       const response = mode === 'create'
         ? await api.post(resource.endpoint, payload)
         : await api.patch(`${resource.endpoint}/${item.id}`, payload);
+
+      const changedOwnPassword =
+        mode === 'edit' &&
+        resource.path === 'users' &&
+        item.id === user?.id &&
+        Boolean(payload.senha);
+      if (changedOwnPassword) {
+        sessionStorage.setItem('authMessage', 'Senha alterada com sucesso. Entre novamente usando a nova senha.');
+        logout();
+        return;
+      }
+
       onSaved(response?.data);
     } catch (requestError: any) {
       setError(await apiErrorMessage(requestError, 'Verifique os campos e tente novamente.'));

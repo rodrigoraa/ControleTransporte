@@ -147,6 +147,9 @@ describe('RelatoriosService', () => {
 
     expect(pdf.toString('utf8', 0, 8)).toBe('%PDF-1.4');
     expect(pdf.length).toBeGreaterThan(500);
+    expect(pdf.toString('latin1')).toContain('/Encoding /WinAnsiEncoding');
+    expect(pdf.toString('latin1')).toContain('Lançamentos encontrados');
+    expect(pdf.toString('latin1')).toContain('Resumo por composição do cavalo');
   });
 });
 

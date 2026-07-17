@@ -57,6 +57,13 @@ export class AuthService {
       };
     }
 
+    if (this.isEnvironmentAdmin(user.email)) {
+      return {
+        available: false,
+        message: 'A senha deste usuário é gerenciada pelas variáveis de ambiente.',
+      };
+    }
+
     const temporaryPassword = this.generateTemporaryPassword();
     await this.prisma.user.update({
       where: { id: user.id },
@@ -95,5 +102,10 @@ export class AuthService {
     return ['1', 'true', 'yes', 'on'].includes(
       String(this.config.get('ALLOW_INSECURE_PASSWORD_RECOVERY') || '').toLowerCase(),
     );
+  }
+
+  private isEnvironmentAdmin(email: string) {
+    const environmentAdminEmail = String(this.config.get('ADMIN_EMAIL') || '').trim().toLowerCase();
+    return Boolean(environmentAdminEmail) && this.normalizeEmail(email) === environmentAdminEmail;
   }
 }

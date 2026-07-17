@@ -17,7 +17,7 @@ export class UsersService {
 
   private safe(user: any) {
     const { senha: _senha, ...rest } = user;
-    return rest;
+    return { ...rest, protegido: this.isEnvironmentAdmin(user.email) };
   }
 
   async create(dto: CreateUserDto, actor?: AuditActor) {
@@ -66,6 +66,7 @@ export class UsersService {
   async update(id: string, dto: UpdateUserDto, actor?: AuditActor) {
     const current = await this.prisma.user.findUnique({ where: { id } });
     if (!current) throw new NotFoundException('Usuário não encontrado.');
+    this.assertMutable(current.email);
     await this.assertAdminContinuity(current, dto);
 
     const data = { ...dto } as any;
@@ -92,6 +93,7 @@ export class UsersService {
   async remove(id: string, actor?: AuditActor) {
     const current = await this.prisma.user.findUnique({ where: { id } });
     if (!current) throw new NotFoundException('Usuário não encontrado.');
+    this.assertMutable(current.email);
     await this.assertAdminContinuity(current, { ativo: false });
 
     const before = this.safe(current);
@@ -122,6 +124,17 @@ export class UsersService {
 
   private normalizeEmail(email: string) {
     return email.trim().toLowerCase();
+  }
+
+  private assertMutable(email: string) {
+    if (this.isEnvironmentAdmin(email)) {
+      throw new ConflictException('Este usuário é protegido pelas variáveis de ambiente e não pode ser alterado ou excluído pelo sistema.');
+    }
+  }
+
+  private isEnvironmentAdmin(email: string) {
+    const environmentAdminEmail = String(this.config.get('ADMIN_EMAIL') || '').trim().toLowerCase();
+    return Boolean(environmentAdminEmail) && this.normalizeEmail(email) === environmentAdminEmail;
   }
 
   private bcryptRounds() {

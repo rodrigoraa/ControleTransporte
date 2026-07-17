@@ -1,4 +1,4 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import {
   ArrowRight,
   CheckCircle2,
@@ -24,6 +24,13 @@ export function Login() {
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const authMessage = sessionStorage.getItem('authMessage');
+    if (!authMessage) return;
+    setInfo(authMessage);
+    sessionStorage.removeItem('authMessage');
+  }, []);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();

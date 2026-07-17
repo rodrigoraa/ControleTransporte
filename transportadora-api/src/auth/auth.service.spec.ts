@@ -27,4 +27,29 @@ describe('AuthService', () => {
     expect(prisma.user.update).not.toHaveBeenCalled();
     expect(prisma.auditoria.create).not.toHaveBeenCalled();
   });
+
+  it('não redefine a senha do administrador gerenciado pelo ambiente', async () => {
+    const prisma = {
+      user: {
+        findFirst: jest.fn(async () => ({ id: 'admin-id', email: 'admin@example.com', ativo: true })),
+        update: jest.fn(),
+      },
+      auditoria: { create: jest.fn() },
+    };
+    const config = {
+      get: jest.fn((key: string) => {
+        if (key === 'NODE_ENV') return 'development';
+        if (key === 'ALLOW_INSECURE_PASSWORD_RECOVERY') return 'true';
+        if (key === 'ADMIN_EMAIL') return 'ADMIN@example.com';
+        return undefined;
+      }),
+    };
+    const service = new AuthService(prisma as any, { signAsync: jest.fn() } as any, config as any);
+
+    const result = await service.forgotPassword({ email: 'admin@example.com' });
+
+    expect(result.available).toBe(false);
+    expect(result.message).toContain('variáveis de ambiente');
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
 });
