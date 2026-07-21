@@ -236,12 +236,24 @@ export class CaminhoesService extends CrudService<CreateCaminhaoDto, UpdateCamin
       const depois = item.dadosDepois as any;
       return antes?.cavaloMecanicoId === id || depois?.cavaloMecanicoId === id;
     });
+    const motoristaIds = alteracoes.flatMap((item) => {
+      const antes = item.dadosAntes as any;
+      const depois = item.dadosDepois as any;
+      return [antes?.motoristaId, depois?.motoristaId].filter(Boolean) as string[];
+    });
+    const motoristasHistoricos = motoristaIds.length
+      ? await this.prisma.motorista.findMany({
+          where: { id: { in: [...new Set(motoristaIds)] } },
+          select: { id: true, nome: true, cpf: true },
+        })
+      : [];
 
     return {
       alteracoes,
       conjuntosAtuais,
       historicoEngates,
       lancamentos,
+      motoristasHistoricos,
       totais: this.totaisLancamentos(lancamentos),
     };
   }
