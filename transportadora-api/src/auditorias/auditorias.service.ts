@@ -33,6 +33,7 @@ const ENTITY_LABELS: Record<string, string> = {
   fornecedor: 'Fornecedor',
   categoriaFinanceira: 'Categoria financeira',
   lancamentoFinanceiro: 'Lançamento financeiro',
+  abastecimento: 'Abastecimento',
 };
 
 const ACTION_LABELS: Record<string, string> = {

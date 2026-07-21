@@ -1,6 +1,6 @@
 ﻿import { TipoLancamento, UnidadeQuantidade } from '@prisma/client';
 import { Transform, Type } from 'class-transformer';
-import { IsDate, IsEnum, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsDate, IsEnum, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreateLancamentoFinanceiroDto {
   @Type(() => Date) @IsDate() data!: Date;
@@ -19,6 +19,7 @@ export class CreateLancamentoFinanceiroDto {
   @Type(() => Number) @IsNumber() @Min(0) quantidade!: number;
   @IsEnum(UnidadeQuantidade) unidadeQuantidade!: UnidadeQuantidade;
   @Type(() => Number) @IsNumber() @Min(0) valorUnitario!: number;
+  @IsOptional() @IsBoolean() multiplicarQuantidade?: boolean;
   @IsOptional() @IsString() observacoes?: string;
 }
 

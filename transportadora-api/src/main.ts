@@ -142,6 +142,9 @@ function baseFieldLabel(field: string) {
     quantidade: 'Quantidade',
     quantidadeEixos: 'Quantidade de eixos',
     quantidadeTotalEixos: 'Quantidade total de eixos',
+    kmAnterior: 'Quilometragem anterior',
+    kmAtual: 'Quilometragem atual',
+    litros: 'Litros',
     renavam: 'Renavam',
     search: 'Busca',
     senha: 'Senha',
@@ -154,6 +157,7 @@ function baseFieldLabel(field: string) {
     unidadeQuantidade: 'Unidade da quantidade',
     validadeCnh: 'Validade da CNH',
     valorUnitario: 'Valor unitário',
+    multiplicarQuantidade: 'Multiplicar quantidade pelo valor unitário',
   };
   return labels[field] || field;
 }

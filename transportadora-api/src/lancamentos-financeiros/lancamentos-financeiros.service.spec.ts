@@ -76,6 +76,13 @@ describe('LancamentosFinanceirosService', () => {
     expect(create.mock.calls[0][0].data.conjuntoId).toBe('set-1');
   });
 
+  it('usa somente o valor unitário quando a multiplicação é desmarcada', async () => {
+    const { service, create } = makeService();
+    await service.create({ ...baseDto, fornecedorId: 'supplier-1', multiplicarQuantidade: false });
+    expect(String(create.mock.calls[0][0].data.valorTotal)).toBe('10');
+    expect(create.mock.calls[0][0].data.multiplicarQuantidade).toBe(false);
+  });
+
   it('cria despesa sem motorista', async () => {
     const { service, create } = makeService();
 

@@ -33,9 +33,31 @@ describe('ComposicoesCavaloService', () => {
     }));
   });
 
-  it('exige dolly quando houver segunda carreta', () => {
+  it('permite bitrem com duas carretas sem dolly', () => {
     expect(() => service.validateComposition([
       { tipo: TipoImplemento.CARRETA, quantidadeEixos: 2 },
+      { tipo: TipoImplemento.CARRETA, quantidadeEixos: 2 },
+    ], TipoCavaloMecanico.TRUCADO_6X2)).not.toThrow();
+  });
+
+  it('classifica como bitrem o conjunto de 7 eixos sem dolly', async () => {
+    const tx: any = {
+      conjunto: { create: jest.fn(async ({ data }: any) => ({ id: 'conj-7', ...data })) },
+      historicoConjuntoOperacional: { create: jest.fn() },
+    };
+    const conjunto = await service.createConjunto(tx, { id: 'cav-7', placa: 'BIT7EIX', marca: 'Teste', tipoCavalo: TipoCavaloMecanico.TRUCADO_6X2 }, [
+      { id: 'imp-1', tipo: TipoImplemento.CARRETA, quantidadeEixos: 2, capacidadeCarga: new Prisma.Decimal(30000) },
+      { id: 'imp-2', tipo: TipoImplemento.CARRETA, quantidadeEixos: 2, capacidadeCarga: new Prisma.Decimal(30000) },
+    ], 'ATIVO', null, new Date('2026-07-20'));
+    expect(conjunto.quantidadeTotalEixos).toBe(7);
+    expect(conjunto.tipo).toBe('BITREM');
+  });
+
+  it('rejeita mais de um dolly', () => {
+    expect(() => service.validateComposition([
+      { tipo: TipoImplemento.CARRETA, quantidadeEixos: 2 },
+      { tipo: TipoImplemento.DOLLY, quantidadeEixos: 2 },
+      { tipo: TipoImplemento.DOLLY, quantidadeEixos: 2 },
       { tipo: TipoImplemento.CARRETA, quantidadeEixos: 2 },
     ], TipoCavaloMecanico.TRUCADO_6X2)).toThrow(BadRequestException);
   });

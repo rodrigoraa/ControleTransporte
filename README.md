@@ -138,13 +138,13 @@ Cavalo mecânico:
   Motorista atual: Carlos Almeida
 
 Implementos:
-  1. 1ª carreta / semirreboque graneleiro CAR1A01 - 3 eixos - 32.000 kg
-  2. 2ª carreta / semirreboque graneleiro CAR1A02 - 3 eixos - 32.000 kg
+  1. 1ª carreta / semirreboque graneleiro CAR1A01 - 2 eixos - 32.000 kg
+  2. 2ª carreta / semirreboque graneleiro CAR1A02 - 2 eixos - 32.000 kg
 
 Conjunto operacional:
   Nome gerado: ABC1D23 - Volvo
   Tipo identificado: BITREM
-  Total de eixos dos implementos: 6
+  Total de eixos dos implementos: 4 (7 com o cavalo)
   Capacidade total: 64.000 kg
 ```
 
@@ -663,6 +663,7 @@ Campos principais:
 - Unidade: KG ou unidade.
 - Valor unitário.
 - Valor total calculado automaticamente.
+- Opção marcada por padrão para multiplicar quantidade pelo valor unitário; ao desmarcar, o valor unitário passa a ser o total do lançamento.
 - Observações.
 
 Regras:

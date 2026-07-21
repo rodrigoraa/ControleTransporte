@@ -24,7 +24,7 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
   async create(dto: CreateLancamentoFinanceiroDto, actor?: AuditActor) {
     const data = await this.prepareData(this.cleanData(dto));
     const created = await this.repo.create({
-      data: { ...data, valorTotal: new Prisma.Decimal(dto.quantidade).mul(dto.valorUnitario) },
+      data: { ...data, multiplicarQuantidade: dto.multiplicarQuantidade ?? true, valorTotal: this.calculateValorTotal(dto.quantidade, dto.valorUnitario, dto.multiplicarQuantidade ?? true) },
       include: {
         motorista: true,
         fornecedor: true,
@@ -47,6 +47,7 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
     const current = await this.findOne(id);
     const quantidade = dto.quantidade ?? Number(current.quantidade);
     const valorUnitario = dto.valorUnitario ?? Number(current.valorUnitario);
+    const multiplicarQuantidade = dto.multiplicarQuantidade ?? current.multiplicarQuantidade ?? true;
     const data = Object.fromEntries(
       Object.entries(dto).map(([key, value]) => {
         if (value === '') return [key, null];
@@ -70,7 +71,8 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
         clienteId: partyFields.clienteId,
         cavaloMecanicoId: frota.cavaloMecanicoId,
         conjuntoId: frota.conjuntoId,
-        valorTotal: new Prisma.Decimal(quantidade).mul(valorUnitario),
+        multiplicarQuantidade,
+        valorTotal: this.calculateValorTotal(quantidade, valorUnitario, multiplicarQuantidade),
       },
       include: {
         motorista: true,
@@ -191,5 +193,10 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
     }
 
     return normalized;
+  }
+
+  private calculateValorTotal(quantidade: number, valorUnitario: number, multiplicarQuantidade: boolean) {
+    const valor = new Prisma.Decimal(valorUnitario);
+    return multiplicarQuantidade ? new Prisma.Decimal(quantidade).mul(valor) : valor;
   }
 }

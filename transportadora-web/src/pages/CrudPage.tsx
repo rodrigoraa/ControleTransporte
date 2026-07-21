@@ -1,5 +1,6 @@
 ﻿import { Eye, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { Fuel } from 'lucide-react';
 import { Toast } from '../components/Toast';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../services/api';
@@ -19,6 +20,7 @@ export function CrudPage({ resource }: { resource: Resource }) {
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<any | null>(null);
+  const [consumoCavalo, setConsumoCavalo] = useState<any | null>(null);
   const { user } = useAuth();
   const canWrite = user?.perfil === 'ADMIN' && !resource.readOnly;
   const limit = 10;
@@ -101,6 +103,7 @@ export function CrudPage({ resource }: { resource: Resource }) {
                   tableFields={tableFields}
                   resource={resource}
                   canWrite={canWrite}
+                  onConsumo={(row) => setConsumoCavalo(row)}
                   onView={(row) => setModal({ mode: 'view', item: row })}
                   onEdit={(row) => setModal({ mode: 'edit', item: row })}
                   onDelete={(row) => setPendingDelete(row)}
@@ -153,6 +156,7 @@ export function CrudPage({ resource }: { resource: Resource }) {
           onConfirm={() => remove(pendingDelete)}
         />
       )}
+      {consumoCavalo && <ConsumoModal cavalo={consumoCavalo} canWrite={canWrite} onClose={() => setConsumoCavalo(null)} />}
     </section>
   );
 }
@@ -189,12 +193,13 @@ async function loadRelationRows(field: Field) {
   return rows;
 }
 
-function FragmentRows({ group, grouped, tableFields, resource, canWrite, onView, onEdit, onDelete }: {
+function FragmentRows({ group, grouped, tableFields, resource, canWrite, onConsumo, onView, onEdit, onDelete }: {
   group: { key: string; title: string; rows: any[] };
   grouped: boolean;
   tableFields: Field[];
   resource: Resource;
   canWrite: boolean;
+  onConsumo: (row: any) => void;
   onView: (row: any) => void;
   onEdit: (row: any) => void;
   onDelete: (row: any) => void;
@@ -213,6 +218,7 @@ function FragmentRows({ group, grouped, tableFields, resource, canWrite, onView,
         <tr key={row.id}>
           {tableFields.map((field) => <td key={field.name}>{renderRowValue(row, field, resource)}</td>)}
           <td className="actions">
+            {resource.path === 'caminhoes' && <button className="icon-button" title="Consumo e média" onClick={() => onConsumo(row)}><Fuel size={17} /></button>}
             <button className="icon-button" title="Visualizar" onClick={() => onView(row)}><Eye size={17} /></button>
             {canWrite && !row.protegido && <button className="icon-button" title="Editar" onClick={() => onEdit(row)}><Pencil size={17} /></button>}
             {canWrite && !row.protegido && <button className="icon-button danger" title={resource.path === 'caminhoes' ? 'Excluir cavalo mecânico' : 'Excluir'} onClick={() => onDelete(row)}><Trash2 size={17} /></button>}
@@ -222,6 +228,100 @@ function FragmentRows({ group, grouped, tableFields, resource, canWrite, onView,
     </>
   );
 }
+
+type ConsumoForm = { id?: string; data: string; kmAnterior: string; kmAtual: string; litros: string; observacoes: string };
+
+function ConsumoModal({ cavalo, canWrite, onClose }: { cavalo: any; canWrite: boolean; onClose: () => void }) {
+  const [data, setData] = useState<any>(null);
+  const [form, setForm] = useState<ConsumoForm>(() => emptyConsumoForm());
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [pendingDelete, setPendingDelete] = useState<any | null>(null);
+
+  async function load(reset = false) {
+    setLoading(true);
+    try {
+      const response = await api.get('/abastecimentos', { params: { cavaloMecanicoId: cavalo.id } });
+      setData(response.data);
+      if (reset || !form.id) setForm({ ...emptyConsumoForm(), kmAnterior: response.data.resumo.kmAnteriorSugerido?.toString() || '' });
+      setError('');
+    } catch (requestError) {
+      setError(await apiErrorMessage(requestError, 'Não foi possível carregar o histórico de consumo.'));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { load(true); }, [cavalo.id]);
+
+  const distancia = Number(form.kmAtual) - Number(form.kmAnterior);
+  const media = distancia > 0 && Number(form.litros) > 0 ? distancia / Number(form.litros) : 0;
+  const sugestao = data?.resumo?.kmAnteriorSugerido;
+  const alterouSugestao = !form.id && sugestao != null && form.kmAnterior !== '' && Number(form.kmAnterior) !== Number(sugestao);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    try {
+      const payload = { cavaloMecanicoId: cavalo.id, data: form.data, kmAnterior: Number(form.kmAnterior), kmAtual: Number(form.kmAtual), litros: Number(form.litros), observacoes: form.observacoes || null };
+      if (form.id) await api.patch(`/abastecimentos/${form.id}`, payload);
+      else await api.post('/abastecimentos', payload);
+      await load(true);
+    } catch (requestError) {
+      setError(await apiErrorMessage(requestError, 'Não foi possível salvar o registro de consumo.'));
+    }
+  }
+
+  async function remove() {
+    try {
+      await api.delete(`/abastecimentos/${pendingDelete.id}`);
+      setPendingDelete(null);
+      await load(true);
+    } catch (requestError) {
+      setError(await apiErrorMessage(requestError, 'Não foi possível excluir o registro de consumo.'));
+    }
+  }
+
+  function edit(item: any) {
+    setForm({ id: item.id, data: String(item.data).slice(0, 10), kmAnterior: String(item.kmAnterior), kmAtual: String(item.kmAtual), litros: String(item.litros), observacoes: item.observacoes || '' });
+    setError('');
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <div className="modal large-modal consumo-modal">
+        <div className="modal-header">
+          <div><h2>Consumo do veículo</h2><span>{[cavalo.placa, cavalo.marca, cavalo.modelo].filter(Boolean).join(' - ')}</span></div>
+          <button type="button" className="icon-button" onClick={onClose}><X size={18} /></button>
+        </div>
+        {data && <div className="consumo-stats"><ConsumoStat label="Média geral" value={`${decimal(data.resumo.mediaGeralKmLitro, 3)} km/l`} /><ConsumoStat label="Distância total" value={`${decimal(data.resumo.distanciaTotal, 1)} km`} /><ConsumoStat label="Litros registrados" value={`${decimal(data.resumo.litrosTotal, 3)} L`} /><ConsumoStat label="Última quilometragem" value={data.resumo.ultimaQuilometragem == null ? '-' : `${decimal(data.resumo.ultimaQuilometragem, 1)} km`} /></div>}
+        {canWrite && <form className="consumo-form" onSubmit={submit}>
+          <div className="section-title"><h3>{form.id ? 'Editar registro' : 'Novo registro'}</h3>{form.id && <button type="button" className="button ghost" onClick={() => load(true)}>Cancelar edição</button>}</div>
+          <div className="form-grid">
+            <label>Data<input type="date" required value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} /></label>
+            <label>Km anterior<input type="number" min="0" step="0.1" required value={form.kmAnterior} onChange={(e) => setForm({ ...form, kmAnterior: e.target.value })} /></label>
+            <label>Km atual<input type="number" min="0" step="0.1" required value={form.kmAtual} onChange={(e) => setForm({ ...form, kmAtual: e.target.value })} /></label>
+            <label>Litros<input type="number" min="0.001" step="0.001" required value={form.litros} onChange={(e) => setForm({ ...form, litros: e.target.value })} /></label>
+            <label className="wide">Observações<textarea value={form.observacoes} onChange={(e) => setForm({ ...form, observacoes: e.target.value })} /></label>
+          </div>
+          {alterouSugestao && <div className="form-warning">A quilometragem anterior foi alterada e não corresponde ao último registro deste veículo.</div>}
+          <div className="consumo-preview"><span>Distância: <strong>{distancia > 0 ? `${decimal(distancia, 1)} km` : '-'}</strong></span><span>Média: <strong>{media > 0 ? `${decimal(media, 3)} km/l` : '-'}</strong></span></div>
+          <div className="modal-actions"><button className="button primary">{form.id ? 'Salvar alterações' : 'Registrar consumo'}</button></div>
+        </form>}
+        {error && <div className="form-error">{error}</div>}
+        <div className="section-title"><h3>Histórico</h3><span>{data?.resumo?.quantidadeRegistros || 0} registros</span></div>
+        <div className="table-wrap consumo-history"><table><thead><tr><th>Data</th><th>Km anterior</th><th>Km atual</th><th>Distância</th><th>Litros</th><th>Média</th>{canWrite && <th>Ações</th>}</tr></thead><tbody>
+          {data?.registros?.map((item: any) => <tr key={item.id} className={data.divergencias?.includes(item.id) ? 'consumo-divergente' : ''}><td>{date(item.data)}{data.divergencias?.includes(item.id) && <small title="A sequência de quilometragens não coincide com o registro anterior ou seguinte.">Sequência divergente</small>}</td><td>{decimal(item.kmAnterior, 1)}</td><td>{decimal(item.kmAtual, 1)}</td><td>{decimal(item.distanciaPercorrida, 1)} km</td><td>{decimal(item.litros, 3)} L</td><td><strong>{decimal(item.mediaKmLitro, 3)} km/l</strong></td>{canWrite && <td className="actions"><button className="icon-button" title="Editar" onClick={() => edit(item)}><Pencil size={16} /></button><button className="icon-button danger" title="Excluir" onClick={() => setPendingDelete(item)}><Trash2 size={16} /></button></td>}</tr>)}
+          {!loading && !data?.registros?.length && <tr><td colSpan={canWrite ? 7 : 6}>Nenhum consumo registrado.</td></tr>}{loading && <tr><td colSpan={canWrite ? 7 : 6}>Carregando...</td></tr>}
+        </tbody></table></div>
+      </div>
+      {pendingDelete && <ConfirmModal title="Excluir registro de consumo" message="A exclusão pode interromper a sequência de quilometragens. Confirma?" onCancel={() => setPendingDelete(null)} onConfirm={remove} />}
+    </div>
+  );
+}
+
+function ConsumoStat({ label, value }: { label: string; value: string }) { return <div><span>{label}</span><strong>{value}</strong></div>; }
+function emptyConsumoForm(): ConsumoForm { return { data: new Date().toISOString().slice(0, 10), kmAnterior: '', kmAtual: '', litros: '', observacoes: '' }; }
+function decimal(value: any, digits: number) { const number = Number(value); return Number.isFinite(number) ? number.toLocaleString('pt-BR', { minimumFractionDigits: digits, maximumFractionDigits: digits }) : '-'; }
 
 function CaminhaoCompletoModal({ resource, mode, item, onClose, onSaved }: { resource: Resource; mode: Exclude<Mode, 'view'>; item: any; onClose: () => void; onSaved: (saved?: any) => void }) {
   const cavaloFields = resource.fields;
@@ -773,7 +873,7 @@ function validateComposicao(cavalo: any, implementos: any[]) {
   if (carretas.length > 2) return 'A composição deve ter no máximo duas carretas/reboques.';
   if (dollys.length > 1) return 'A composição deve ter no máximo um dolly.';
   if (dollys.length && carretas.length === 1) return 'Se houver apenas uma carreta, não informe dolly.';
-  if (carretas.length === 2 && !dollys.length) return 'Se houver segunda carreta, informe dolly.';
+  if (dollys.length && (implementos.length !== 3 || implementos[1]?.tipo !== 'DOLLY')) return 'No rodotrem, informe os implementos na ordem: 1ª carreta, dolly e 2ª carreta.';
   if (dollys.length && cavaloEixos(cavalo.tipoCavalo) < 3) return 'Rodotrem deve usar cavalo trucado ou traçado.';
   if (carretas.some((item) => ![2, 3].includes(Number(item.quantidadeEixos)))) return 'Carretas devem ter 2 ou 3 eixos.';
   return '';

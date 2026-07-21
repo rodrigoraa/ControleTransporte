@@ -201,12 +201,18 @@ O sistema calcula a composição com base no cavalo e nos implementos.
 Regras importantes:
 
 - Uma composição pode ter no máximo duas carretas/reboques.
-- Se houver segunda carreta, deve haver dolly.
+- Duas carretas sem dolly formam um bitrem; no rodotrem, informe o dolly entre as duas carretas.
 - Se houver apenas uma carreta, não informe dolly.
 - Rodotrem deve usar cavalo trucado ou traçado.
 - Carretas devem ter 2 ou 3 eixos.
 
 Ao editar uma composição, o sistema encerra a composição anterior e registra uma nova, preservando o histórico.
+
+### Consumo do cavalo mecânico
+
+Na lista de cavalos mecânicos, use a ação **Consumo e média** para registrar abastecimentos. No primeiro registro, informe manualmente a quilometragem anterior, a atual e os litros. Nos registros seguintes, o sistema sugere como quilometragem anterior o último km atual salvo, permitindo correção manual com aviso.
+
+A distância e a média em km/l são calculadas automaticamente. A mesma tela apresenta o histórico editável e a média geral ponderada do veículo, calculada pela distância total dividida pelo total de litros.
 
 ## 12. Categorias Financeiras
 
@@ -246,9 +252,7 @@ Campos comuns:
 - Valor unitário.
 - Observações.
 
-O sistema calcula o valor total automaticamente:
-
-`Quantidade x Valor unitário`
+Por padrão, a opção `Multiplicar quantidade pelo valor unitário` vem marcada e o total é calculado como `Quantidade x Valor unitário`. Desmarque-a quando o valor unitário informado já representar o total do lançamento.
 
 Para despesas, o fornecedor é obrigatório.
 
@@ -269,9 +273,7 @@ Campos comuns:
 - Valor unitário.
 - Observações.
 
-O sistema calcula o valor total automaticamente:
-
-`Quantidade x Valor unitário`
+Por padrão, a opção `Multiplicar quantidade pelo valor unitário` vem marcada e o total é calculado como `Quantidade x Valor unitário`. Desmarque-a quando o valor unitário informado já representar o total do lançamento.
 
 Para faturamento, o cliente é obrigatório.
 

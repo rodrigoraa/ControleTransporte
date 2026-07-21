@@ -13,7 +13,8 @@ type CrudModel =
   | 'conjunto'
   | 'fornecedor'
   | 'categoriaFinanceira'
-  | 'lancamentoFinanceiro';
+  | 'lancamentoFinanceiro'
+  | 'abastecimento';
 
 @Injectable()
 export abstract class CrudService<CreateDto extends object, UpdateDto extends object> {

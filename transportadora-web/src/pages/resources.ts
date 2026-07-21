@@ -71,6 +71,7 @@ const lancamentoFields: Field[] = [
   { name: 'quantidade', label: 'Quantidade', type: 'number', required: true },
   { name: 'unidadeQuantidade', label: 'Unidade da quantidade', type: 'select', required: true, options: [{ label: 'KG', value: 'KG' }, { label: 'Litros', value: 'LITROS' }, { label: 'Unidade', value: 'UNIDADE' }] },
   { name: 'valorUnitario', label: 'Valor unitário', type: 'money', required: true, table: true },
+  { name: 'multiplicarQuantidade', label: 'Multiplicar quantidade pelo valor unitário', type: 'checkbox', required: true },
   { name: 'valorTotal', label: 'Valor total', type: 'money', table: true },
   { name: 'observacoes', label: 'Observações', type: 'textarea' },
 ];

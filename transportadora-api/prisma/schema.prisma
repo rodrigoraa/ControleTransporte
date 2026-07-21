@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
@@ -73,16 +73,16 @@ model User {
 }
 
 model Cliente {
-  id           String   @id @default(uuid())
-  nome         String
-  documento    String?  @unique
-  telefone     String?
-  email        String?
-  endereco     String?
-  observacoes  String?
-  ativo        Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id          String   @id @default(uuid())
+  nome        String
+  documento   String?  @unique
+  telefone    String?
+  email       String?
+  endereco    String?
+  observacoes String?
+  ativo       Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   lancamentos LancamentoFinanceiro[]
   historicos  HistoricoCliente[]
@@ -91,115 +91,135 @@ model Cliente {
 }
 
 model Motorista {
-  id           String   @id @default(uuid())
+  id           String       @id @default(uuid())
   nome         String
-  cpf          String?  @unique
-  cnh          String?  @unique
+  cpf          String?      @unique
+  cnh          String?      @unique
   categoriaCnh String?
   validadeCnh  DateTime?
   telefone     String?
   status       StatusGeral?
   observacoes  String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
 
   cavalosMecanicos CavaloMecanico[]
-  lancamentos     LancamentoFinanceiro[]
-  historicos      HistoricoMotorista[]
+  lancamentos      LancamentoFinanceiro[]
+  historicos       HistoricoMotorista[]
 
   @@map("motoristas")
 }
 
 model Caminhao {
-  id          String      @id @default(uuid())
-  placa       String      @unique
-  marca       String?
-  modelo      String?
-  ano         Int?
-  conjuntoId  String?
+  id                    String      @id @default(uuid())
+  placa                 String      @unique
+  marca                 String?
+  modelo                String?
+  ano                   Int?
+  conjuntoId            String?
   dataColocacaoConjunto DateTime?
   dataRemocaoConjunto   DateTime?
-  cor         String?
-  chassi      String?     @unique
-  renavam     String?     @unique
-  status      StatusGeral @default(ATIVO)
-  observacoes String?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  cor                   String?
+  chassi                String?     @unique
+  renavam               String?     @unique
+  status                StatusGeral @default(ATIVO)
+  observacoes           String?
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
 
-  conjunto       Conjunto? @relation(fields: [conjuntoId], references: [id], onDelete: SetNull)
-  lancamentos     LancamentoFinanceiro[]
-  historicos      HistoricoCaminhao[]
+  conjunto    Conjunto?              @relation(fields: [conjuntoId], references: [id], onDelete: SetNull)
+  lancamentos LancamentoFinanceiro[]
+  historicos  HistoricoCaminhao[]
 
   @@index([conjuntoId])
   @@map("caminhoes")
 }
 
 model CavaloMecanico {
-  id          String      @id @default(uuid())
-  placa       String      @unique
+  id          String              @id @default(uuid())
+  placa       String              @unique
   marca       String?
   modelo      String?
   ano         Int?
   tipoCavalo  TipoCavaloMecanico?
-  renavam     String?     @unique
-  chassi      String?     @unique
+  renavam     String?             @unique
+  chassi      String?             @unique
   cor         String?
-  status      StatusGeral @default(ATIVO)
+  status      StatusGeral         @default(ATIVO)
   motoristaId String?
   observacoes String?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
 
-  motorista   Motorista? @relation(fields: [motoristaId], references: [id], onDelete: SetNull)
-  conjuntos   Conjunto[]
-  lancamentos LancamentoFinanceiro[]
-  historicos  HistoricoCavaloMecanico[]
+  motorista      Motorista?                @relation(fields: [motoristaId], references: [id], onDelete: SetNull)
+  conjuntos      Conjunto[]
+  lancamentos    LancamentoFinanceiro[]
+  historicos     HistoricoCavaloMecanico[]
+  abastecimentos Abastecimento[]
 
   @@index([motoristaId])
   @@map("cavalos_mecanicos")
 }
 
-model Implemento {
-  id                String          @id @default(uuid())
-  placa             String?         @unique
-  tipo              TipoImplemento
-  carroceria        TipoCarroceria  @default(OUTRO)
-  quantidadeEixos   Int             @default(0)
-  capacidadeCarga   Decimal         @default(0) @db.Decimal(12, 3)
-  status            StatusGeral     @default(ATIVO)
-  observacoes       String?
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
+model Abastecimento {
+  id                  String   @id @default(uuid())
+  cavaloMecanicoId    String
+  data                DateTime
+  kmAnterior          Decimal  @db.Decimal(12, 1)
+  kmAtual             Decimal  @db.Decimal(12, 1)
+  litros              Decimal  @db.Decimal(12, 3)
+  distanciaPercorrida Decimal  @db.Decimal(12, 1)
+  mediaKmLitro        Decimal  @db.Decimal(12, 3)
+  observacoes         String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
-  conjuntos  ConjuntoImplemento[]
+  cavaloMecanico CavaloMecanico @relation(fields: [cavaloMecanicoId], references: [id], onDelete: Restrict)
+
+  @@index([cavaloMecanicoId, data])
+  @@map("abastecimentos")
+}
+
+model Implemento {
+  id              String         @id @default(uuid())
+  placa           String?        @unique
+  tipo            TipoImplemento
+  carroceria      TipoCarroceria @default(OUTRO)
+  quantidadeEixos Int            @default(0)
+  capacidadeCarga Decimal        @default(0) @db.Decimal(12, 3)
+  status          StatusGeral    @default(ATIVO)
+  observacoes     String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  conjuntos   ConjuntoImplemento[]
   lancamentos LancamentoFinanceiro[]
-  historicos HistoricoImplemento[]
+  historicos  HistoricoImplemento[]
 
   @@map("implementos")
 }
 
 model Conjunto {
-  id                    String                   @id @default(uuid())
-  nome                  String
-  tipo                  TipoConjuntoOperacional  @default(SIMPLES)
-  cavaloMecanicoId      String
-  quantidadeTotalEixos  Int                      @default(0)
-  capacidadeTotal       Decimal                  @default(0) @db.Decimal(12, 3)
-  status                StatusGeral              @default(ATIVO)
+  id                         String                  @id @default(uuid())
+  nome                       String
+  tipo                       TipoConjuntoOperacional @default(SIMPLES)
+  cavaloMecanicoId           String
+  quantidadeTotalEixos       Int                     @default(0)
+  capacidadeTotal            Decimal                 @default(0) @db.Decimal(12, 3)
+  status                     StatusGeral             @default(ATIVO)
   justificativaSemImplemento String?
-  observacoes           String?
-  placa                 String?
-  dollyPlaca            String?
-  segundaCarretaPlaca   String?
-  createdAt             DateTime                 @default(now())
-  updatedAt             DateTime                 @updatedAt
+  observacoes                String?
+  placa                      String?
+  dollyPlaca                 String?
+  segundaCarretaPlaca        String?
+  createdAt                  DateTime                @default(now())
+  updatedAt                  DateTime                @updatedAt
 
-  cavaloMecanico CavaloMecanico @relation(fields: [cavaloMecanicoId], references: [id], onDelete: Restrict)
-  implementos    ConjuntoImplemento[]
+  cavaloMecanico   CavaloMecanico                 @relation(fields: [cavaloMecanicoId], references: [id], onDelete: Restrict)
+  implementos      ConjuntoImplemento[]
   caminhoesLegados Caminhao[]
-  lancamentos    LancamentoFinanceiro[]
-  historicos     HistoricoConjuntoOperacional[]
+  lancamentos      LancamentoFinanceiro[]
+  historicos       HistoricoConjuntoOperacional[]
 
   @@unique([nome])
   @@index([cavaloMecanicoId])
@@ -207,13 +227,13 @@ model Conjunto {
 }
 
 model ConjuntoImplemento {
-  id           String   @id @default(uuid())
+  id           String    @id @default(uuid())
   conjuntoId   String
   implementoId String
-  ordem        Int      @default(1)
-  dataInicio   DateTime @default(now())
+  ordem        Int       @default(1)
+  dataInicio   DateTime  @default(now())
   dataFim      DateTime?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime  @default(now())
 
   conjunto   Conjunto   @relation(fields: [conjuntoId], references: [id], onDelete: Cascade)
   implemento Implemento @relation(fields: [implementoId], references: [id], onDelete: Restrict)
@@ -271,13 +291,13 @@ model HistoricoCaminhao {
 }
 
 model HistoricoCavaloMecanico {
-  id          String   @id @default(uuid())
+  id               String   @id @default(uuid())
   cavaloMecanicoId String
-  acao        String
-  dadosAntes  Json?
-  dadosDepois Json?
-  observacoes String?
-  createdAt   DateTime @default(now())
+  acao             String
+  dadosAntes       Json?
+  dadosDepois      Json?
+  observacoes      String?
+  createdAt        DateTime @default(now())
 
   cavaloMecanico CavaloMecanico @relation(fields: [cavaloMecanicoId], references: [id], onDelete: Cascade)
 
@@ -286,13 +306,13 @@ model HistoricoCavaloMecanico {
 }
 
 model HistoricoImplemento {
-  id          String   @id @default(uuid())
+  id           String   @id @default(uuid())
   implementoId String
-  acao        String
-  dadosAntes  Json?
-  dadosDepois Json?
-  observacoes String?
-  createdAt   DateTime @default(now())
+  acao         String
+  dadosAntes   Json?
+  dadosDepois  Json?
+  observacoes  String?
+  createdAt    DateTime @default(now())
 
   implemento Implemento @relation(fields: [implementoId], references: [id], onDelete: Cascade)
 
@@ -378,34 +398,35 @@ model CategoriaFinanceira {
 }
 
 model LancamentoFinanceiro {
-  id             String               @id @default(uuid())
-  data           DateTime
-  placa          String
-  motoristaId    String?
-  fornecedorId   String?
-  caminhaoId      String?
-  cavaloMecanicoId String?
-  conjuntoId     String?
-  implementoId   String?
-  clienteId       String?
-  categoriaId     String?
-  tipoLancamento  TipoLancamento
-  descricao       String?
-  quantidade      Decimal              @db.Decimal(12, 3)
+  id                String            @id @default(uuid())
+  data              DateTime
+  placa             String
+  motoristaId       String?
+  fornecedorId      String?
+  caminhaoId        String?
+  cavaloMecanicoId  String?
+  conjuntoId        String?
+  implementoId      String?
+  clienteId         String?
+  categoriaId       String?
+  tipoLancamento    TipoLancamento
+  descricao         String?
+  quantidade        Decimal           @db.Decimal(12, 3)
   unidadeQuantidade UnidadeQuantidade
-  valorUnitario   Decimal              @db.Decimal(14, 2)
-  valorTotal      Decimal              @db.Decimal(14, 2)
-  observacoes     String?
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
+  valorUnitario     Decimal           @db.Decimal(14, 2)
+  valorTotal        Decimal           @db.Decimal(14, 2)
+  multiplicarQuantidade Boolean       @default(true)
+  observacoes       String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
-  motorista  Motorista?  @relation(fields: [motoristaId], references: [id], onDelete: SetNull)
-  fornecedor Fornecedor? @relation(fields: [fornecedorId], references: [id], onDelete: SetNull)
-  caminhao    Caminhao?   @relation(fields: [caminhaoId], references: [id], onDelete: SetNull)
-  cavaloMecanico CavaloMecanico? @relation(fields: [cavaloMecanicoId], references: [id], onDelete: SetNull)
-  conjunto    Conjunto?   @relation(fields: [conjuntoId], references: [id], onDelete: SetNull)
-  implemento  Implemento? @relation(fields: [implementoId], references: [id], onDelete: SetNull)
-  cliente     Cliente?    @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+  motorista           Motorista?           @relation(fields: [motoristaId], references: [id], onDelete: SetNull)
+  fornecedor          Fornecedor?          @relation(fields: [fornecedorId], references: [id], onDelete: SetNull)
+  caminhao            Caminhao?            @relation(fields: [caminhaoId], references: [id], onDelete: SetNull)
+  cavaloMecanico      CavaloMecanico?      @relation(fields: [cavaloMecanicoId], references: [id], onDelete: SetNull)
+  conjunto            Conjunto?            @relation(fields: [conjuntoId], references: [id], onDelete: SetNull)
+  implemento          Implemento?          @relation(fields: [implementoId], references: [id], onDelete: SetNull)
+  cliente             Cliente?             @relation(fields: [clienteId], references: [id], onDelete: SetNull)
   categoriaFinanceira CategoriaFinanceira? @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
 
   @@index([data])

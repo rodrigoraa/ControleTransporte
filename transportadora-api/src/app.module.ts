@@ -19,6 +19,7 @@ import { LancamentosFinanceirosModule } from './lancamentos-financeiros/lancamen
 import { MotoristasModule } from './motoristas/motoristas.module';
 import { RelatoriosModule } from './relatorios/relatorios.module';
 import { UsersModule } from './users/users.module';
+import { AbastecimentosModule } from './abastecimentos/abastecimentos.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { UsersModule } from './users/users.module';
     ClientesModule,
     MotoristasModule,
     CaminhoesModule,
+    AbastecimentosModule,
     ImplementosModule,
     ConjuntosModule,
     CategoriasFinanceirasModule,

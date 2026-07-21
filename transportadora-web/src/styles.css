@@ -2097,3 +2097,18 @@ tbody tr:hover {
     font-size: 30px;
   }
 }
+
+.consumo-modal { width: min(1080px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; }
+.consumo-modal .modal-header > div span { color: #667b83; font-size: 13px; }
+.consumo-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.consumo-stats > div { display: grid; gap: 5px; padding: 14px; border: 1px solid #dfe9ec; border-radius: 12px; background: #f7fafb; }
+.consumo-stats span { color: #6c7f86; font-size: 12px; }
+.consumo-stats strong { color: #175d6b; font-size: 18px; }
+.consumo-form { display: grid; gap: 14px; padding: 16px; border: 1px solid #dfe9ec; border-radius: 14px; }
+.consumo-preview { display: flex; gap: 24px; padding: 12px 14px; border-radius: 10px; color: #38525b; background: #edf6f7; }
+.form-warning { padding: 11px 13px; border: 1px solid #e9c978; border-radius: 10px; color: #765613; background: #fff8e5; font-size: 13px; }
+.consumo-history { max-height: 310px; }
+.consumo-divergente { background: #fffaf0; }
+.consumo-divergente small { display: block; margin-top: 3px; color: #9a6811; font-size: 10px; font-weight: 700; }
+@media (max-width: 980px) { .consumo-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .consumo-stats { grid-template-columns: 1fr; } .consumo-preview { display: grid; gap: 8px; } }

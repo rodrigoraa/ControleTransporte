@@ -13,7 +13,7 @@ export class ComposicoesCavaloService {
   ) {
     this.validateComposition(implementos, cavalo.tipoCavalo);
     const totals = this.calculateTotals(cavalo.tipoCavalo, implementos);
-    const composition = this.inferComposition(totals.eixos);
+    const composition = this.inferComposition(totals.eixos, implementos);
     const conjunto = await tx.conjunto.create({
       data: {
         nome: this.buildNome(cavalo, referenceDate),
@@ -61,6 +61,7 @@ export class ComposicoesCavaloService {
   validateComposition(implementos: Array<{ tipo?: TipoImplemento; quantidadeEixos?: number | null }>, tipoCavalo?: TipoCavaloMecanico | null) {
     const hasDolly = implementos.some((item) => item.tipo === TipoImplemento.DOLLY);
     const carretas = implementos.filter((item) => item.tipo !== TipoImplemento.DOLLY);
+    const dollys = implementos.filter((item) => item.tipo === TipoImplemento.DOLLY);
 
     if (hasDolly && implementos.every((item) => item.tipo === TipoImplemento.DOLLY)) {
       throw new BadRequestException('Dolly deve estar acompanhado de pelo menos uma carreta, semirreboque ou reboque.');
@@ -70,12 +71,16 @@ export class ComposicoesCavaloService {
       throw new BadRequestException('A composição deve ter no máximo duas carretas/reboques.');
     }
 
+    if (dollys.length > 1) {
+      throw new BadRequestException('A composição deve ter no máximo um dolly.');
+    }
+
     if (carretas.length === 1 && hasDolly) {
       throw new BadRequestException('Se houver apenas uma carreta, não informe dolly.');
     }
 
-    if (carretas.length === 2 && !hasDolly) {
-      throw new BadRequestException('Se houver segunda carreta, informe dolly.');
+    if (hasDolly && (implementos.length !== 3 || implementos[1]?.tipo !== TipoImplemento.DOLLY)) {
+      throw new BadRequestException('No rodotrem, informe os implementos na ordem: 1ª carreta, dolly e 2ª carreta.');
     }
 
     if (hasDolly && !this.isThreeAxleCavalo(tipoCavalo)) {
@@ -99,10 +104,9 @@ export class ComposicoesCavaloService {
     };
   }
 
-  private inferComposition(eixos: number) {
-    if (eixos === 9 || eixos === 11) return { tipo: TipoConjuntoOperacional.RODOTREM, eixos };
-    if (eixos === 7) return { tipo: TipoConjuntoOperacional.BITREM, eixos };
-    if (eixos === 5 || eixos === 6) return { tipo: TipoConjuntoOperacional.SIMPLES, eixos };
+  private inferComposition(eixos: number, implementos: Array<{ tipo?: TipoImplemento }>) {
+    if (implementos.some((item) => item.tipo === TipoImplemento.DOLLY)) return { tipo: TipoConjuntoOperacional.RODOTREM, eixos };
+    if (implementos.filter((item) => item.tipo !== TipoImplemento.DOLLY).length === 2) return { tipo: TipoConjuntoOperacional.BITREM, eixos };
     return { tipo: TipoConjuntoOperacional.SIMPLES, eixos };
   }
 
