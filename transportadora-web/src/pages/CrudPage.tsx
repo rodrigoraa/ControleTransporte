@@ -2,17 +2,19 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Fuel } from 'lucide-react';
 import { History } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { Toast } from '../components/Toast';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../services/api';
 import { apiErrorMessage } from '../utils/apiError';
 import { date, maskPlate, money } from '../utils/formatters';
-import { carrocerias, crudResources, Field, Resource, tiposImplemento } from './resources';
+import { carrocerias, crudResources, Field, Resource, resourceListPath, tiposImplemento } from './resources';
 
 type Mode = 'create' | 'edit' | 'view';
 const relationPageLimit = 100;
 
 export function CrudPage({ resource }: { resource: Resource }) {
+  const navigate = useNavigate();
   const [rows, setRows] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -52,7 +54,8 @@ export function CrudPage({ resource }: { resource: Resource }) {
       await api.delete(`${resource.endpoint}/${item.id}`);
       setToast({ type: 'success', message: 'Registro excluído com sucesso.' });
       setPendingDelete(null);
-      load();
+      navigate(resourceListPath(resource), { replace: true });
+      await load();
     } catch (requestError) {
       setToast({
         type: 'error',
@@ -134,7 +137,8 @@ export function CrudPage({ resource }: { resource: Resource }) {
             onSaved={() => {
               setModal(null);
               setToast({ type: 'success', message: modal.mode === 'create' ? 'Cadastro completo salvo com sucesso.' : 'Composição atualizada com sucesso.' });
-              load();
+              navigate(resourceListPath(resource), { replace: true });
+              void load();
             }}
           />
         ) : (
@@ -146,7 +150,8 @@ export function CrudPage({ resource }: { resource: Resource }) {
             onSaved={() => {
               setModal(null);
               setToast({ type: 'success', message: 'Registro salvo com sucesso.' });
-              load();
+              navigate(resourceListPath(resource), { replace: true });
+              void load();
             }}
           />
         )

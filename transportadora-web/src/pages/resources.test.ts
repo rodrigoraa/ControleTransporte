@@ -1,5 +1,5 @@
 ﻿import { describe, expect, it } from 'vitest';
-import { crudResources } from './resources';
+import { crudResources, resourceListPath } from './resources';
 
 const byPath = (path: string) => crudResources.find((resource) => resource.path === path)!;
 const field = (path: string, name: string) => byPath(path).fields.find((item) => item.name === name);
@@ -21,6 +21,15 @@ describe('crudResources', () => {
     expect(field('faturamento', 'clienteId')?.required).toBe(true);
     expect(field('faturamento', 'fornecedorId')).toBeUndefined();
     expect(field('faturamento', 'categoriaId')?.relation?.params).toEqual({ tipoLancamento: 'FATURAMENTO' });
+  });
+
+  it('mantém rotas de retorno distintas para despesas e faturamento apesar do endpoint compartilhado', () => {
+    const despesas = byPath('despesas');
+    const faturamento = byPath('faturamento');
+
+    expect(despesas.endpoint).toBe(faturamento.endpoint);
+    expect(resourceListPath(despesas)).toBe('/despesas');
+    expect(resourceListPath(faturamento)).toBe('/faturamento');
   });
 
   it('lançamento financeiro não duplica placa e cavalo e usa conjunto operacional', () => {

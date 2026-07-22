@@ -95,7 +95,7 @@ export function Relatorios() {
       <div className="page-header report-header">
         <div>
           <h1>Relatórios</h1>
-          <p>Indicadores financeiros por período, frota, composição e categoria.</p>
+          <p>Indicadores financeiros e de consumo por período, frota, composição e categoria.</p>
         </div>
         {financeiro && (
           <div className="actions">
@@ -148,6 +148,8 @@ export function Relatorios() {
             <article className={`stat-card ${financeiro.saldoFinal >= 0 ? 'stat-info' : 'stat-danger'}`}><span>Saldo final</span><strong>{money(financeiro.saldoFinal)}</strong></article>
             <article className="stat-card stat-neutral"><span>Lançamentos</span><strong>{financeiro.total}</strong></article>
           </div>
+
+          <ConsumoReport consumo={financeiro.consumo} />
 
           <div className="panel report-table-panel">
             <div className="panel-title-row">
@@ -211,6 +213,83 @@ export function Relatorios() {
         </>
       )}
     </section>
+  );
+}
+
+function ConsumoReport({ consumo }: { consumo: any }) {
+  const resumo = consumo?.resumo || {};
+  const porCavalo = consumo?.porCavalo || [];
+  const historico = consumo?.historico || [];
+
+  return (
+    <>
+      <div className="panel-title-row report-section-heading">
+        <div>
+          <h2>Consumo dos cavalos</h2>
+          <p>Indicadores calculados a partir dos abastecimentos dentro do período e dos filtros selecionados.</p>
+        </div>
+      </div>
+      <div className="stats-grid">
+        <article className="stat-card stat-info"><span>Média geral</span><strong>{decimal(resumo.mediaGeralKmLitro, 3)} km/l</strong></article>
+        <article className="stat-card stat-neutral"><span>Distância total</span><strong>{decimal(resumo.distanciaTotal, 1)} km</strong></article>
+        <article className="stat-card stat-neutral"><span>Litros registrados</span><strong>{decimal(resumo.litrosTotal, 3)} L</strong></article>
+        <article className="stat-card stat-neutral"><span>Abastecimentos</span><strong>{resumo.quantidadeRegistros || 0}</strong></article>
+      </div>
+
+      <div className="panel report-table-panel">
+        <div className="panel-title-row">
+          <div>
+            <h2>Resumo de consumo por cavalo</h2>
+            <p>A média geral é ponderada: distância total dividida pelo total de litros.</p>
+          </div>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Cavalo</th><th>Abastecimentos</th><th>Distância total</th><th>Litros registrados</th><th>Média geral</th></tr></thead>
+            <tbody>
+              {!porCavalo.length && <tr><td colSpan={5}>Nenhum abastecimento encontrado para os filtros informados.</td></tr>}
+              {porCavalo.map((item: any) => (
+                <tr key={item.cavaloMecanicoId}>
+                  <td>{item.cavalo}</td>
+                  <td>{item.quantidadeRegistros}</td>
+                  <td>{decimal(item.distanciaTotal, 1)} km</td>
+                  <td>{decimal(item.litrosTotal, 3)} L</td>
+                  <td><strong>{decimal(item.mediaGeralKmLitro, 3)} km/l</strong></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="panel report-table-panel">
+        <div className="panel-title-row">
+          <div>
+            <h2>Histórico de abastecimentos</h2>
+            <p>Últimos registros encontrados para o período e o cavalo selecionado.</p>
+          </div>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Data</th><th>Cavalo</th><th>Km anterior</th><th>Km atual</th><th>Distância</th><th>Litros</th><th>Média</th></tr></thead>
+            <tbody>
+              {!historico.length && <tr><td colSpan={7}>Nenhum abastecimento encontrado para os filtros informados.</td></tr>}
+              {historico.map((item: any) => (
+                <tr key={item.id}>
+                  <td>{date(item.data)}</td>
+                  <td>{item.cavaloMecanico?.placa || '-'}</td>
+                  <td>{decimal(item.kmAnterior, 1)}</td>
+                  <td>{decimal(item.kmAtual, 1)}</td>
+                  <td>{decimal(item.distanciaPercorrida, 1)} km</td>
+                  <td>{decimal(item.litros, 3)} L</td>
+                  <td><strong>{decimal(item.mediaKmLitro, 3)} km/l</strong></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -310,4 +389,8 @@ function labelImplementos(conjunto: any) {
     const implemento = vinculo.implemento;
     return [vinculo.ordem ? `${vinculo.ordem}.` : null, implemento?.placa || 'Sem placa', implemento?.tipo, implemento?.carroceria, implemento?.quantidadeEixos != null ? `${implemento.quantidadeEixos} eixos` : null].filter(Boolean).join(' ');
   }).join(' / ');
+}
+
+function decimal(value: unknown, digits: number) {
+  return Number(value || 0).toLocaleString('pt-BR', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }

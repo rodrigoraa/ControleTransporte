@@ -30,6 +30,10 @@ export type Resource = {
   fixedValues?: Record<string, string>;
 };
 
+export function resourceListPath(resource: Pick<Resource, 'path'>) {
+  return `/${resource.path}`;
+}
+
 const statusGeral = [
   { label: 'Ativo', value: 'ATIVO' },
   { label: 'Inativo', value: 'INATIVO' },

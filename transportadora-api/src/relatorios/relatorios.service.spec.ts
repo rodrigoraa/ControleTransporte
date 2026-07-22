@@ -56,6 +56,21 @@ function makeService() {
       implemento: null,
     },
   ];
+  const abastecimentos = [
+    {
+      id: 'ab-1',
+      data: new Date('2026-05-12T12:00:00.000Z'),
+      cavaloMecanicoId: 'cav-1',
+      kmAnterior: 100000,
+      kmAtual: 100750,
+      distanciaPercorrida: 750,
+      litros: 250,
+      mediaKmLitro: 3,
+      observacoes: 'Viagem completa',
+      createdAt: new Date('2026-05-12T12:00:00.000Z'),
+      cavaloMecanico: { id: 'cav-1', placa: 'ABC1D23', marca: 'Volvo', modelo: 'FH' },
+    },
+  ];
 
   const prisma = {
     conjuntoImplemento: {
@@ -74,6 +89,18 @@ function makeService() {
         _sum: { valorTotal: where.tipoLancamento === TipoLancamento.DESPESA ? 50 : 160 },
       }]),
     },
+    abastecimento: {
+      aggregate: jest.fn(async () => ({
+        _count: { _all: abastecimentos.length },
+        _sum: { distanciaPercorrida: 750, litros: 250 },
+      })),
+      groupBy: jest.fn(async () => [{
+        cavaloMecanicoId: 'cav-1',
+        _count: { _all: abastecimentos.length },
+        _sum: { distanciaPercorrida: 750, litros: 250 },
+      }]),
+      findMany: jest.fn(async () => abastecimentos),
+    },
     cavaloMecanico: {
       findMany: jest.fn(async () => [{ id: 'cav-1', placa: 'ABC1D23', marca: 'Volvo', modelo: 'FH' }]),
     },
@@ -90,6 +117,10 @@ describe('RelatoriosService', () => {
     const { service, prisma } = makeService();
 
     const result = await service.financeiros({
+      dataInicial: '2026-05-01',
+      dataFinal: '2026-05-31',
+      cavaloMecanicoId: 'cav-1',
+      placa: 'ABC1D23',
       implementoId: 'imp-1',
       tipoConjunto: 'BITREM',
       quantidadeEixos: 6,
@@ -114,6 +145,13 @@ describe('RelatoriosService', () => {
       totalFaturamento: 160,
       saldo: 110,
     });
+    expect(result.consumo.resumo).toEqual({
+      quantidadeRegistros: 1,
+      distanciaTotal: 750,
+      litrosTotal: 250,
+      mediaGeralKmLitro: 3,
+    });
+    expect(result.consumo.porCavalo[0]).toMatchObject({ cavalo: 'ABC1D23 - Volvo - FH', mediaGeralKmLitro: 3 });
     expect(prisma.conjuntoImplemento.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { implementoId: 'imp-1' } }));
     expect(prisma.lancamentoFinanceiro.findMany).toHaveBeenCalledWith(expect.objectContaining({
       skip: 1,
@@ -124,6 +162,16 @@ describe('RelatoriosService', () => {
     expect(JSON.stringify(where)).toContain('imp-1');
     expect(JSON.stringify(where)).toContain('conj-1');
     expect(JSON.stringify(where)).toContain('BITREM');
+    expect(prisma.abastecimento.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        cavaloMecanicoId: 'cav-1',
+        cavaloMecanico: { placa: { contains: 'ABC1D23', mode: 'insensitive' } },
+        data: {
+          gte: new Date('2026-05-01T00:00:00.000Z'),
+          lte: new Date('2026-05-31T23:59:59.999Z'),
+        },
+      }),
+    }));
   });
 
   it('exporta CSV com cavalo, conjunto e totais financeiros', async () => {
@@ -138,6 +186,10 @@ describe('RelatoriosService', () => {
     expect(csv).toContain('"Bitrem graneleiro"');
     expect(csv).toContain('"1. CAR1A01 SEMIRREBOQUE GRANELEIRO 3 eixos"');
     expect(csv).toContain('"50"');
+    expect(csv).toContain('"Resumo de consumo por cavalo"');
+    expect(csv).toContain('"Histórico de abastecimentos"');
+    expect(csv).toContain('"Média km/l"');
+    expect(csv).toContain('"100750"');
   });
 
   it('exporta PDF valido com linhas do relatório', async () => {
@@ -150,6 +202,8 @@ describe('RelatoriosService', () => {
     expect(pdf.toString('latin1')).toContain('/Encoding /WinAnsiEncoding');
     expect(pdf.toString('latin1')).toContain('Lançamentos encontrados');
     expect(pdf.toString('latin1')).toContain('Resumo por composição do cavalo');
+    expect(pdf.toString('latin1')).toContain('Consumo dos cavalos');
+    expect(pdf.toString('latin1')).toContain('Histórico de abastecimentos');
   });
 });
 

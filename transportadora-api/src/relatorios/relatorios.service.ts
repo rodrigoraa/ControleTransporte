@@ -100,12 +100,24 @@ export class RelatoriosService {
     return and.length ? { AND: and } : {};
   }
 
+  private buildAbastecimentoWhere(filters: RelatorioFinanceiroQueryDto) {
+    const where: any = {};
+    if (filters.dataInicial || filters.dataFinal) {
+      where.data = {};
+      if (filters.dataInicial) where.data.gte = new Date(`${filters.dataInicial}T00:00:00.000Z`);
+      if (filters.dataFinal) where.data.lte = new Date(`${filters.dataFinal}T23:59:59.999Z`);
+    }
+    if (filters.cavaloMecanicoId) where.cavaloMecanicoId = filters.cavaloMecanicoId;
+    if (filters.placa) where.cavaloMecanico = { placa: { contains: filters.placa, mode: 'insensitive' } };
+    return where;
+  }
+
   async financeiros(filters: RelatorioFinanceiroQueryDto) {
     const where = await this.buildWhere(filters);
     const page = filters.page || 1;
     const limit = filters.limit || 50;
     const orderBy = { [filters.orderBy || 'data']: filters.orderDirection || 'desc' };
-    const [despesas, faturamento, total, historico, despesasPorCavaloMecanico, despesasPorMotorista, faturamentoPorCavaloMecanico, faturamentoPorMotorista, conjuntosPorCavalo] =
+    const [despesas, faturamento, total, historico, despesasPorCavaloMecanico, despesasPorMotorista, faturamentoPorCavaloMecanico, faturamentoPorMotorista, conjuntosPorCavalo, consumo] =
       await Promise.all([
         this.sum({ ...where, tipoLancamento: TipoLancamento.DESPESA }),
         this.sum({ ...where, tipoLancamento: TipoLancamento.FATURAMENTO }),
@@ -122,6 +134,7 @@ export class RelatoriosService {
         this.groupWithLabels('cavaloMecanicoId', { ...where, tipoLancamento: TipoLancamento.FATURAMENTO }),
         this.groupWithLabels('motoristaId', { ...where, tipoLancamento: TipoLancamento.FATURAMENTO }),
         this.conjuntosPorCavalo(where),
+        this.consumo(filters),
       ]);
 
     return {
@@ -133,6 +146,7 @@ export class RelatoriosService {
       faturamentoPorCavaloMecanico,
       faturamentoPorMotorista,
       conjuntosPorCavalo,
+      consumo,
       historico,
       total,
       page,
@@ -141,7 +155,7 @@ export class RelatoriosService {
   }
 
   async exportarCsv(filters: RelatorioFinanceiroQueryDto) {
-    const rows = await this.exportRows(filters);
+    const [rows, consumo] = await Promise.all([this.exportRows(filters), this.consumo(filters, 5000)]);
     const header = [
       'Data',
       'Tipo',
@@ -178,12 +192,46 @@ export class RelatoriosService {
       String(item.valorUnitario),
       String(item.valorTotal),
     ]);
-    return [header, ...body].map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(';')).join('\n');
+    const consumoHeader = ['Data', 'Cavalo mecânico', 'Km anterior', 'Km atual', 'Distância percorrida', 'Litros', 'Média km/l', 'Observações'];
+    const consumoBody = consumo.historico.map((item: any) => [
+      item.data.toISOString().slice(0, 10),
+      [item.cavaloMecanico?.placa, item.cavaloMecanico?.marca, item.cavaloMecanico?.modelo].filter(Boolean).join(' - '),
+      String(item.kmAnterior),
+      String(item.kmAtual),
+      String(item.distanciaPercorrida),
+      String(item.litros),
+      String(item.mediaKmLitro),
+      item.observacoes || '',
+    ]);
+    const resumoConsumo = consumo.porCavalo.map((item: any) => [
+      item.cavalo,
+      String(item.quantidadeRegistros),
+      String(item.distanciaTotal),
+      String(item.litrosTotal),
+      String(item.mediaGeralKmLitro),
+    ]);
+    const csvRows = [
+      header,
+      ...body,
+      [],
+      ['Resumo de consumo por cavalo'],
+      ['Cavalo mecânico', 'Abastecimentos', 'Distância total', 'Litros registrados', 'Média geral km/l'],
+      ...resumoConsumo,
+      [],
+      ['Histórico de abastecimentos'],
+      consumoHeader,
+      ...consumoBody,
+    ];
+    return csvRows.map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(';')).join('\n');
   }
 
   async exportarPdf(filters: RelatorioFinanceiroQueryDto) {
-    const relatorio = await this.financeiros({ ...filters, page: 1, limit: 50 });
-    const rows = await this.exportRows(filters);
+    const [relatorio, rows, consumo] = await Promise.all([
+      this.financeiros({ ...filters, page: 1, limit: 50 }),
+      this.exportRows(filters),
+      this.consumo(filters, 5000),
+    ]);
+    relatorio.consumo = consumo;
     return this.styledFinancialPdf(relatorio, rows);
   }
 
@@ -294,7 +342,7 @@ export class RelatoriosService {
     rect(0, pageHeight, pageWidth, 92, [15, 48, 63]);
     rect(0, pageHeight - 92, pageWidth, 5, [31, 122, 140]);
     text('Controle Transporte', margin, pageHeight - 43, { size: 11, font: 'bold', color: [148, 213, 220] });
-    text('Relatório financeiro', margin, pageHeight - 67, { size: 23, font: 'bold', color: [255, 255, 255] });
+    text('Relatório financeiro e de consumo', margin, pageHeight - 67, { size: 20, font: 'bold', color: [255, 255, 255] });
     text(`Gerado em ${new Date().toLocaleString('pt-BR')}`, pageWidth - margin, pageHeight - 47, { size: 9, align: 'right', color: [203, 213, 225] });
     text(`${relatorio.total} lançamentos`, pageWidth - margin, pageHeight - 68, { size: 10, font: 'bold', align: 'right', color: [255, 255, 255] });
     y = pageHeight - 120;
@@ -360,6 +408,40 @@ export class RelatoriosService {
       emptyMessage('Nenhum conjunto encontrado para os filtros informados.');
     }
 
+    sectionTitle('Consumo dos cavalos');
+    if (relatorio.consumo.resumo.quantidadeRegistros) {
+      table(
+        ['Cavalo', 'Abast.', 'Distância', 'Litros', 'Média km/l'],
+        relatorio.consumo.porCavalo.map((item: any) => [
+          item.cavalo || '-',
+          String(item.quantidadeRegistros),
+          `${this.formatDecimal(item.distanciaTotal, 1)} km`,
+          `${this.formatDecimal(item.litrosTotal, 3)} L`,
+          this.formatDecimal(item.mediaGeralKmLitro, 3),
+        ]),
+        [188, 54, 96, 96, 89],
+        ['left', 'right', 'right', 'right', 'right'],
+      );
+
+      sectionTitle('Histórico de abastecimentos');
+      table(
+        ['Data', 'Cavalo', 'Km anterior', 'Km atual', 'Distância', 'Litros', 'Média'],
+        relatorio.consumo.historico.map((item: any) => [
+          this.formatDate(item.data),
+          item.cavaloMecanico?.placa || '-',
+          this.formatDecimal(item.kmAnterior, 1),
+          this.formatDecimal(item.kmAtual, 1),
+          this.formatDecimal(item.distanciaPercorrida, 1),
+          this.formatDecimal(item.litros, 3),
+          `${this.formatDecimal(item.mediaKmLitro, 3)} km/l`,
+        ]),
+        [55, 72, 76, 70, 76, 70, 104],
+        ['left', 'left', 'right', 'right', 'right', 'right', 'right'],
+      );
+    } else {
+      emptyMessage('Nenhum abastecimento encontrado para os filtros informados.');
+    }
+
     pages.forEach((page, index) => {
       page.push(`BT /F1 8 Tf ${rgb([100, 116, 139])} rg ${margin} 28 Td (${this.escapePdfText('Controle Transporte')}) Tj ET`);
       page.push(`BT /F1 8 Tf ${rgb([100, 116, 139])} rg ${pageWidth - margin - 58} 28 Td (${this.escapePdfText(`Página ${index + 1} de ${pages.length}`)}) Tj ET`);
@@ -421,6 +503,10 @@ export class RelatoriosService {
     return `R$ ${Number(value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
 
+  private formatDecimal(value: unknown, digits: number) {
+    return Number(value || 0).toLocaleString('pt-BR', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  }
+
   private formatDate(value: Date) {
     return value.toISOString().slice(0, 10).split('-').reverse().join('/');
   }
@@ -463,6 +549,59 @@ export class RelatoriosService {
       label: labels.get(row[by] || '') || 'Sem cadastro',
       total: Number(row._sum.valorTotal || 0),
     }));
+  }
+
+  private async consumo(filters: RelatorioFinanceiroQueryDto, take = 50) {
+    const where = this.buildAbastecimentoWhere(filters);
+    const [totais, grupos, historico] = await Promise.all([
+      this.prisma.abastecimento.aggregate({
+        where,
+        _count: { _all: true },
+        _sum: { distanciaPercorrida: true, litros: true },
+      }),
+      this.prisma.abastecimento.groupBy({
+        by: ['cavaloMecanicoId'],
+        where,
+        _count: { _all: true },
+        _sum: { distanciaPercorrida: true, litros: true },
+      }),
+      this.prisma.abastecimento.findMany({
+        where,
+        include: { cavaloMecanico: true },
+        orderBy: [{ data: 'desc' }, { createdAt: 'desc' }],
+        take,
+      }),
+    ]);
+    const ids = grupos.map((item) => item.cavaloMecanicoId);
+    const cavalos = await this.prisma.cavaloMecanico.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, placa: true, marca: true, modelo: true },
+    });
+    const labels = new Map(cavalos.map((item) => [item.id, [item.placa, item.marca, item.modelo].filter(Boolean).join(' - ')]));
+    const distanciaTotal = Number(totais._sum.distanciaPercorrida || 0);
+    const litrosTotal = Number(totais._sum.litros || 0);
+
+    return {
+      resumo: {
+        quantidadeRegistros: totais._count._all,
+        distanciaTotal,
+        litrosTotal,
+        mediaGeralKmLitro: litrosTotal > 0 ? distanciaTotal / litrosTotal : 0,
+      },
+      porCavalo: grupos.map((item) => {
+        const distancia = Number(item._sum.distanciaPercorrida || 0);
+        const litros = Number(item._sum.litros || 0);
+        return {
+          cavaloMecanicoId: item.cavaloMecanicoId,
+          cavalo: labels.get(item.cavaloMecanicoId) || 'Sem cadastro',
+          quantidadeRegistros: item._count._all,
+          distanciaTotal: distancia,
+          litrosTotal: litros,
+          mediaGeralKmLitro: litros > 0 ? distancia / litros : 0,
+        };
+      }),
+      historico,
+    };
   }
 
   private async conjuntosPorCavalo(where: any) {
