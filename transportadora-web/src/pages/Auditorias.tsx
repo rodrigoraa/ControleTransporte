@@ -1,6 +1,7 @@
 import { ArrowRight, Eye, FileText, Search, UserRound, X } from 'lucide-react';
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import { Toast } from '../components/Toast';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { api } from '../services/api';
 import { apiErrorMessage } from '../utils/apiError';
 
@@ -146,12 +147,8 @@ export function Auditorias() {
           <Search size={18} />
           <input placeholder="Buscar por entidade, ação, usuário ou registro..." value={search} onChange={(event) => setSearch(event.target.value)} />
         </div>
-        <select value={entidade} onChange={(event) => setEntidade(event.target.value)}>
-          {entityOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </select>
-        <select value={acao} onChange={(event) => setAcao(event.target.value)}>
-          {actionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </select>
+        <SearchableSelect value={entidade} options={entityOptions} ariaLabel="Entidade" onChange={setEntidade} />
+        <SearchableSelect value={acao} options={actionOptions} ariaLabel="Ação" onChange={setAcao} />
         <input type="date" value={dataInicial} onChange={(event) => setDataInicial(event.target.value)} />
         <input type="date" value={dataFinal} onChange={(event) => setDataFinal(event.target.value)} />
         <button className="button primary">Filtrar</button>

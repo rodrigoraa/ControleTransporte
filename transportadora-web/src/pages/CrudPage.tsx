@@ -4,10 +4,12 @@ import { Fuel } from 'lucide-react';
 import { History } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Toast } from '../components/Toast';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../services/api';
 import { apiErrorMessage } from '../utils/apiError';
 import { date, maskPlate, money } from '../utils/formatters';
+import { billingTotal, commissionDefaults, commissionValues, selectedCommissionValue } from '../utils/commission';
 import { carrocerias, crudResources, Field, Resource, resourceListPath, tiposImplemento } from './resources';
 
 type Mode = 'create' | 'edit' | 'view';
@@ -231,8 +233,9 @@ function FragmentRows({ group, grouped, tableFields, resource, canWrite, onConsu
             {resource.path === 'caminhoes' && <button className="icon-button" title="Consumo e média" onClick={() => onConsumo(row)}><Fuel size={17} /></button>}
             {['caminhoes', 'motoristas'].includes(resource.path) && <button className="icon-button" title="Histórico" onClick={() => onHistorico(row)}><History size={17} /></button>}
             <button className="icon-button" title="Visualizar" onClick={() => onView(row)}><Eye size={17} /></button>
-            {canWrite && !row.protegido && <button className="icon-button" title="Editar" onClick={() => onEdit(row)}><Pencil size={17} /></button>}
-            {canWrite && !row.protegido && <button className="icon-button danger" title={resource.path === 'caminhoes' ? 'Excluir cavalo mecânico' : 'Excluir'} onClick={() => onDelete(row)}><Trash2 size={17} /></button>}
+            {row.faturamentoOrigemId && <span className="generated-expense-label" title="Gerada automaticamente pelo faturamento de origem">Automática</span>}
+            {canWrite && !row.protegido && !row.faturamentoOrigemId && <button className="icon-button" title="Editar" onClick={() => onEdit(row)}><Pencil size={17} /></button>}
+            {canWrite && !row.protegido && !row.faturamentoOrigemId && <button className="icon-button danger" title={resource.path === 'caminhoes' ? 'Excluir cavalo mecânico' : 'Excluir'} onClick={() => onDelete(row)}><Trash2 size={17} /></button>}
           </td>
         </tr>
       ))}
@@ -567,10 +570,13 @@ function FieldControl({ field, value, relationOptions = {}, onChange }: { field:
     <label className={field.type === 'textarea' ? 'wide' : ''}>
       {field.label}
       {field.type === 'select' ? (
-        <select value={value || ''} required={field.required} onChange={(e) => onChange(e.target.value)}>
-          <option value="">Selecione</option>
-          {(field.relation ? relationOptions[field.name] : field.options)?.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </select>
+        <SearchableSelect
+          value={value || ''}
+          options={field.relation ? relationOptions[field.name] : field.options}
+          required={field.required}
+          ariaLabel={field.label}
+          onChange={onChange}
+        />
       ) : field.type === 'textarea' ? (
         <textarea value={value || ''} onChange={(e) => onChange(e.target.value)} />
       ) : field.type === 'checkbox' ? (
@@ -668,7 +674,21 @@ function compositionImplementos(item: any) {
   }));
 }
 
-function ConfirmModal({ title, message, onCancel, onConfirm }: { title: string; message: string; onCancel: () => void; onConfirm: () => void }) {
+function ConfirmModal({
+  title,
+  message,
+  confirmLabel = 'Excluir',
+  confirmClassName = 'danger',
+  onCancel,
+  onConfirm,
+}: {
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  confirmClassName?: 'danger' | 'primary';
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
   const visibleMessage = title === 'Excluir cavalo mecânico'
     ? 'Esta ação remove o cavalo mecânico inteiro, não apenas a carreta. Para remover uma carreta ou dolly, edite o cavalo e altere a composição.'
     : message;
@@ -683,7 +703,7 @@ function ConfirmModal({ title, message, onCancel, onConfirm }: { title: string; 
         <p>{visibleMessage}</p>
         <div className="modal-actions">
           <button type="button" className="button ghost" onClick={onCancel}>Cancelar</button>
-          <button type="button" className="button danger" onClick={onConfirm}>Excluir</button>
+          <button type="button" className={`button ${confirmClassName}`} onClick={onConfirm}>{confirmLabel}</button>
         </div>
       </div>
     </div>
@@ -695,9 +715,24 @@ function RecordModal({ resource, mode, item, onClose, onSaved }: { resource: Res
   const [relationOptions, setRelationOptions] = useState<Record<string, { label: string; value: string }[]>>({});
   const [relationRows, setRelationRows] = useState<Record<string, any[]>>({});
   const [quickCreate, setQuickCreate] = useState<{ field: Field; resource: Resource } | null>(null);
+  const [showCommissionDetails, setShowCommissionDetails] = useState(false);
+  const [pendingNoCommissionPayload, setPendingNoCommissionPayload] = useState<any | null>(null);
   const [error, setError] = useState('');
   const { user, logout } = useAuth();
   const readonly = mode === 'view';
+  const selectedCavalo = relationRows.cavaloMecanicoId?.find((row: any) => row.id === form.cavaloMecanicoId);
+  const changedCavalo = mode === 'edit' && item.cavaloMecanicoId && item.cavaloMecanicoId !== form.cavaloMecanicoId;
+  const selectedAxles = resource.path === 'faturamento'
+    ? Number(
+      !changedCavalo && item.quantidadeEixosComissao != null
+        ? item.quantidadeEixosComissao
+        : !changedCavalo && item.conjunto?.quantidadeTotalEixos != null
+          ? item.conjunto.quantidadeTotalEixos
+          : selectedCavalo
+            ? selectedCavalo.conjuntos?.[0]?.quantidadeTotalEixos ?? calculateTotalEixos(selectedCavalo, compositionImplementos(selectedCavalo))
+            : 0,
+    )
+    : 0;
 
   async function loadRelations() {
     const fields = resource.fields.filter((field) => field.relation);
@@ -726,14 +761,32 @@ function RecordModal({ resource, mode, item, onClose, onSaved }: { resource: Res
 
   function update(field: Field, value: string | boolean) {
     const next = typeof value === 'string' && field.mask ? field.mask(value) : value;
+    if (field.name === 'cavaloMecanicoId') {
+      setPendingNoCommissionPayload(null);
+      setShowCommissionDetails(false);
+    }
     setForm((current: any) => {
       const updated = { ...current, [field.name]: next };
       if (field.name === 'cavaloMecanicoId' && typeof next === 'string') {
         const cavalo = relationRows[field.name]?.find((row: any) => row.id === next);
         updated.motoristaId = cavalo?.motoristaId || '';
+        if (current[field.name] !== next) {
+          const eixos = cavalo
+            ? Number(cavalo.conjuntos?.[0]?.quantidadeTotalEixos ?? calculateTotalEixos(cavalo, compositionImplementos(cavalo)))
+            : 0;
+          const defaults = commissionDefaults(eixos);
+          updated.tipoComissao = '';
+          updated.percentualComissao = defaults?.percentual ?? null;
+          updated.valorComissaoPorViagem = defaults?.valorPorViagem ?? null;
+        }
       }
       return updated;
     });
+  }
+
+  function updateCommission(name: string, value: string | number | null) {
+    setForm((current: any) => ({ ...current, [name]: value }));
+    setError('');
   }
 
   function updateMulti(field: Field, value: string) {
@@ -749,6 +802,37 @@ function RecordModal({ resource, mode, item, onClose, onSaved }: { resource: Res
   async function submit(event: FormEvent) {
     event.preventDefault();
     const payload = { ...sanitize(form, resource.fields, mode), ...resource.fixedValues };
+    if (resource.path === 'faturamento') {
+      const eligible = Boolean(commissionDefaults(selectedAxles));
+      const legacyWithoutCommission = mode === 'edit' && !item.tipoComissao && !form.tipoComissao;
+      if (eligible && !form.tipoComissao && !legacyWithoutCommission) {
+        setError('Selecione o tipo de comissão antes de salvar o faturamento.');
+        return;
+      }
+      if (eligible && form.tipoComissao) {
+        const percentual = Number(form.percentualComissao);
+        const valorPorViagem = Number(form.valorComissaoPorViagem);
+        if (!Number.isFinite(percentual) || percentual <= 0 || percentual > 100) {
+          setError('Informe um percentual de comissão maior que zero e menor ou igual a 100%.');
+          return;
+        }
+        if (!Number.isFinite(valorPorViagem) || valorPorViagem <= 0) {
+          setError('Informe um valor de comissão por viagem maior que zero.');
+          return;
+        }
+        payload.tipoComissao = form.tipoComissao;
+        payload.percentualComissao = percentual;
+        payload.valorComissaoPorViagem = valorPorViagem;
+      } else {
+        payload.tipoComissao = null;
+        payload.percentualComissao = null;
+        payload.valorComissaoPorViagem = null;
+      }
+      if (!eligible) {
+        setPendingNoCommissionPayload(payload);
+        return;
+      }
+    }
     await persist(payload);
   }
 
@@ -785,26 +869,27 @@ function RecordModal({ resource, mode, item, onClose, onSaved }: { resource: Res
         </div>
         <div className="form-grid">
           {resource.fields.filter((field) => shouldRenderField(field, form)).map((field) => {
-            const selectedCavalo = field.name === 'cavaloMecanicoId'
-              ? relationRows[field.name]?.find((row) => row.id === form[field.name])
-              : null;
             return (
               <label key={field.name} className={field.type === 'textarea' ? 'wide' : ''}>
                 {field.label}
                 {field.type === 'select' ? (
                   <>
                     <div className="relation-control">
-                      <select disabled={readonly} value={form[field.name] || ''} required={isRequiredForMode(field, mode, readonly)} onChange={(e) => update(field, e.target.value)}>
-                        <option value="">Selecione</option>
-                        {(field.relation ? relationOptions[field.name] : field.options)?.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                      </select>
+                      <SearchableSelect
+                        disabled={readonly}
+                        value={form[field.name] || ''}
+                        options={field.relation ? relationOptions[field.name] : field.options}
+                        required={isRequiredForMode(field, mode, readonly)}
+                        ariaLabel={field.label}
+                        onChange={(value) => update(field, value)}
+                      />
                       {!readonly && field.relation && quickCreateResource(field) && (
                         <button type="button" className="button" onClick={() => setQuickCreate({ field, resource: quickCreateResource(field)! })}>
                           <Plus size={16} /> Cadastrar
                         </button>
                       )}
                     </div>
-                    {selectedCavalo && <SelectedCavaloComposition cavalo={selectedCavalo} />}
+                    {field.name === 'cavaloMecanicoId' && selectedCavalo && <SelectedCavaloComposition cavalo={selectedCavalo} />}
                   </>
                 ) : field.type === 'multiselect' ? (
                   <div className="multi-options">
@@ -826,6 +911,18 @@ function RecordModal({ resource, mode, item, onClose, onSaved }: { resource: Res
             );
           })}
         </div>
+        {resource.path === 'faturamento' && (
+          <CommissionSection
+            mode={mode}
+            form={form}
+            eixos={selectedAxles}
+            hasSelectedCavalo={Boolean(selectedCavalo || form.cavaloMecanicoId)}
+            legacyWithoutCommission={mode === 'edit' && !item.tipoComissao}
+            showDetails={showCommissionDetails}
+            onToggleDetails={() => setShowCommissionDetails((current) => !current)}
+            onChange={updateCommission}
+          />
+        )}
         {error && <div className="form-error">{error}</div>}
         <div className="modal-actions">
           <button type="button" className="button ghost" onClick={onClose}>Cancelar</button>
@@ -861,6 +958,139 @@ function RecordModal({ resource, mode, item, onClose, onSaved }: { resource: Res
           )}
         </div>
       )}
+      {pendingNoCommissionPayload && (
+        <ConfirmModal
+          title="Continuar sem comissão"
+          message={`A composição selecionada possui ${selectedAxles || 'quantidade não identificada de'} eixos e não gera comissão. Deseja salvar o faturamento sem comissão?`}
+          confirmLabel="Continuar"
+          confirmClassName="primary"
+          onCancel={() => setPendingNoCommissionPayload(null)}
+          onConfirm={() => {
+            const payload = pendingNoCommissionPayload;
+            setPendingNoCommissionPayload(null);
+            void persist(payload);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function CommissionSection({
+  mode,
+  form,
+  eixos,
+  hasSelectedCavalo,
+  legacyWithoutCommission,
+  showDetails,
+  onToggleDetails,
+  onChange,
+}: {
+  mode: Mode;
+  form: any;
+  eixos: number;
+  hasSelectedCavalo: boolean;
+  legacyWithoutCommission: boolean;
+  showDetails: boolean;
+  onToggleDetails: () => void;
+  onChange: (name: string, value: string | number | null) => void;
+}) {
+  const readonly = mode === 'view';
+  const defaults = commissionDefaults(eixos);
+  const total = billingTotal(form.quantidade, form.valorUnitario, form.multiplicarQuantidade);
+  const values = commissionValues(total, form.percentualComissao, form.valorComissaoPorViagem);
+  const selectedValue = selectedCommissionValue(form.tipoComissao, values);
+  const afterCommission = total - selectedValue;
+
+  function selectType(value: string) {
+    if (value && defaults) {
+      if (!Number(form.percentualComissao)) onChange('percentualComissao', defaults.percentual);
+      if (!Number(form.valorComissaoPorViagem)) onChange('valorComissaoPorViagem', defaults.valorPorViagem);
+    }
+    onChange('tipoComissao', value);
+  }
+
+  function restoreDefaults() {
+    if (!defaults) return;
+    onChange('percentualComissao', defaults.percentual);
+    onChange('valorComissaoPorViagem', defaults.valorPorViagem);
+  }
+
+  if (!hasSelectedCavalo) {
+    return <div className="commission-section commission-empty">Selecione o cavalo mecânico completo para verificar a regra de comissão.</div>;
+  }
+
+  if (!defaults) {
+    return (
+      <div className="commission-section">
+        <div className="commission-heading">
+          <div><strong>Comissão</strong><span>Composição com {eixos || 'quantidade não identificada de'} eixos</span></div>
+        </div>
+        <div className="form-warning">Esta composição não possui 7 ou 9 eixos e não gera comissão. O sistema solicitará confirmação antes de salvar.</div>
+        <div className="commission-summary">
+          <div><span>Faturamento bruto</span><strong>{money(total)}</strong></div>
+          <div><span>Comissão</span><strong>{money(0)}</strong></div>
+          <div><span>Após comissão</span><strong>{money(total)}</strong></div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="commission-section">
+      <div className="commission-heading">
+        <div>
+          <strong>Comissão</strong>
+          <span>Regra para composição de {eixos} eixos</span>
+        </div>
+        <button type="button" className={`icon-button ${showDetails ? 'active' : ''}`} title="Visualizar e alterar os valores da comissão" aria-label="Visualizar e alterar os valores da comissão" onClick={onToggleDetails}>
+          <Eye size={18} />
+        </button>
+      </div>
+
+      {legacyWithoutCommission && !form.tipoComissao && (
+        <div className="form-warning">Este faturamento foi criado antes da comissão e continuará sem comissão, a menos que você escolha um tipo agora.</div>
+      )}
+
+      <label>
+        Tipo de comissão
+        <SearchableSelect
+          value={form.tipoComissao || ''}
+          options={[
+            { value: 'PERCENTUAL', label: 'Percentual' },
+            { value: 'POR_VIAGEM', label: 'Por viagem' },
+          ]}
+          emptyLabel={legacyWithoutCommission ? 'Sem comissão registrada' : 'Selecione'}
+          disabled={readonly}
+          required={mode === 'create'}
+          ariaLabel="Tipo de comissão"
+          onChange={selectType}
+        />
+      </label>
+
+      {showDetails && (
+        <div className="commission-details">
+          <div className="commission-rule-grid">
+            <label>
+              Percentual (%)
+              <input disabled={readonly} type="number" min="0.01" max="100" step="0.01" value={form.percentualComissao ?? ''} onChange={(event) => onChange('percentualComissao', event.target.value)} />
+              <small>{form.percentualComissao || 0}% de {money(total)} = {money(values.percentual)}</small>
+            </label>
+            <label>
+              Valor por viagem
+              <input disabled={readonly} type="number" min="0.01" step="0.01" value={form.valorComissaoPorViagem ?? ''} onChange={(event) => onChange('valorComissaoPorViagem', event.target.value)} />
+              <small>Uma viagem = {money(values.porViagem)}</small>
+            </label>
+          </div>
+          {!readonly && <button type="button" className="button ghost" onClick={restoreDefaults}>Restaurar valores padrão</button>}
+        </div>
+      )}
+
+      <div className="commission-summary">
+        <div><span>Faturamento bruto</span><strong>{money(total)}</strong></div>
+        <div><span>Comissão calculada</span><strong>{form.tipoComissao ? money(selectedValue) : '-'}</strong></div>
+        <div><span>Após comissão</span><strong>{form.tipoComissao ? money(afterCommission) : money(total)}</strong></div>
+      </div>
     </div>
   );
 }

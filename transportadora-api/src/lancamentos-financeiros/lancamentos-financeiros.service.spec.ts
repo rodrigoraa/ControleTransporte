@@ -1,24 +1,46 @@
-﻿import { BadRequestException } from '@nestjs/common';
-import { TipoLancamento, UnidadeQuantidade } from '@prisma/client';
+import { BadRequestException } from '@nestjs/common';
+import { TipoComissao, TipoLancamento, UnidadeQuantidade } from '@prisma/client';
 import { LancamentosFinanceirosService } from './lancamentos-financeiros.service';
 
-function makeService() {
-  const create = jest.fn((args: any) => args);
-  const update = jest.fn((args: any) => args);
+function makeService(eixos = 6, currentOverrides: Record<string, any> = {}) {
+  const create = jest.fn(async ({ data }: any) => ({
+    id: data.faturamentoOrigemId ? 'commission-1' : 'launch-created',
+    ...data,
+    despesaComissao: null,
+  }));
+  const update = jest.fn(async ({ where, data }: any) => ({ id: where.id, ...data }));
+  const remove = jest.fn(async () => ({}));
   const findUnique = jest.fn(async ({ where }: any) => {
-    if (where.placa === 'ABC1D23') return { id: 'horse-1', placa: 'ABC1D23', conjuntos: [{ id: 'set-1' }] };
-    if (where.id === 'horse-1') return { id: 'horse-1', placa: 'ABC1D23', conjuntos: [{ id: 'set-1' }] };
+    if (where.id === 'horse-2') {
+      return {
+        id: 'horse-2',
+        placa: 'XYZ9E99',
+        conjuntos: [{ id: 'set-2', quantidadeTotalEixos: eixos }],
+      };
+    }
+    if (where.placa === 'ABC1D23' || where.id === 'horse-1') {
+      return {
+        id: 'horse-1',
+        placa: 'ABC1D23',
+        conjuntos: [{ id: 'set-1', quantidadeTotalEixos: eixos }],
+      };
+    }
     return null;
   });
 
-  const prisma = {
-    lancamentoFinanceiro: { create, update, findUnique: jest.fn() },
+  const prisma: any = {
+    lancamentoFinanceiro: { create, update, delete: remove, findUnique: jest.fn() },
     cavaloMecanico: { findUnique },
+    conjunto: { findUnique: jest.fn() },
+    categoriaFinanceira: {
+      upsert: jest.fn(async () => ({ id: 'commission-category', codigoSistema: 'COMISSAO_MOTORISTA' })),
+    },
     auditoria: { create: jest.fn() },
-  } as any;
+  };
+  prisma.$transaction = jest.fn(async (callback: (transaction: any) => Promise<any>) => callback(prisma));
 
   const service = new LancamentosFinanceirosService(prisma);
-  jest.spyOn(service as any, 'findOne').mockResolvedValue({
+  const current = {
     id: 'launch-1',
     data: new Date('2026-01-01T00:00:00.000Z'),
     placa: 'ABC1D23',
@@ -28,9 +50,22 @@ function makeService() {
     tipoLancamento: TipoLancamento.DESPESA,
     quantidade: 2,
     valorUnitario: 10,
-  });
+    multiplicarQuantidade: true,
+    cavaloMecanicoId: 'horse-1',
+    conjuntoId: 'set-1',
+    conjunto: { quantidadeTotalEixos: eixos },
+    faturamentoOrigemId: null,
+    despesaComissao: null,
+    tipoComissao: null,
+    percentualComissao: null,
+    valorComissaoPorViagem: null,
+    valorComissao: null,
+    quantidadeEixosComissao: null,
+    ...currentOverrides,
+  };
+  jest.spyOn(service as any, 'findOne').mockResolvedValue(current);
 
-  return { service, create, update, findUnique };
+  return { service, prisma, create, update, remove, findUnique, current };
 }
 
 const baseDto = {
@@ -44,19 +79,17 @@ const baseDto = {
 };
 
 describe('LancamentosFinanceirosService', () => {
-  it('cria despesa com fornecedor, calcula valor total, zera cliente e vincula cavalo pela placa', async () => {
+  it('cria despesa manual com fornecedor, calcula total e zera cliente', async () => {
     const { service, create } = makeService();
 
     await service.create({ ...baseDto, fornecedorId: 'supplier-1', clienteId: 'client-1' });
 
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        fornecedorId: 'supplier-1',
-        clienteId: null,
-        cavaloMecanicoId: 'horse-1',
-        conjuntoId: 'set-1',
-        valorTotal: expect.anything(),
-      }),
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0][0].data).toEqual(expect.objectContaining({
+      fornecedorId: 'supplier-1',
+      clienteId: null,
+      cavaloMecanicoId: 'horse-1',
+      conjuntoId: 'set-1',
     }));
     expect(String(create.mock.calls[0][0].data.valorTotal)).toBe('20');
   });
@@ -64,16 +97,13 @@ describe('LancamentosFinanceirosService', () => {
   it('cria despesa usando cavalo mecânico sem exigir placa no payload', async () => {
     const { service, create } = makeService();
 
-    await service.create({
-      ...baseDto,
-      placa: undefined,
-      cavaloMecanicoId: 'horse-1',
-      fornecedorId: 'supplier-1',
-    });
+    await service.create({ ...baseDto, placa: undefined, cavaloMecanicoId: 'horse-1', fornecedorId: 'supplier-1' });
 
-    expect(create.mock.calls[0][0].data.placa).toBe('ABC1D23');
-    expect(create.mock.calls[0][0].data.cavaloMecanicoId).toBe('horse-1');
-    expect(create.mock.calls[0][0].data.conjuntoId).toBe('set-1');
+    expect(create.mock.calls[0][0].data).toEqual(expect.objectContaining({
+      placa: 'ABC1D23',
+      cavaloMecanicoId: 'horse-1',
+      conjuntoId: 'set-1',
+    }));
   });
 
   it('usa somente o valor unitário quando a multiplicação é desmarcada', async () => {
@@ -83,42 +113,38 @@ describe('LancamentosFinanceirosService', () => {
     expect(create.mock.calls[0][0].data.multiplicarQuantidade).toBe(false);
   });
 
-  it('cria despesa sem motorista', async () => {
+  it('permite despesa manual sem motorista, mas bloqueia sem fornecedor', async () => {
     const { service, create } = makeService();
-
-    await service.create({
-      ...baseDto,
-      motoristaId: undefined,
-      fornecedorId: 'supplier-1',
-    });
-
+    await service.create({ ...baseDto, motoristaId: undefined, fornecedorId: 'supplier-1' });
     expect(create.mock.calls[0][0].data.motoristaId).toBeUndefined();
-    expect(create.mock.calls[0][0].data.fornecedorId).toBe('supplier-1');
-  });
-
-  it('bloqueia despesa sem fornecedor', async () => {
-    const { service } = makeService();
 
     await expect(service.create({ ...baseDto, fornecedorId: null })).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('cria faturamento com cliente e zera fornecedor', async () => {
-    const { service, create } = makeService();
+  it('cria faturamento sem comissão para composição diferente de 7 e 9 eixos', async () => {
+    const { service, create } = makeService(6);
 
     await service.create({
       ...baseDto,
       tipoLancamento: TipoLancamento.FATURAMENTO,
       clienteId: 'client-1',
       fornecedorId: 'supplier-1',
+      tipoComissao: TipoComissao.PERCENTUAL,
+      percentualComissao: 12,
+      valorComissaoPorViagem: 240,
     });
 
-    expect(create.mock.calls[0][0].data.clienteId).toBe('client-1');
-    expect(create.mock.calls[0][0].data.fornecedorId).toBeNull();
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0][0].data).toEqual(expect.objectContaining({
+      clienteId: 'client-1',
+      fornecedorId: null,
+      tipoComissao: null,
+      valorComissao: null,
+    }));
   });
 
   it('bloqueia faturamento sem cliente', async () => {
     const { service } = makeService();
-
     await expect(service.create({
       ...baseDto,
       tipoLancamento: TipoLancamento.FATURAMENTO,
@@ -127,34 +153,170 @@ describe('LancamentosFinanceirosService', () => {
     })).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('edita lançamento existente sem motorista sem exigir novo motorista', async () => {
-    const { service, update } = makeService();
-    jest.spyOn(service as any, 'findOne').mockResolvedValueOnce({
-      id: 'launch-1',
-      data: new Date('2026-01-01T00:00:00.000Z'),
-      placa: 'ABC1D23',
-      motoristaId: null,
-      fornecedorId: 'supplier-1',
-      clienteId: null,
-      cavaloMecanicoId: 'horse-1',
-      conjuntoId: 'set-1',
-      tipoLancamento: TipoLancamento.DESPESA,
-      quantidade: 2,
-      valorUnitario: 10,
+  it('calcula 12% para 7 eixos e cria a despesa automática vinculada sem fornecedor', async () => {
+    const { service, create, prisma } = makeService(7);
+
+    const result: any = await service.create({
+      ...baseDto,
+      tipoLancamento: TipoLancamento.FATURAMENTO,
+      clienteId: 'client-1',
+      tipoComissao: TipoComissao.PERCENTUAL,
     });
 
-    await service.update('launch-1', { descricao: 'Despesa editada' });
-
-    expect(update).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        descricao: 'Despesa editada',
-        valorTotal: expect.anything(),
-      }),
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create.mock.calls[0][0].data).toEqual(expect.objectContaining({
+      tipoComissao: TipoComissao.PERCENTUAL,
+      quantidadeEixosComissao: 7,
     }));
-    expect(update.mock.calls[0][0].data).not.toHaveProperty('motoristaId');
+    expect(String(create.mock.calls[0][0].data.percentualComissao)).toBe('12');
+    expect(String(create.mock.calls[0][0].data.valorComissao)).toBe('2.4');
+    expect(create.mock.calls[1][0].data).toEqual(expect.objectContaining({
+      tipoLancamento: TipoLancamento.DESPESA,
+      fornecedorId: null,
+      clienteId: null,
+      faturamentoOrigemId: 'launch-created',
+      categoriaId: 'commission-category',
+    }));
+    expect(String(create.mock.calls[1][0].data.valorTotal)).toBe('2.4');
+    expect(result.despesaComissao.id).toBe('commission-1');
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('calcula comissão fixa para 9 eixos e permite personalizar os dois valores', async () => {
+    const { service, create } = makeService(9);
+
+    await service.create({
+      ...baseDto,
+      tipoLancamento: TipoLancamento.FATURAMENTO,
+      clienteId: 'client-1',
+      tipoComissao: TipoComissao.POR_VIAGEM,
+      percentualComissao: 10.5,
+      valorComissaoPorViagem: 400,
+    });
+
+    expect(String(create.mock.calls[0][0].data.percentualComissao)).toBe('10.5');
+    expect(String(create.mock.calls[0][0].data.valorComissaoPorViagem)).toBe('400');
+    expect(String(create.mock.calls[0][0].data.valorComissao)).toBe('400');
+    expect(String(create.mock.calls[1][0].data.valorTotal)).toBe('400');
+  });
+
+  it('arredonda o faturamento em centavos antes de calcular o percentual', async () => {
+    const { service, create } = makeService(9);
+
+    await service.create({
+      ...baseDto,
+      tipoLancamento: TipoLancamento.FATURAMENTO,
+      clienteId: 'client-1',
+      quantidade: 1.001,
+      valorUnitario: 101.49,
+      tipoComissao: TipoComissao.PERCENTUAL,
+    });
+
+    expect(String(create.mock.calls[0][0].data.valorTotal)).toBe('101.59');
+    expect(String(create.mock.calls[0][0].data.valorComissao)).toBe('11.17');
+    expect(String(create.mock.calls[1][0].data.valorTotal)).toBe('11.17');
+  });
+
+  it('exige tipo de comissão em novo faturamento elegível', async () => {
+    const { service } = makeService(7);
+    await expect(service.create({
+      ...baseDto,
+      tipoLancamento: TipoLancamento.FATURAMENTO,
+      clienteId: 'client-1',
+    })).rejects.toThrow('Selecione o tipo de comissão');
+  });
+
+  it('edita lançamento legado sem criar comissão implicitamente', async () => {
+    const { service, update, create } = makeService(7, {
+      tipoLancamento: TipoLancamento.FATURAMENTO,
+      fornecedorId: null,
+      clienteId: 'client-1',
+    });
+
+    await service.update('launch-1', { descricao: 'Faturamento legado corrigido' });
+
+    expect(update.mock.calls[0][0].data).toEqual(expect.objectContaining({ tipoComissao: null, valorComissao: null }));
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('recalcula faturamento e sincroniza a despesa automática ao editar', async () => {
+    const despesa = { id: 'commission-1', valorTotal: 2.4, faturamentoOrigemId: 'launch-1' };
+    const { service, update } = makeService(7, {
+      tipoLancamento: TipoLancamento.FATURAMENTO,
+      fornecedorId: null,
+      clienteId: 'client-1',
+      tipoComissao: TipoComissao.PERCENTUAL,
+      percentualComissao: 12,
+      valorComissaoPorViagem: 240,
+      valorComissao: 2.4,
+      quantidadeEixosComissao: 7,
+      despesaComissao: despesa,
+    });
+
+    await service.update('launch-1', { valorUnitario: 20 });
+
+    expect(update).toHaveBeenCalledTimes(2);
+    expect(String(update.mock.calls[0][0].data.valorComissao)).toBe('4.8');
+    expect(update.mock.calls[1][0].where).toEqual({ id: 'commission-1' });
+    expect(String(update.mock.calls[1][0].data.valorTotal)).toBe('4.8');
+  });
+
+  it('restaura os padrões de 9 eixos quando a composição de um faturamento com comissão muda', async () => {
+    const despesa = { id: 'commission-1', valorTotal: 2.4, faturamentoOrigemId: 'launch-1' };
+    const { service, update } = makeService(9, {
+      tipoLancamento: TipoLancamento.FATURAMENTO,
+      fornecedorId: null,
+      clienteId: 'client-1',
+      tipoComissao: TipoComissao.PERCENTUAL,
+      percentualComissao: 12,
+      valorComissaoPorViagem: 240,
+      valorComissao: 2.4,
+      quantidadeEixosComissao: 7,
+      despesaComissao: despesa,
+    });
+
+    await service.update('launch-1', { cavaloMecanicoId: 'horse-2' });
+
+    expect(update.mock.calls[0][0].data).toEqual(expect.objectContaining({
+      cavaloMecanicoId: 'horse-2',
+      conjuntoId: 'set-2',
+      quantidadeEixosComissao: 9,
+    }));
+    expect(String(update.mock.calls[0][0].data.percentualComissao)).toBe('11');
+    expect(String(update.mock.calls[0][0].data.valorComissaoPorViagem)).toBe('330');
+    expect(String(update.mock.calls[0][0].data.valorComissao)).toBe('2.2');
+  });
+
+  it('remove a despesa automática quando o faturamento muda para composição sem comissão', async () => {
+    const despesa = { id: 'commission-1', valorTotal: 2.4, faturamentoOrigemId: 'launch-1' };
+    const { service, update, remove } = makeService(6, {
+      tipoLancamento: TipoLancamento.FATURAMENTO,
+      fornecedorId: null,
+      clienteId: 'client-1',
+      tipoComissao: TipoComissao.PERCENTUAL,
+      percentualComissao: 12,
+      valorComissaoPorViagem: 240,
+      valorComissao: 2.4,
+      quantidadeEixosComissao: 7,
+      despesaComissao: despesa,
+    });
+
+    await service.update('launch-1', { cavaloMecanicoId: 'horse-2' });
+
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update.mock.calls[0][0].data).toEqual(expect.objectContaining({
+      tipoComissao: null,
+      percentualComissao: null,
+      valorComissao: null,
+      quantidadeEixosComissao: null,
+    }));
+    expect(remove).toHaveBeenCalledWith({ where: { id: 'commission-1' } });
+  });
+
+  it('bloqueia alteração e exclusão direta da despesa automática', async () => {
+    const { service } = makeService(7, { faturamentoOrigemId: 'billing-1' });
+
+    await expect(service.update('commission-1', { descricao: 'Tentativa manual' })).rejects.toThrow('despesa de comissão é automática');
+    await expect(service.remove('commission-1')).rejects.toThrow('despesa de comissão é automática');
   });
 });
-
-
-
-

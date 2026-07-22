@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { BarChart3, Download, FileSpreadsheet, FileText, Filter, Search } from 'lucide-react';
 import { api } from '../services/api';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { apiErrorMessage } from '../utils/apiError';
 import { date, money } from '../utils/formatters';
 
@@ -95,7 +96,7 @@ export function Relatorios() {
       <div className="page-header report-header">
         <div>
           <h1>Relatórios</h1>
-          <p>Indicadores financeiros e de consumo por período, frota, composição e categoria.</p>
+          <p>Indicadores financeiros, de comissões e de consumo por período, frota, composição e categoria.</p>
         </div>
         {financeiro && (
           <div className="actions">
@@ -149,6 +150,7 @@ export function Relatorios() {
             <article className="stat-card stat-neutral"><span>Lançamentos</span><strong>{financeiro.total}</strong></article>
           </div>
 
+          <CommissionReport comissoes={financeiro.comissoes} />
           <ConsumoReport consumo={financeiro.consumo} />
 
           <div className="panel report-table-panel">
@@ -213,6 +215,60 @@ export function Relatorios() {
         </>
       )}
     </section>
+  );
+}
+
+function CommissionReport({ comissoes }: { comissoes: any }) {
+  const resumo = comissoes?.resumo || {};
+  const historico = comissoes?.historico || [];
+
+  return (
+    <>
+      <div className="panel-title-row report-section-heading">
+        <div>
+          <h2>Comissões dos faturamentos</h2>
+          <p>Valores gravados em cada viagem. As comissões já estão incluídas no total de despesas e no saldo final.</p>
+        </div>
+      </div>
+      <div className="stats-grid">
+        <article className="stat-card stat-neutral"><span>Viagens com comissão</span><strong>{resumo.quantidade || 0}</strong></article>
+        <article className="stat-card stat-success"><span>Faturamento relacionado</span><strong>{money(resumo.totalFaturado)}</strong></article>
+        <article className="stat-card stat-danger"><span>Total de comissões</span><strong>{money(resumo.totalComissoes)}</strong></article>
+        <article className="stat-card stat-info"><span>Faturamento após comissões</span><strong>{money(resumo.faturamentoAposComissoes)}</strong></article>
+      </div>
+
+      <div className="panel report-table-panel">
+        <div className="panel-title-row">
+          <div>
+            <h2>Histórico de comissões</h2>
+            <p>Regra, base de cálculo e despesa automática vinculada a cada faturamento.</p>
+          </div>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Data</th><th>Cavalo</th><th>Motorista</th><th>Eixos</th><th>Tipo</th><th>Regra aplicada</th><th>Faturamento</th><th>Comissão</th><th>Após comissão</th></tr>
+            </thead>
+            <tbody>
+              {!historico.length && <tr><td colSpan={9}>Nenhuma comissão encontrada para os filtros informados.</td></tr>}
+              {historico.map((item: any) => (
+                <tr key={item.id}>
+                  <td>{date(item.data)}</td>
+                  <td>{item.cavaloMecanico?.placa || item.placa || '-'}</td>
+                  <td>{labelPessoa(item.motorista)}</td>
+                  <td>{item.quantidadeEixosComissao ?? '-'}</td>
+                  <td>{commissionTypeLabel(item.tipoComissao)}</td>
+                  <td>{commissionRuleLabel(item)}</td>
+                  <td className="money-cell positive">{money(item.valorTotal)}</td>
+                  <td className="money-cell negative">{money(item.valorComissao)}</td>
+                  <td className="money-cell">{money(Number(item.valorTotal || 0) - Number(item.valorComissao || 0))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -358,10 +414,14 @@ function SelectFilter({ label, name, value, options, disabled, onChange }: { lab
   return (
     <label>
       {label}
-      <select value={value} disabled={disabled} onChange={(event) => onChange(name, event.target.value)}>
-        <option value="">Todos</option>
-        {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-      </select>
+      <SearchableSelect
+        value={value}
+        options={options}
+        emptyLabel="Todos"
+        disabled={disabled}
+        ariaLabel={label}
+        onChange={(nextValue) => onChange(name, nextValue)}
+      />
     </label>
   );
 }
@@ -389,6 +449,18 @@ function labelImplementos(conjunto: any) {
     const implemento = vinculo.implemento;
     return [vinculo.ordem ? `${vinculo.ordem}.` : null, implemento?.placa || 'Sem placa', implemento?.tipo, implemento?.carroceria, implemento?.quantidadeEixos != null ? `${implemento.quantidadeEixos} eixos` : null].filter(Boolean).join(' ');
   }).join(' / ');
+}
+
+function commissionTypeLabel(tipo: string) {
+  if (tipo === 'PERCENTUAL') return 'Percentual';
+  if (tipo === 'POR_VIAGEM') return 'Por viagem';
+  return '-';
+}
+
+function commissionRuleLabel(item: any) {
+  return item?.tipoComissao === 'PERCENTUAL'
+    ? `${decimal(item.percentualComissao, 2)}%`
+    : `${money(item?.valorComissaoPorViagem)} por viagem`;
 }
 
 function decimal(value: unknown, digits: number) {

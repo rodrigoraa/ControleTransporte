@@ -117,7 +117,7 @@ export class RelatoriosService {
     const page = filters.page || 1;
     const limit = filters.limit || 50;
     const orderBy = { [filters.orderBy || 'data']: filters.orderDirection || 'desc' };
-    const [despesas, faturamento, total, historico, despesasPorCavaloMecanico, despesasPorMotorista, faturamentoPorCavaloMecanico, faturamentoPorMotorista, conjuntosPorCavalo, consumo] =
+    const [despesas, faturamento, total, historico, despesasPorCavaloMecanico, despesasPorMotorista, faturamentoPorCavaloMecanico, faturamentoPorMotorista, conjuntosPorCavalo, consumo, comissoes] =
       await Promise.all([
         this.sum({ ...where, tipoLancamento: TipoLancamento.DESPESA }),
         this.sum({ ...where, tipoLancamento: TipoLancamento.FATURAMENTO }),
@@ -135,6 +135,7 @@ export class RelatoriosService {
         this.groupWithLabels('motoristaId', { ...where, tipoLancamento: TipoLancamento.FATURAMENTO }),
         this.conjuntosPorCavalo(where),
         this.consumo(filters),
+        this.comissoes(filters),
       ]);
 
     return {
@@ -147,6 +148,7 @@ export class RelatoriosService {
       faturamentoPorMotorista,
       conjuntosPorCavalo,
       consumo,
+      comissoes,
       historico,
       total,
       page,
@@ -155,7 +157,11 @@ export class RelatoriosService {
   }
 
   async exportarCsv(filters: RelatorioFinanceiroQueryDto) {
-    const [rows, consumo] = await Promise.all([this.exportRows(filters), this.consumo(filters, 5000)]);
+    const [rows, consumo, comissoes] = await Promise.all([
+      this.exportRows(filters),
+      this.consumo(filters, 5000),
+      this.comissoes(filters, 5000),
+    ]);
     const header = [
       'Data',
       'Tipo',
@@ -173,24 +179,51 @@ export class RelatoriosService {
       'Unidade',
       'Valor unitário',
       'Valor total',
+      'Tipo de comissão',
+      'Eixos da comissão',
+      'Percentual de comissão',
+      'Comissão por viagem',
+      'Valor da comissão',
+      'Faturamento de origem',
     ];
-    const body = rows.map((item) => [
+    const body = rows.map((item) => {
+      const faturamentoComissao = item.tipoComissao ? item : null;
+      return [
+        item.data.toISOString().slice(0, 10),
+        item.tipoLancamento,
+        item.cavaloMecanico?.placa || item.placa,
+        item.conjunto?.nome || '',
+        item.conjunto?.tipo || '',
+        item.conjunto?.quantidadeTotalEixos ?? '',
+        item.conjunto?.capacidadeTotal ? String(item.conjunto.capacidadeTotal) : '',
+        this.formatImplementosConjunto(item.conjunto),
+        item.implemento?.placa || '',
+        item.motorista?.nome || '',
+        item.fornecedor?.nome || item.cliente?.nome || '',
+        item.categoriaFinanceira?.nome || '',
+        String(item.quantidade),
+        item.unidadeQuantidade,
+        String(item.valorUnitario),
+        String(item.valorTotal),
+        this.commissionTypeLabel(faturamentoComissao?.tipoComissao),
+        faturamentoComissao?.quantidadeEixosComissao ?? '',
+        faturamentoComissao?.percentualComissao != null ? String(faturamentoComissao.percentualComissao) : '',
+        faturamentoComissao?.valorComissaoPorViagem != null ? String(faturamentoComissao.valorComissaoPorViagem) : '',
+        faturamentoComissao?.valorComissao != null ? String(faturamentoComissao.valorComissao) : '',
+        item.faturamentoOrigemId || '',
+      ];
+    });
+    const resumoComissoes = comissoes.resumo;
+    const comissoesBody = comissoes.historico.map((item: any) => [
       item.data.toISOString().slice(0, 10),
-      item.tipoLancamento,
-      item.cavaloMecanico?.placa || item.placa,
-      item.conjunto?.nome || '',
-      item.conjunto?.tipo || '',
-      item.conjunto?.quantidadeTotalEixos ?? '',
-      item.conjunto?.capacidadeTotal ? String(item.conjunto.capacidadeTotal) : '',
-      this.formatImplementosConjunto(item.conjunto),
-      item.implemento?.placa || '',
+      item.cavaloMecanico?.placa || item.placa || '',
       item.motorista?.nome || '',
-      item.fornecedor?.nome || item.cliente?.nome || '',
-      item.categoriaFinanceira?.nome || '',
-      String(item.quantidade),
-      item.unidadeQuantidade,
-      String(item.valorUnitario),
+      String(item.quantidadeEixosComissao),
+      this.commissionTypeLabel(item.tipoComissao),
+      this.commissionRuleLabel(item),
       String(item.valorTotal),
+      String(item.valorComissao),
+      (Number(item.valorTotal) - Number(item.valorComissao)).toFixed(2),
     ]);
     const consumoHeader = ['Data', 'Cavalo mecânico', 'Km anterior', 'Km atual', 'Distância percorrida', 'Litros', 'Média km/l', 'Observações'];
     const consumoBody = consumo.historico.map((item: any) => [
@@ -214,6 +247,19 @@ export class RelatoriosService {
       header,
       ...body,
       [],
+      ['Resumo de comissões dos faturamentos'],
+      ['Viagens com comissão', 'Faturamento relacionado', 'Total de comissões', 'Faturamento após comissões'],
+      [
+        String(resumoComissoes.quantidade),
+        String(resumoComissoes.totalFaturado),
+        String(resumoComissoes.totalComissoes),
+        String(resumoComissoes.faturamentoAposComissoes),
+      ],
+      [],
+      ['Histórico de comissões'],
+      ['Data', 'Cavalo mecânico', 'Motorista', 'Eixos', 'Tipo', 'Regra', 'Faturamento', 'Comissão', 'Após comissão'],
+      ...comissoesBody,
+      [],
       ['Resumo de consumo por cavalo'],
       ['Cavalo mecânico', 'Abastecimentos', 'Distância total', 'Litros registrados', 'Média geral km/l'],
       ...resumoConsumo,
@@ -226,12 +272,14 @@ export class RelatoriosService {
   }
 
   async exportarPdf(filters: RelatorioFinanceiroQueryDto) {
-    const [relatorio, rows, consumo] = await Promise.all([
+    const [relatorio, rows, consumo, comissoes] = await Promise.all([
       this.financeiros({ ...filters, page: 1, limit: 50 }),
       this.exportRows(filters),
       this.consumo(filters, 5000),
+      this.comissoes(filters, 5000),
     ]);
     relatorio.consumo = consumo;
+    relatorio.comissoes = comissoes;
     return this.styledFinancialPdf(relatorio, rows);
   }
 
@@ -252,6 +300,8 @@ export class RelatoriosService {
       categoriaFinanceira: true,
       cavaloMecanico: true,
       implemento: true,
+      faturamentoOrigem: true,
+      despesaComissao: true,
       conjunto: {
         include: {
           implementos: {
@@ -342,7 +392,7 @@ export class RelatoriosService {
     rect(0, pageHeight, pageWidth, 92, [15, 48, 63]);
     rect(0, pageHeight - 92, pageWidth, 5, [31, 122, 140]);
     text('Controle Transporte', margin, pageHeight - 43, { size: 11, font: 'bold', color: [148, 213, 220] });
-    text('Relatório financeiro e de consumo', margin, pageHeight - 67, { size: 20, font: 'bold', color: [255, 255, 255] });
+    text('Relatório financeiro, comissões e consumo', margin, pageHeight - 67, { size: 17, font: 'bold', color: [255, 255, 255] });
     text(`Gerado em ${new Date().toLocaleString('pt-BR')}`, pageWidth - margin, pageHeight - 47, { size: 9, align: 'right', color: [203, 213, 225] });
     text(`${relatorio.total} lançamentos`, pageWidth - margin, pageHeight - 68, { size: 10, font: 'bold', align: 'right', color: [255, 255, 255] });
     y = pageHeight - 120;
@@ -406,6 +456,39 @@ export class RelatoriosService {
       );
     } else {
       emptyMessage('Nenhum conjunto encontrado para os filtros informados.');
+    }
+
+    sectionTitle('Comissões dos faturamentos');
+    if (relatorio.comissoes.resumo.quantidade) {
+      const resumo = relatorio.comissoes.resumo;
+      table(
+        ['Viagens', 'Faturamento relacionado', 'Total de comissões', 'Após comissões'],
+        [[
+          String(resumo.quantidade),
+          this.formatCurrency(resumo.totalFaturado),
+          this.formatCurrency(resumo.totalComissoes),
+          this.formatCurrency(resumo.faturamentoAposComissoes),
+        ]],
+        [62, 154, 145, 162],
+        ['right', 'right', 'right', 'right'],
+      );
+      table(
+        ['Data', 'Cavalo', 'Motorista', 'Eixos', 'Tipo', 'Regra', 'Faturamento', 'Comissão'],
+        relatorio.comissoes.historico.map((item: any) => [
+          this.formatDate(item.data),
+          item.cavaloMecanico?.placa || item.placa || '-',
+          item.motorista?.nome || '-',
+          String(item.quantidadeEixosComissao),
+          this.commissionTypeLabel(item.tipoComissao),
+          this.commissionRuleLabel(item),
+          this.formatCurrency(item.valorTotal),
+          this.formatCurrency(item.valorComissao),
+        ]),
+        [52, 59, 90, 38, 68, 72, 75, 69],
+        ['left', 'left', 'left', 'right', 'left', 'right', 'right', 'right'],
+      );
+    } else {
+      emptyMessage('Nenhuma comissão encontrada para os filtros informados.');
     }
 
     sectionTitle('Consumo dos cavalos');
@@ -549,6 +632,72 @@ export class RelatoriosService {
       label: labels.get(row[by] || '') || 'Sem cadastro',
       total: Number(row._sum.valorTotal || 0),
     }));
+  }
+
+  private async comissoes(filters: RelatorioFinanceiroQueryDto, take = 50) {
+    const commissionFilters = {
+      ...filters,
+      tipoLancamento: undefined,
+      categoriaId: undefined,
+      quantidadeEixos: undefined,
+    };
+    const baseWhere: any = await this.buildWhere(commissionFilters);
+    const and = [...(baseWhere.AND || [])];
+    if (filters.categoriaId) {
+      and.push({
+        OR: [
+          { categoriaId: filters.categoriaId },
+          { despesaComissao: { is: { categoriaId: filters.categoriaId } } },
+        ],
+      });
+    }
+    if (filters.quantidadeEixos !== undefined) {
+      and.push({ quantidadeEixosComissao: filters.quantidadeEixos });
+    }
+    and.push(
+      { tipoLancamento: TipoLancamento.FATURAMENTO },
+      { tipoComissao: { not: null } },
+      { valorComissao: { not: null } },
+      { despesaComissao: { isNot: null } },
+    );
+    const where = { AND: and };
+    const [totais, historico] = await Promise.all([
+      this.prisma.lancamentoFinanceiro.aggregate({
+        where,
+        _count: { _all: true },
+        _sum: { valorTotal: true, valorComissao: true },
+      }),
+      this.prisma.lancamentoFinanceiro.findMany({
+        where,
+        include: this.lancamentoInclude(),
+        orderBy: { [filters.orderBy || 'data']: filters.orderDirection || 'desc' },
+        take,
+      }),
+    ]);
+    const totalFaturado = Number(totais._sum.valorTotal || 0);
+    const totalComissoes = Number(totais._sum.valorComissao || 0);
+
+    return {
+      resumo: {
+        quantidade: totais._count._all,
+        totalFaturado,
+        totalComissoes,
+        faturamentoAposComissoes: Number((totalFaturado - totalComissoes).toFixed(2)),
+      },
+      historico,
+    };
+  }
+
+  private commissionTypeLabel(tipo: unknown) {
+    if (tipo === 'PERCENTUAL') return 'Percentual';
+    if (tipo === 'POR_VIAGEM') return 'Por viagem';
+    return '';
+  }
+
+  private commissionRuleLabel(item: any) {
+    return item?.tipoComissao === 'PERCENTUAL'
+      ? `${this.formatDecimal(item.percentualComissao, 2)}%`
+      : this.formatCurrency(item?.valorComissaoPorViagem);
   }
 
   private async consumo(filters: RelatorioFinanceiroQueryDto, take = 50) {

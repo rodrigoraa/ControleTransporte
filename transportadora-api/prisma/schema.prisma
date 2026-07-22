@@ -24,6 +24,11 @@ enum TipoLancamento {
   FATURAMENTO
 }
 
+enum TipoComissao {
+  PERCENTUAL
+  POR_VIAGEM
+}
+
 enum UnidadeQuantidade {
   KG
   UNIDADE
@@ -386,6 +391,7 @@ model HistoricoFornecedor {
 model CategoriaFinanceira {
   id             String          @id @default(uuid())
   nome           String          @unique
+  codigoSistema  String?         @unique
   tipoLancamento TipoLancamento?
   ativo          Boolean         @default(true)
   observacoes    String?
@@ -416,6 +422,12 @@ model LancamentoFinanceiro {
   valorUnitario     Decimal           @db.Decimal(14, 2)
   valorTotal        Decimal           @db.Decimal(14, 2)
   multiplicarQuantidade Boolean       @default(true)
+  tipoComissao           TipoComissao?
+  percentualComissao     Decimal?     @db.Decimal(5, 2)
+  valorComissaoPorViagem Decimal?     @db.Decimal(14, 2)
+  valorComissao           Decimal?     @db.Decimal(14, 2)
+  quantidadeEixosComissao Int?
+  faturamentoOrigemId     String?      @unique
   observacoes       String?
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
@@ -428,6 +440,8 @@ model LancamentoFinanceiro {
   implemento          Implemento?          @relation(fields: [implementoId], references: [id], onDelete: SetNull)
   cliente             Cliente?             @relation(fields: [clienteId], references: [id], onDelete: SetNull)
   categoriaFinanceira CategoriaFinanceira? @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
+  faturamentoOrigem    LancamentoFinanceiro? @relation("FaturamentoComissao", fields: [faturamentoOrigemId], references: [id], onDelete: Cascade)
+  despesaComissao      LancamentoFinanceiro? @relation("FaturamentoComissao")
 
   @@index([data])
   @@index([tipoLancamento])
@@ -439,5 +453,6 @@ model LancamentoFinanceiro {
   @@index([conjuntoId])
   @@index([implementoId])
   @@index([clienteId])
+  @@index([tipoComissao])
   @@map("lancamentos_financeiros")
 }
