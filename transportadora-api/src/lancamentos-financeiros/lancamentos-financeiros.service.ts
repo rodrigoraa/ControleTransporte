@@ -172,12 +172,36 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
       };
     }
 
-    if (current && data.cavaloMecanicoId === current.cavaloMecanicoId) {
+    const keepsCurrentHorse = current?.cavaloMecanicoId
+      && (data.cavaloMecanicoId == null || data.cavaloMecanicoId === current.cavaloMecanicoId);
+    if (keepsCurrentHorse) {
+      const quantidadeHistorica = current.quantidadeEixosComissao ?? current.conjunto?.quantidadeTotalEixos ?? null;
+      if (quantidadeHistorica != null || !data.tipoComissao) {
+        return {
+          placa: current.placa,
+          cavaloMecanicoId: current.cavaloMecanicoId,
+          conjuntoId: current.conjuntoId,
+          quantidadeTotalEixos: quantidadeHistorica,
+        };
+      }
+
+      const cavalo = await database.cavaloMecanico.findUnique({
+        where: { id: current.cavaloMecanicoId },
+        include: {
+          conjuntos: {
+            where: { status: 'ATIVO' },
+            orderBy: { updatedAt: 'desc' },
+            take: 1,
+          },
+        },
+      });
+      if (!cavalo) throw new BadRequestException('Cavalo mecânico não encontrado. Atualize a página e selecione novamente.');
+      const conjunto = cavalo.conjuntos?.[0] || null;
       return {
-        placa: current.placa,
-        cavaloMecanicoId: current.cavaloMecanicoId,
-        conjuntoId: current.conjuntoId,
-        quantidadeTotalEixos: current.quantidadeEixosComissao ?? current.conjunto?.quantidadeTotalEixos ?? null,
+        placa: cavalo.placa,
+        cavaloMecanicoId: cavalo.id,
+        conjuntoId: conjunto?.id || null,
+        quantidadeTotalEixos: conjunto?.quantidadeTotalEixos ?? null,
       };
     }
 
@@ -257,15 +281,15 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
       quantidadeEixosComissao: null,
     };
     const eixos = Number(quantidadeTotalEixos || 0);
-    if (data.tipoLancamento !== TipoLancamento.FATURAMENTO || ![7, 9].includes(eixos) || !applyCommission) {
+    if (data.tipoLancamento !== TipoLancamento.FATURAMENTO || ![4, 7, 9].includes(eixos) || !applyCommission) {
       return withoutCommission;
     }
     if (!data.tipoComissao) {
       throw new BadRequestException('Selecione o tipo de comissão: percentual ou por viagem.');
     }
 
-    const percentualPadrao = eixos === 7 ? 12 : 11;
-    const valorViagemPadrao = eixos === 7 ? 240 : 330;
+    const percentualPadrao = eixos === 9 ? 11 : 12;
+    const valorViagemPadrao = eixos === 9 ? 330 : 240;
     const percentual = new Prisma.Decimal(data.percentualComissao ?? percentualPadrao).toDecimalPlaces(2);
     const valorPorViagem = new Prisma.Decimal(data.valorComissaoPorViagem ?? valorViagemPadrao).toDecimalPlaces(2);
     if (!percentual.greaterThan(0) || percentual.greaterThan(100)) {

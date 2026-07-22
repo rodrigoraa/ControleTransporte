@@ -121,7 +121,7 @@ describe('LancamentosFinanceirosService', () => {
     await expect(service.create({ ...baseDto, fornecedorId: null })).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('cria faturamento sem comissão para composição diferente de 7 e 9 eixos', async () => {
+  it('cria faturamento sem comissão para composição diferente de 4, 7 e 9 eixos', async () => {
     const { service, create } = makeService(6);
 
     await service.create({
@@ -182,6 +182,42 @@ describe('LancamentosFinanceirosService', () => {
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 
+  it('aplica os padrões de 12% e R$ 240 por viagem para 4 eixos', async () => {
+    const { service, create } = makeService(4);
+
+    await service.create({
+      ...baseDto,
+      tipoLancamento: TipoLancamento.FATURAMENTO,
+      clienteId: 'client-1',
+      tipoComissao: TipoComissao.POR_VIAGEM,
+    });
+
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create.mock.calls[0][0].data).toEqual(expect.objectContaining({
+      tipoComissao: TipoComissao.POR_VIAGEM,
+      quantidadeEixosComissao: 4,
+    }));
+    expect(String(create.mock.calls[0][0].data.percentualComissao)).toBe('12');
+    expect(String(create.mock.calls[0][0].data.valorComissaoPorViagem)).toBe('240');
+    expect(String(create.mock.calls[0][0].data.valorComissao)).toBe('240');
+    expect(String(create.mock.calls[1][0].data.valorTotal)).toBe('240');
+  });
+
+  it('calcula 12% para faturamento com composição de 4 eixos', async () => {
+    const { service, create } = makeService(4);
+
+    await service.create({
+      ...baseDto,
+      tipoLancamento: TipoLancamento.FATURAMENTO,
+      clienteId: 'client-1',
+      tipoComissao: TipoComissao.PERCENTUAL,
+    });
+
+    expect(String(create.mock.calls[0][0].data.percentualComissao)).toBe('12');
+    expect(String(create.mock.calls[0][0].data.valorComissao)).toBe('2.4');
+    expect(String(create.mock.calls[1][0].data.valorTotal)).toBe('2.4');
+  });
+
   it('calcula comissão fixa para 9 eixos e permite personalizar os dois valores', async () => {
     const { service, create } = makeService(9);
 
@@ -227,16 +263,47 @@ describe('LancamentosFinanceirosService', () => {
   });
 
   it('edita lançamento legado sem criar comissão implicitamente', async () => {
-    const { service, update, create } = makeService(7, {
+    const { service, update, create, findUnique } = makeService(7, {
       tipoLancamento: TipoLancamento.FATURAMENTO,
       fornecedorId: null,
       clienteId: 'client-1',
+      conjuntoId: null,
+      conjunto: null,
     });
 
     await service.update('launch-1', { descricao: 'Faturamento legado corrigido' });
 
-    expect(update.mock.calls[0][0].data).toEqual(expect.objectContaining({ tipoComissao: null, valorComissao: null }));
+    expect(update.mock.calls[0][0].data).toEqual(expect.objectContaining({ conjuntoId: null, tipoComissao: null, valorComissao: null }));
     expect(create).not.toHaveBeenCalled();
+    expect(findUnique).not.toHaveBeenCalled();
+  });
+
+  it('usa a composição ativa e cria a despesa quando a comissão é escolhida em faturamento legado sem conjunto', async () => {
+    const { service, update, create, findUnique } = makeService(7, {
+      tipoLancamento: TipoLancamento.FATURAMENTO,
+      fornecedorId: null,
+      clienteId: 'client-1',
+      conjuntoId: null,
+      conjunto: null,
+    });
+
+    await service.update('launch-1', {
+      cavaloMecanicoId: 'horse-1',
+      tipoComissao: TipoComissao.PERCENTUAL,
+    });
+
+    expect(findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'horse-1' } }));
+    expect(update.mock.calls[0][0].data).toEqual(expect.objectContaining({
+      conjuntoId: 'set-1',
+      quantidadeEixosComissao: 7,
+      tipoComissao: TipoComissao.PERCENTUAL,
+    }));
+    expect(String(update.mock.calls[0][0].data.valorComissao)).toBe('2.4');
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0][0].data).toEqual(expect.objectContaining({
+      tipoLancamento: TipoLancamento.DESPESA,
+      faturamentoOrigemId: 'launch-1',
+    }));
   });
 
   it('recalcula faturamento e sincroniza a despesa automática ao editar', async () => {

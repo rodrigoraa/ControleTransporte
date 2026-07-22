@@ -6,7 +6,7 @@ export type CommissionDefaults = {
 };
 
 export function commissionDefaults(eixos: number): CommissionDefaults | null {
-  if (eixos === 7) return { percentual: 12, valorPorViagem: 240 };
+  if (eixos === 4 || eixos === 7) return { percentual: 12, valorPorViagem: 240 };
   if (eixos === 9) return { percentual: 11, valorPorViagem: 330 };
   return null;
 }

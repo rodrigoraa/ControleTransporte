@@ -1026,7 +1026,7 @@ function CommissionSection({
         <div className="commission-heading">
           <div><strong>Comissão</strong><span>Composição com {eixos || 'quantidade não identificada de'} eixos</span></div>
         </div>
-        <div className="form-warning">Esta composição não possui 7 ou 9 eixos e não gera comissão. O sistema solicitará confirmação antes de salvar.</div>
+        <div className="form-warning">Esta composição não possui 4, 7 ou 9 eixos e não gera comissão. O sistema solicitará confirmação antes de salvar.</div>
         <div className="commission-summary">
           <div><span>Faturamento bruto</span><strong>{money(total)}</strong></div>
           <div><span>Comissão</span><strong>{money(0)}</strong></div>

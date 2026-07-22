@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { billingTotal, commissionDefaults, commissionValues, selectedCommissionValue } from './commission';
 
 describe('commission', () => {
-  it('define as regras padrão somente para composições de 7 e 9 eixos', () => {
+  it('define as regras padrão somente para composições de 4, 7 e 9 eixos', () => {
+    expect(commissionDefaults(4)).toEqual({ percentual: 12, valorPorViagem: 240 });
     expect(commissionDefaults(7)).toEqual({ percentual: 12, valorPorViagem: 240 });
     expect(commissionDefaults(9)).toEqual({ percentual: 11, valorPorViagem: 330 });
     expect(commissionDefaults(6)).toBeNull();
