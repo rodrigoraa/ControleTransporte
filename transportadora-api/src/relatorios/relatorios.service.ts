@@ -15,7 +15,7 @@ export class RelatoriosService {
   constructor(private readonly prisma: PrismaService) {}
 
   async opcoes() {
-    const [motoristas, cavalos, implementos, conjuntos, fornecedores, clientes, categorias, tipos, placasLancamentos] = await Promise.all([
+    const [motoristas, cavalos, implementos, conjuntos, fornecedores, clientes, categorias, tipos] = await Promise.all([
       this.prisma.motorista.findMany({ select: { id: true, nome: true, cpf: true }, orderBy: { nome: 'asc' } }),
       this.prisma.cavaloMecanico.findMany({ select: { id: true, placa: true, modelo: true, marca: true }, orderBy: { placa: 'asc' } }),
       this.prisma.implemento.findMany({ select: { id: true, placa: true, tipo: true, carroceria: true, quantidadeEixos: true }, orderBy: { placa: 'asc' } }),
@@ -32,15 +32,7 @@ export class RelatoriosService {
         select: { tipoLancamento: true },
         orderBy: { tipoLancamento: 'asc' },
       }),
-      this.prisma.lancamentoFinanceiro.findMany({
-        distinct: ['placa'],
-        select: { placa: true },
-        orderBy: { placa: 'asc' },
-      }),
     ]);
-
-    const placasCavalos = cavalos.map((cavalo) => cavalo.placa).filter(Boolean);
-    const placas = [...new Set([...placasCavalos, ...placasLancamentos.map((item) => item.placa).filter(Boolean)])].sort();
 
     return {
       motoristas: motoristas.map((item) => ({ value: item.id, label: [item.nome, item.cpf].filter(Boolean).join(' - ') })),
@@ -63,7 +55,6 @@ export class RelatoriosService {
       clientes: clientes.map((item) => ({ value: item.id, label: [item.nome, item.documento].filter(Boolean).join(' - ') })),
       categorias: categorias.map((item) => ({ value: item.id, label: [item.nome, item.tipoLancamento].filter(Boolean).join(' - ') })),
       tipos: tipos.map((item) => ({ value: item.tipoLancamento, label: item.tipoLancamento === 'DESPESA' ? 'Despesa' : 'Faturamento' })),
-      placas: placas.map((placa) => ({ value: placa, label: placa })),
     };
   }
 
@@ -129,12 +120,19 @@ export class RelatoriosService {
     };
   }
 
-  async financeiros(filters: RelatorioFinanceiroQueryDto) {
+  async financeiros(filters: RelatorioFinanceiroQueryDto): Promise<any> {
+    if (filters.tipoRelatorio === 'MEDIA_FROTA') {
+      return {
+        tipoRelatorio: 'MEDIA_FROTA',
+        consumo: await this.consumo(filters),
+      };
+    }
+
     const where = await this.buildWhere(filters);
     const page = filters.page || 1;
     const limit = filters.limit || 50;
     const orderBy = { [filters.orderBy || 'data']: filters.orderDirection || 'desc' };
-    const [despesas, faturamento, total, historico, despesasPorCavaloMecanico, despesasPorMotorista, faturamentoPorCavaloMecanico, faturamentoPorMotorista, conjuntosPorCavalo, consumo, comissoes] =
+    const [despesas, faturamento, total, historico, despesasPorCavaloMecanico, despesasPorMotorista, faturamentoPorCavaloMecanico, faturamentoPorMotorista, conjuntosPorCavalo, comissoes] =
       await Promise.all([
         this.sum({ ...where, tipoLancamento: TipoLancamento.DESPESA }),
         this.sum({ ...where, tipoLancamento: TipoLancamento.FATURAMENTO }),
@@ -151,7 +149,6 @@ export class RelatoriosService {
         this.groupWithLabels('cavaloMecanicoId', { ...where, tipoLancamento: TipoLancamento.FATURAMENTO }),
         this.groupWithLabels('motoristaId', { ...where, tipoLancamento: TipoLancamento.FATURAMENTO }),
         this.conjuntosPorCavalo(where),
-        this.consumo(filters),
         this.comissoes(filters),
       ]);
 
@@ -164,7 +161,6 @@ export class RelatoriosService {
       faturamentoPorCavaloMecanico,
       faturamentoPorMotorista,
       conjuntosPorCavalo,
-      consumo,
       comissoes,
       historico,
       total,
@@ -174,9 +170,13 @@ export class RelatoriosService {
   }
 
   async exportarCsv(filters: RelatorioFinanceiroQueryDto) {
-    const [rows, consumo, comissoes] = await Promise.all([
+    if (filters.tipoRelatorio === 'MEDIA_FROTA') {
+      const consumo = await this.consumo(filters, 5000);
+      return this.csvText(this.consumoCsvRows(consumo));
+    }
+
+    const [rows, comissoes] = await Promise.all([
       this.exportRows(filters),
-      this.consumo(filters, 5000),
       this.comissoes(filters, 5000),
     ]);
     const header = [
@@ -250,6 +250,27 @@ export class RelatoriosService {
       String(item.valorComissao),
       (Number(item.valorTotal) - Number(item.valorComissao)).toFixed(2),
     ]);
+    const csvRows = [
+      header,
+      ...body,
+      [],
+      ['Resumo de comissões dos faturamentos'],
+      ['Viagens com comissão', 'Faturamento relacionado', 'Total de comissões', 'Faturamento após comissões'],
+      [
+        String(resumoComissoes.quantidade),
+        String(resumoComissoes.totalFaturado),
+        String(resumoComissoes.totalComissoes),
+        String(resumoComissoes.faturamentoAposComissoes),
+      ],
+      [],
+      ['Histórico de comissões'],
+      ['Data', 'Cavalo mecânico', 'Motorista', 'Eixos', 'Tipo', 'Regra', 'Faturamento', 'Comissão bruta', 'Impostos', 'Comissão líquida', 'Após comissão'],
+      ...comissoesBody,
+    ];
+    return this.csvText(csvRows);
+  }
+
+  private consumoCsvRows(consumo: any) {
     const consumoHeader = ['Data', 'Cavalo mecânico', 'Km anterior', 'Km atual', 'Distância percorrida', 'Litros', 'Média km/l', 'Divergência', 'Observações'];
     const consumoBody = consumo.historico.map((item: any) => [
       item.data.toISOString().slice(0, 10),
@@ -275,24 +296,8 @@ export class RelatoriosService {
       String(item.quantidadeDivergencias),
       item.amostraConfiavel ? 'Confiável' : 'Amostra pequena',
     ]);
-    const csvRows = [
-      header,
-      ...body,
-      [],
-      ['Resumo de comissões dos faturamentos'],
-      ['Viagens com comissão', 'Faturamento relacionado', 'Total de comissões', 'Faturamento após comissões'],
-      [
-        String(resumoComissoes.quantidade),
-        String(resumoComissoes.totalFaturado),
-        String(resumoComissoes.totalComissoes),
-        String(resumoComissoes.faturamentoAposComissoes),
-      ],
-      [],
-      ['Histórico de comissões'],
-      ['Data', 'Cavalo mecânico', 'Motorista', 'Eixos', 'Tipo', 'Regra', 'Faturamento', 'Comissão bruta', 'Impostos', 'Comissão líquida', 'Após comissão'],
-      ...comissoesBody,
-      [],
-      ['Média de consumo por placa'],
+    return [
+      ['Média da frota'],
       consumo.periodoComparacao
         ? ['Período anterior comparado', consumo.periodoComparacao.dataInicial, consumo.periodoComparacao.dataFinal]
         : ['Período anterior comparado', 'Não disponível: informe data inicial e final'],
@@ -303,17 +308,27 @@ export class RelatoriosService {
       consumoHeader,
       ...consumoBody,
     ];
-    return csvRows.map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(';')).join('\n');
+  }
+
+  private csvText(rows: any[][]) {
+    return rows.map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(';')).join('\n');
   }
 
   async exportarPdf(filters: RelatorioFinanceiroQueryDto) {
-    const [relatorio, rows, consumo, comissoes] = await Promise.all([
+    if (filters.tipoRelatorio === 'MEDIA_FROTA') {
+      const consumo = await this.consumo(filters, 5000);
+      return this.styledFinancialPdf(
+        { tipoRelatorio: 'MEDIA_FROTA', consumo, total: consumo.resumo.quantidadeRegistros },
+        [],
+        true,
+      );
+    }
+
+    const [relatorio, rows, comissoes] = await Promise.all([
       this.financeiros({ ...filters, page: 1, limit: 50 }),
       this.exportRows(filters),
-      this.consumo(filters, 5000),
       this.comissoes(filters, 5000),
     ]);
-    relatorio.consumo = consumo;
     relatorio.comissoes = comissoes;
     return this.styledFinancialPdf(relatorio, rows);
   }
@@ -348,7 +363,7 @@ export class RelatoriosService {
     };
   }
 
-  private styledFinancialPdf(relatorio: any, rows: any[]) {
+  private styledFinancialPdf(relatorio: any, rows: any[], somenteConsumo = false) {
     const pages: string[][] = [[]];
     const pageWidth = 595;
     const pageHeight = 842;
@@ -427,12 +442,18 @@ export class RelatoriosService {
     rect(0, pageHeight, pageWidth, 92, [15, 48, 63]);
     rect(0, pageHeight - 92, pageWidth, 5, [31, 122, 140]);
     text('Controle Transporte', margin, pageHeight - 43, { size: 11, font: 'bold', color: [148, 213, 220] });
-    text('Relatório financeiro, comissões e consumo', margin, pageHeight - 67, { size: 17, font: 'bold', color: [255, 255, 255] });
+    text(somenteConsumo ? 'Relatório de média da frota' : 'Registro Geral', margin, pageHeight - 67, { size: 17, font: 'bold', color: [255, 255, 255] });
     text(`Gerado em ${new Date().toLocaleString('pt-BR')}`, pageWidth - margin, pageHeight - 47, { size: 9, align: 'right', color: [203, 213, 225] });
-    text(`${relatorio.total} lançamentos`, pageWidth - margin, pageHeight - 68, { size: 10, font: 'bold', align: 'right', color: [255, 255, 255] });
+    text(
+      somenteConsumo ? `${relatorio.total} abastecimentos` : `${relatorio.total} lançamentos`,
+      pageWidth - margin,
+      pageHeight - 68,
+      { size: 10, font: 'bold', align: 'right', color: [255, 255, 255] },
+    );
     y = pageHeight - 120;
 
-    const cards = [
+    if (!somenteConsumo) {
+      const cards = [
       { label: 'Despesas', value: this.formatCurrency(relatorio.totalDespesas), color: [180, 35, 24] as [number, number, number] },
       { label: 'Faturamento', value: this.formatCurrency(relatorio.totalFaturamento), color: [22, 128, 60] as [number, number, number] },
       { label: 'Saldo final', value: this.formatCurrency(relatorio.saldoFinal), color: relatorio.saldoFinal >= 0 ? [31, 122, 140] as [number, number, number] : [180, 35, 24] as [number, number, number] },
@@ -524,12 +545,14 @@ export class RelatoriosService {
         [45, 50, 75, 30, 55, 60, 65, 48, 48, 47],
         ['left', 'left', 'left', 'right', 'left', 'right', 'right', 'right', 'right', 'right'],
       );
-    } else {
-      emptyMessage('Nenhuma comissão encontrada para os filtros informados.');
+      } else {
+        emptyMessage('Nenhuma comissão encontrada para os filtros informados.');
+      }
     }
 
-    sectionTitle('Média de consumo por placa');
-    if (relatorio.consumo.resumo.quantidadeRegistros) {
+    if (somenteConsumo) {
+      sectionTitle('Média da frota');
+      if (relatorio.consumo.resumo.quantidadeRegistros) {
       const periodoComparacao = relatorio.consumo.periodoComparacao;
       table(
         ['Média da frota', 'Melhor placa', 'Menor média', 'Divergências'],
@@ -588,8 +611,9 @@ export class RelatoriosService {
         [48, 61, 68, 65, 68, 64, 91, 58],
         ['left', 'left', 'right', 'right', 'right', 'right', 'right', 'left'],
       );
-    } else {
-      emptyMessage('Nenhum abastecimento encontrado para os filtros informados.');
+      } else {
+        emptyMessage('Nenhum abastecimento encontrado para os filtros informados.');
+      }
     }
 
     pages.forEach((page, index) => {

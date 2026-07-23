@@ -192,7 +192,6 @@ describe('RelatoriosService', () => {
       dataInicial: '2026-05-01',
       dataFinal: '2026-05-31',
       cavaloMecanicoId: 'cav-1',
-      placa: 'ABC1D23',
       implementoId: 'imp-1',
       tipoConjunto: 'BITREM',
       quantidadeEixos: 7,
@@ -223,6 +222,30 @@ describe('RelatoriosService', () => {
       totalFaturamento: 160,
       saldo: 93.1,
     });
+    expect(result.consumo).toBeUndefined();
+    expect(prisma.conjuntoImplemento.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { implementoId: 'imp-1' } }));
+    const paginatedCall = prisma.lancamentoFinanceiro.findMany.mock.calls.find(([args]: any[]) => args.skip === 1);
+    expect(paginatedCall?.[0]).toEqual(expect.objectContaining({
+      skip: 1,
+      take: 1,
+      orderBy: { valorTotal: 'asc' },
+    }));
+    const commissionCall = prisma.lancamentoFinanceiro.findMany.mock.calls.find(([args]: any[]) => JSON.stringify(args.where).includes('tipoComissao'));
+    expect(JSON.stringify(commissionCall?.[0].where)).toContain('quantidadeEixosComissao');
+    expect(prisma.abastecimento.findMany).not.toHaveBeenCalled();
+  });
+
+  it('gera a média da frota separada do relatório financeiro', async () => {
+    const { service, prisma } = makeService();
+
+    const result = await service.financeiros({
+      tipoRelatorio: 'MEDIA_FROTA',
+      dataInicial: '2026-05-01',
+      dataFinal: '2026-05-31',
+      cavaloMecanicoId: 'cav-1',
+    });
+
+    expect(result.tipoRelatorio).toBe('MEDIA_FROTA');
     expect(result.consumo.resumo).toMatchObject({
       quantidadeRegistros: 2,
       distanciaTotal: 1500,
@@ -244,25 +267,16 @@ describe('RelatoriosService', () => {
       amostraConfiavel: true,
     });
     expect(result.consumo.historico.every((item: any) => item.divergente)).toBe(true);
-    expect(prisma.conjuntoImplemento.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { implementoId: 'imp-1' } }));
-    const paginatedCall = prisma.lancamentoFinanceiro.findMany.mock.calls.find(([args]: any[]) => args.skip === 1);
-    expect(paginatedCall?.[0]).toEqual(expect.objectContaining({
-      skip: 1,
-      take: 1,
-      orderBy: { valorTotal: 'asc' },
-    }));
-    const commissionCall = prisma.lancamentoFinanceiro.findMany.mock.calls.find(([args]: any[]) => JSON.stringify(args.where).includes('tipoComissao'));
-    expect(JSON.stringify(commissionCall?.[0].where)).toContain('quantidadeEixosComissao');
     expect(prisma.abastecimento.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
         cavaloMecanicoId: 'cav-1',
-        cavaloMecanico: { placa: { contains: 'ABC1D23', mode: 'insensitive' } },
         data: {
           gte: new Date('2026-05-01T00:00:00.000Z'),
           lte: new Date('2026-05-31T23:59:59.999Z'),
         },
       }),
     }));
+    expect(prisma.lancamentoFinanceiro.count).not.toHaveBeenCalled();
   });
 
   it('exporta CSV com comissão detalhada sem duplicar o valor na linha da despesa automática', async () => {
@@ -281,17 +295,15 @@ describe('RelatoriosService', () => {
     expect(csv).toContain('"Valor do desconto de impostos"');
     expect(csv).toContain('"2.3"');
     expect(csv).toContain('"16.9"');
-    expect(csv).toContain('"Média de consumo por placa"');
-    expect(csv).toContain('"Média anterior km/l"');
-    expect(csv).toContain('"Divergências"');
-    expect(csv).toContain('"Histórico de abastecimentos"');
+    expect(csv).not.toContain('"Média da frota"');
+    expect(csv).not.toContain('"Histórico de abastecimentos"');
     const commissionCall = prisma.lancamentoFinanceiro.findMany.mock.calls.find(([args]: any[]) => JSON.stringify(args.where).includes('tipoComissao'));
     const commissionWhere = JSON.stringify(commissionCall?.[0].where);
     expect(commissionWhere).toContain('FATURAMENTO');
     expect(commissionWhere).not.toContain('DESPESA');
   });
 
-  it('exporta PDF válido com as seções financeira, comissão e consumo', async () => {
+  it('exporta PDF financeiro sem misturar a média da frota', async () => {
     const { service } = makeService();
 
     const pdf = await service.exportarPdf({ tipoLancamento: TipoLancamento.FATURAMENTO });
@@ -299,11 +311,35 @@ describe('RelatoriosService', () => {
     expect(pdf.toString('utf8', 0, 8)).toBe('%PDF-1.4');
     expect(pdf.length).toBeGreaterThan(500);
     expect(pdf.toString('latin1')).toContain('/Encoding /WinAnsiEncoding');
+    expect(pdf.toString('latin1')).toContain('Registro Geral');
     expect(pdf.toString('latin1')).toContain('Lançamentos encontrados');
     expect(pdf.toString('latin1')).toContain('Resumo por composição do cavalo');
     expect(pdf.toString('latin1')).toContain('Comissões dos faturamentos');
     expect(pdf.toString('latin1')).toContain('Percentual');
-    expect(pdf.toString('latin1')).toContain('Média de consumo por placa');
+    expect(pdf.toString('latin1')).not.toContain('Média da frota');
+    expect(pdf.toString('latin1')).not.toContain('Histórico de abastecimentos');
+  });
+
+  it('exporta CSV e PDF específicos da média da frota', async () => {
+    const { service } = makeService();
+
+    const filters = {
+      tipoRelatorio: 'MEDIA_FROTA' as const,
+      dataInicial: '2026-05-01',
+      dataFinal: '2026-05-31',
+      cavaloMecanicoId: 'cav-1',
+    };
+    const csv = await service.exportarCsv(filters);
+    const pdf = await service.exportarPdf(filters);
+
+    expect(csv).toContain('"Média da frota"');
+    expect(csv).toContain('"Média anterior km/l"');
+    expect(csv).toContain('"Divergências"');
+    expect(csv).toContain('"Histórico de abastecimentos"');
+    expect(csv).not.toContain('"Resumo de comissões dos faturamentos"');
+    expect(pdf.toString('latin1')).toContain('Relatório de média da frota');
+    expect(pdf.toString('latin1')).toContain('Média da frota');
     expect(pdf.toString('latin1')).toContain('Histórico de abastecimentos');
+    expect(pdf.toString('latin1')).not.toContain('Lançamentos encontrados');
   });
 });

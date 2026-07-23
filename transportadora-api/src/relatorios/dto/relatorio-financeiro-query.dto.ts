@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import { IsDateString, IsEnum, IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class RelatorioFinanceiroQueryDto {
+  @IsOptional() @IsIn(['REGISTRO_GERAL', 'MEDIA_FROTA']) tipoRelatorio?: 'REGISTRO_GERAL' | 'MEDIA_FROTA';
   @IsOptional() @IsDateString() dataInicial?: string;
   @IsOptional() @IsDateString() dataFinal?: string;
   @IsOptional() @IsString() motoristaId?: string;

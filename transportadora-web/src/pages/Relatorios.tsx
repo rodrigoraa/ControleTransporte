@@ -15,8 +15,8 @@ type ReportOptions = {
   clientes: Option[];
   categorias: Option[];
   tipos: Option[];
-  placas: Option[];
 };
+type ReportType = 'REGISTRO_GERAL' | 'MEDIA_FROTA';
 
 const tiposConjunto = [
   { value: 'SIMPLES', label: 'Simples' },
@@ -24,8 +24,13 @@ const tiposConjunto = [
   { value: 'RODOTREM', label: 'Rodotrem' },
   { value: 'OUTRO', label: 'Outro' },
 ];
+const tiposRelatorio = [
+  { value: 'REGISTRO_GERAL', label: 'Registro Geral' },
+  { value: 'MEDIA_FROTA', label: 'Média da frota' },
+];
 
 export function Relatorios() {
+  const [reportType, setReportType] = useState<ReportType>('REGISTRO_GERAL');
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [financeiro, setFinanceiro] = useState<any>(null);
   const [page, setPage] = useState(1);
@@ -40,9 +45,10 @@ export function Relatorios() {
     clientes: [],
     categorias: [],
     tipos: [],
-    placas: [],
   });
-  const activeFilters = Object.values(filters).filter(Boolean).length;
+  const activeFilters = Object.entries(filters)
+    .filter(([name, value]) => value && (reportType === 'REGISTRO_GERAL' || ['dataInicial', 'dataFinal', 'cavaloMecanicoId'].includes(name)))
+    .length;
 
   useEffect(() => {
     api.get('/relatorios/opcoes').then((response) => setOptions(response.data));
@@ -54,6 +60,13 @@ export function Relatorios() {
     setFilters(next);
   }
 
+  function reportParams() {
+    const relevantFilters = reportType === 'MEDIA_FROTA'
+      ? Object.fromEntries(Object.entries(filters).filter(([name, value]) => value && ['dataInicial', 'dataFinal', 'cavaloMecanicoId'].includes(name)))
+      : Object.fromEntries(Object.entries(filters).filter(([, value]) => value));
+    return { ...relevantFilters, tipoRelatorio: reportType };
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     setPage(1);
@@ -63,9 +76,8 @@ export function Relatorios() {
   async function loadReport(targetPage = page) {
     setLoading(true);
     setError('');
-    const params = Object.fromEntries(Object.entries(filters).filter(([, value]) => value));
     try {
-      const { data } = await api.get('/relatorios/financeiros', { params: { ...params, page: targetPage, limit: 50 } });
+      const { data } = await api.get('/relatorios/financeiros', { params: { ...reportParams(), page: targetPage, limit: 50 } });
       setPage(targetPage);
       setFinanceiro(data);
     } catch (requestError: any) {
@@ -78,12 +90,11 @@ export function Relatorios() {
   async function exportReport(format: 'csv' | 'pdf') {
     setError('');
     try {
-      const params = Object.fromEntries(Object.entries(filters).filter(([, value]) => value));
-      const { data } = await api.get(`/relatorios/financeiros/exportar.${format}`, { params, responseType: 'blob' });
+      const { data } = await api.get(`/relatorios/financeiros/exportar.${format}`, { params: reportParams(), responseType: 'blob' });
       const url = URL.createObjectURL(data);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `relatorio-financeiro.${format}`;
+      link.download = `${reportType === 'MEDIA_FROTA' ? 'relatorio-media-frota' : 'registro-geral'}.${format}`;
       link.click();
       URL.revokeObjectURL(url);
     } catch (requestError: any) {
@@ -96,7 +107,7 @@ export function Relatorios() {
       <div className="page-header report-header">
         <div>
           <h1>Relatórios</h1>
-          <p>Indicadores financeiros, de comissões e de consumo por período, frota, composição e categoria.</p>
+          <p>{reportType === 'MEDIA_FROTA' ? 'Média ponderada de consumo, ranking e comparação por cavalo mecânico.' : 'Registro geral de lançamentos, indicadores financeiros e comissões.'}</p>
         </div>
         {financeiro && (
           <div className="actions">
@@ -123,25 +134,43 @@ export function Relatorios() {
             {loading ? 'Gerando...' : 'Gerar relatório'}
           </button>
         </div>
+        <SelectFilter
+          label="Tipo de relatório"
+          name="tipoRelatorio"
+          value={reportType}
+          options={tiposRelatorio}
+          onChange={(_, value) => {
+            setReportType(value === 'MEDIA_FROTA' ? 'MEDIA_FROTA' : 'REGISTRO_GERAL');
+            setFinanceiro(null);
+            setPage(1);
+            setError('');
+          }}
+        />
         <label>Data inicial<input type="date" value={filters.dataInicial || ''} onChange={(e) => setFilters({ ...filters, dataInicial: e.target.value })} /></label>
         <label>Data final<input type="date" value={filters.dataFinal || ''} onChange={(e) => setFilters({ ...filters, dataFinal: e.target.value })} /></label>
-        <SelectFilter label="Motorista" name="motoristaId" value={filters.motoristaId || ''} options={options.motoristas} onChange={updateFilter} />
         <SelectFilter label="Cavalo mecânico" name="cavaloMecanicoId" value={filters.cavaloMecanicoId || ''} options={options.cavalosMecanicos} onChange={updateFilter} />
-        <SelectFilter label="Implemento" name="implementoId" value={filters.implementoId || ''} options={options.implementos} onChange={updateFilter} />
-        <SelectFilter label="Conjunto operacional" name="conjuntoId" value={filters.conjuntoId || ''} options={options.conjuntos} onChange={updateFilter} />
-        <SelectFilter label="Tipo de conjunto" name="tipoConjunto" value={filters.tipoConjunto || ''} options={tiposConjunto} onChange={updateFilter} />
-        <label>Quantidade de eixos<input type="number" value={filters.quantidadeEixos || ''} onChange={(e) => setFilters({ ...filters, quantidadeEixos: e.target.value })} /></label>
-        <SelectFilter label="Placa" name="placa" value={filters.placa || ''} options={options.placas} onChange={updateFilter} />
-        <SelectFilter label="Fornecedor" name="fornecedorId" value={filters.fornecedorId || ''} options={options.fornecedores} onChange={updateFilter} />
-        <SelectFilter label="Cliente" name="clienteId" value={filters.clienteId || ''} options={options.clientes} onChange={updateFilter} />
-        <SelectFilter label="Tipo financeiro" name="tipoLancamento" value={filters.tipoLancamento || ''} options={options.tipos} onChange={updateFilter} />
-        <SelectFilter label="Categoria" name="categoriaId" value={filters.categoriaId || ''} options={options.categorias} onChange={updateFilter} />
-        <SelectFilter label="Ordenar por" name="orderBy" value={filters.orderBy || ''} options={[{ value: 'data', label: 'Data' }, { value: 'valorTotal', label: 'Valor total' }]} onChange={updateFilter} />
-        <SelectFilter label="Direção" name="orderDirection" value={filters.orderDirection || ''} options={[{ value: 'desc', label: 'Decrescente' }, { value: 'asc', label: 'Crescente' }]} onChange={updateFilter} />
+        {reportType === 'REGISTRO_GERAL' && (
+          <>
+            <SelectFilter label="Motorista" name="motoristaId" value={filters.motoristaId || ''} options={options.motoristas} onChange={updateFilter} />
+            <SelectFilter label="Implemento" name="implementoId" value={filters.implementoId || ''} options={options.implementos} onChange={updateFilter} />
+            <SelectFilter label="Conjunto operacional" name="conjuntoId" value={filters.conjuntoId || ''} options={options.conjuntos} onChange={updateFilter} />
+            <SelectFilter label="Tipo de conjunto" name="tipoConjunto" value={filters.tipoConjunto || ''} options={tiposConjunto} onChange={updateFilter} />
+            <label>Quantidade de eixos<input type="number" value={filters.quantidadeEixos || ''} onChange={(e) => setFilters({ ...filters, quantidadeEixos: e.target.value })} /></label>
+            <SelectFilter label="Fornecedor" name="fornecedorId" value={filters.fornecedorId || ''} options={options.fornecedores} onChange={updateFilter} />
+            <SelectFilter label="Cliente" name="clienteId" value={filters.clienteId || ''} options={options.clientes} onChange={updateFilter} />
+            <SelectFilter label="Tipo financeiro" name="tipoLancamento" value={filters.tipoLancamento || ''} options={options.tipos} onChange={updateFilter} />
+            <SelectFilter label="Categoria" name="categoriaId" value={filters.categoriaId || ''} options={options.categorias} onChange={updateFilter} />
+            <SelectFilter label="Ordenar por" name="orderBy" value={filters.orderBy || ''} options={[{ value: 'data', label: 'Data' }, { value: 'valorTotal', label: 'Valor total' }]} onChange={updateFilter} />
+            <SelectFilter label="Direção" name="orderDirection" value={filters.orderDirection || ''} options={[{ value: 'desc', label: 'Decrescente' }, { value: 'asc', label: 'Crescente' }]} onChange={updateFilter} />
+          </>
+        )}
       </form>
 
       {error && <div className="form-error">{error}</div>}
       {financeiro && (
+        reportType === 'MEDIA_FROTA' ? (
+          <ConsumoReport consumo={financeiro.consumo} />
+        ) : (
         <>
           <div className="stats-grid">
             <article className="stat-card stat-danger"><span>Total de despesas</span><strong>{money(financeiro.totalDespesas)}</strong></article>
@@ -151,7 +180,6 @@ export function Relatorios() {
           </div>
 
           <CommissionReport comissoes={financeiro.comissoes} />
-          <ConsumoReport consumo={financeiro.consumo} />
 
           <div className="panel report-table-panel">
             <div className="panel-title-row">
@@ -213,6 +241,7 @@ export function Relatorios() {
           </div>
           <ConjuntosPorCavalo rows={financeiro.conjuntosPorCavalo || []} />
         </>
+        )
       )}
     </section>
   );
@@ -284,7 +313,7 @@ function ConsumoReport({ consumo }: { consumo: any }) {
     <>
       <div className="panel-title-row report-section-heading">
         <div>
-          <h2>Média de consumo por placa</h2>
+          <h2>Média da frota</h2>
           <p>Ranking calculado pela distância total dividida pelo total de litros de cada cavalo.</p>
         </div>
       </div>
