@@ -9,7 +9,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { api } from '../services/api';
 import { apiErrorMessage } from '../utils/apiError';
 import { date, maskPlate, money } from '../utils/formatters';
-import { billingTotal, commissionDefaults, commissionValues, selectedCommissionValue } from '../utils/commission';
+import { billingTotal, commissionAfterTaxDiscount, commissionDefaults, commissionValues, selectedCommissionValue } from '../utils/commission';
 import { carrocerias, crudResources, Field, Resource, resourceListPath, tiposImplemento } from './resources';
 
 type Mode = 'create' | 'edit' | 'view';
@@ -784,7 +784,7 @@ function RecordModal({ resource, mode, item, onClose, onSaved }: { resource: Res
     });
   }
 
-  function updateCommission(name: string, value: string | number | null) {
+  function updateCommission(name: string, value: string | number | boolean | null) {
     setForm((current: any) => ({ ...current, [name]: value }));
     setError('');
   }
@@ -823,10 +823,12 @@ function RecordModal({ resource, mode, item, onClose, onSaved }: { resource: Res
         payload.tipoComissao = form.tipoComissao;
         payload.percentualComissao = percentual;
         payload.valorComissaoPorViagem = valorPorViagem;
+        payload.descontoImpostos = Boolean(form.descontoImpostos);
       } else {
         payload.tipoComissao = null;
         payload.percentualComissao = null;
         payload.valorComissaoPorViagem = null;
+        payload.descontoImpostos = false;
       }
       if (!eligible) {
         setPendingNoCommissionPayload(payload);
@@ -993,14 +995,15 @@ function CommissionSection({
   legacyWithoutCommission: boolean;
   showDetails: boolean;
   onToggleDetails: () => void;
-  onChange: (name: string, value: string | number | null) => void;
+  onChange: (name: string, value: string | number | boolean | null) => void;
 }) {
   const readonly = mode === 'view';
   const defaults = commissionDefaults(eixos);
   const total = billingTotal(form.quantidade, form.valorUnitario, form.multiplicarQuantidade);
   const values = commissionValues(total, form.percentualComissao, form.valorComissaoPorViagem);
   const selectedValue = selectedCommissionValue(form.tipoComissao, values);
-  const afterCommission = total - selectedValue;
+  const discountedCommission = commissionAfterTaxDiscount(selectedValue, form.descontoImpostos);
+  const afterCommission = total - discountedCommission.net;
 
   function selectType(value: string) {
     if (value && defaults) {
@@ -1068,6 +1071,16 @@ function CommissionSection({
         />
       </label>
 
+      <label className="check-row">
+        <input
+          disabled={readonly || !form.tipoComissao}
+          type="checkbox"
+          checked={Boolean(form.descontoImpostos)}
+          onChange={(event) => onChange('descontoImpostos', event.target.checked)}
+        />
+        <span>Desconto de impostos (12% sobre a comissão)</span>
+      </label>
+
       {showDetails && (
         <div className="commission-details">
           <div className="commission-rule-grid">
@@ -1088,7 +1101,9 @@ function CommissionSection({
 
       <div className="commission-summary">
         <div><span>Faturamento bruto</span><strong>{money(total)}</strong></div>
-        <div><span>Comissão calculada</span><strong>{form.tipoComissao ? money(selectedValue) : '-'}</strong></div>
+        <div><span>Comissão bruta</span><strong>{form.tipoComissao ? money(discountedCommission.gross) : '-'}</strong></div>
+        <div><span>Desconto de impostos</span><strong>{form.tipoComissao && form.descontoImpostos ? `- ${money(discountedCommission.taxDiscount)}` : money(0)}</strong></div>
+        <div><span>Comissão líquida</span><strong>{form.tipoComissao ? money(discountedCommission.net) : '-'}</strong></div>
         <div><span>Após comissão</span><strong>{form.tipoComissao ? money(afterCommission) : money(total)}</strong></div>
       </div>
     </div>

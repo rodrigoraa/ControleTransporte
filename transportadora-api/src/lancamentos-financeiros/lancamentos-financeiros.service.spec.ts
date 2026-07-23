@@ -59,6 +59,9 @@ function makeService(eixos = 6, currentOverrides: Record<string, any> = {}) {
     tipoComissao: null,
     percentualComissao: null,
     valorComissaoPorViagem: null,
+    descontoImpostos: false,
+    valorComissaoBruta: null,
+    valorDescontoImpostos: null,
     valorComissao: null,
     quantidadeEixosComissao: null,
     ...currentOverrides,
@@ -180,6 +183,30 @@ describe('LancamentosFinanceirosService', () => {
     expect(String(create.mock.calls[1][0].data.valorTotal)).toBe('2.4');
     expect(result.despesaComissao.id).toBe('commission-1');
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('desconta 12% de impostos da comissão e lança a despesa pelo valor líquido', async () => {
+    const { service, create } = makeService(7);
+
+    await service.create({
+      ...baseDto,
+      tipoLancamento: TipoLancamento.FATURAMENTO,
+      clienteId: 'client-1',
+      quantidade: 1,
+      valorUnitario: 10000,
+      tipoComissao: TipoComissao.PERCENTUAL,
+      descontoImpostos: true,
+    });
+
+    expect(create.mock.calls[0][0].data).toEqual(expect.objectContaining({
+      descontoImpostos: true,
+      quantidadeEixosComissao: 7,
+    }));
+    expect(String(create.mock.calls[0][0].data.valorComissaoBruta)).toBe('1200');
+    expect(String(create.mock.calls[0][0].data.valorDescontoImpostos)).toBe('144');
+    expect(String(create.mock.calls[0][0].data.valorComissao)).toBe('1056');
+    expect(String(create.mock.calls[1][0].data.valorTotal)).toBe('1056');
+    expect(create.mock.calls[1][0].data.descricao).toContain('desconto de impostos');
   });
 
   it('aplica os padrões de 12% e R$ 240 por viagem para 4 eixos', async () => {
@@ -326,6 +353,31 @@ describe('LancamentosFinanceirosService', () => {
     expect(String(update.mock.calls[0][0].data.valorComissao)).toBe('4.8');
     expect(update.mock.calls[1][0].where).toEqual({ id: 'commission-1' });
     expect(String(update.mock.calls[1][0].data.valorTotal)).toBe('4.8');
+  });
+
+  it('mantém o desconto de impostos e sincroniza a despesa líquida ao editar', async () => {
+    const despesa = { id: 'commission-1', valorTotal: 2.11, faturamentoOrigemId: 'launch-1' };
+    const { service, update } = makeService(7, {
+      tipoLancamento: TipoLancamento.FATURAMENTO,
+      fornecedorId: null,
+      clienteId: 'client-1',
+      tipoComissao: TipoComissao.PERCENTUAL,
+      percentualComissao: 12,
+      valorComissaoPorViagem: 240,
+      descontoImpostos: true,
+      valorComissaoBruta: 2.4,
+      valorDescontoImpostos: 0.29,
+      valorComissao: 2.11,
+      quantidadeEixosComissao: 7,
+      despesaComissao: despesa,
+    });
+
+    await service.update('launch-1', { valorUnitario: 20 });
+
+    expect(String(update.mock.calls[0][0].data.valorComissaoBruta)).toBe('4.8');
+    expect(String(update.mock.calls[0][0].data.valorDescontoImpostos)).toBe('0.58');
+    expect(String(update.mock.calls[0][0].data.valorComissao)).toBe('4.22');
+    expect(String(update.mock.calls[1][0].data.valorTotal)).toBe('4.22');
   });
 
   it('restaura os padrões de 9 eixos quando a composição de um faturamento com comissão muda', async () => {

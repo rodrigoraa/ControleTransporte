@@ -16,7 +16,10 @@ function makeService() {
     tipoComissao: TipoComissao.PERCENTUAL,
     percentualComissao: 12,
     valorComissaoPorViagem: 240,
-    valorComissao: 19.2,
+    descontoImpostos: true,
+    valorComissaoBruta: 19.2,
+    valorDescontoImpostos: 2.3,
+    valorComissao: 16.9,
     quantidadeEixosComissao: 7,
     faturamentoOrigemId: null,
     faturamentoOrigem: null,
@@ -85,8 +88,8 @@ function makeService() {
       descricao: 'Comissão de motorista (12%) - 7 eixos',
       quantidade: 1,
       unidadeQuantidade: 'UNIDADE',
-      valorUnitario: 19.2,
-      valorTotal: 19.2,
+      valorUnitario: 16.9,
+      valorTotal: 16.9,
       tipoComissao: null,
       percentualComissao: null,
       valorComissaoPorViagem: null,
@@ -128,9 +131,9 @@ function makeService() {
     lancamentoFinanceiro: {
       aggregate: jest.fn(async ({ where, _sum }: any) => {
         if (_sum?.valorComissao) {
-          return { _count: { _all: 1 }, _sum: { valorTotal: 160, valorComissao: 19.2 } };
+          return { _count: { _all: 1 }, _sum: { valorTotal: 160, valorComissao: 16.9 } };
         }
-        return { _sum: { valorTotal: where.tipoLancamento === TipoLancamento.DESPESA ? 69.2 : 160 } };
+        return { _sum: { valorTotal: where.tipoLancamento === TipoLancamento.DESPESA ? 66.9 : 160 } };
       }),
       count: jest.fn(async () => lancamentos.length),
       findMany: jest.fn(async ({ where }: any = {}) => (
@@ -138,7 +141,7 @@ function makeService() {
       )),
       groupBy: jest.fn(async ({ by, where }: any) => [{
         [by[0]]: by[0] === 'motoristaId' ? 'mot-1' : 'cav-1',
-        _sum: { valorTotal: where.tipoLancamento === TipoLancamento.DESPESA ? 69.2 : 160 },
+        _sum: { valorTotal: where.tipoLancamento === TipoLancamento.DESPESA ? 66.9 : 160 },
       }]),
     },
     abastecimento: {
@@ -182,14 +185,14 @@ describe('RelatoriosService', () => {
       orderDirection: 'asc',
     } as any);
 
-    expect(result.totalDespesas).toBe(69.2);
+    expect(result.totalDespesas).toBe(66.9);
     expect(result.totalFaturamento).toBe(160);
-    expect(result.saldoFinal).toBe(90.8);
+    expect(result.saldoFinal).toBe(93.1);
     expect(result.comissoes.resumo).toEqual({
       quantidade: 1,
       totalFaturado: 160,
-      totalComissoes: 19.2,
-      faturamentoAposComissoes: 140.8,
+      totalComissoes: 16.9,
+      faturamentoAposComissoes: 143.1,
     });
     expect(result.comissoes.historico).toHaveLength(1);
     expect(result.page).toBe(2);
@@ -199,9 +202,9 @@ describe('RelatoriosService', () => {
       conjunto: 'Bitrem graneleiro',
       tipoConjunto: 'BITREM',
       quantidadeTotalEixos: 7,
-      totalDespesas: 69.2,
+      totalDespesas: 66.9,
       totalFaturamento: 160,
-      saldo: 90.8,
+      saldo: 93.1,
     });
     expect(result.consumo.resumo).toEqual({
       quantidadeRegistros: 1,
@@ -242,7 +245,10 @@ describe('RelatoriosService', () => {
     expect(csv).toContain('"Histórico de comissões"');
     expect(csv).toContain('"Percentual"');
     expect(csv).toContain('"12,00%"');
-    expect(csv).toContain('"19.2"');
+    expect(csv).toContain('"Comissão bruta"');
+    expect(csv).toContain('"Valor do desconto de impostos"');
+    expect(csv).toContain('"2.3"');
+    expect(csv).toContain('"16.9"');
     expect(csv).toContain('"Resumo de consumo por cavalo"');
     expect(csv).toContain('"Histórico de abastecimentos"');
     const commissionCall = prisma.lancamentoFinanceiro.findMany.mock.calls.find(([args]: any[]) => JSON.stringify(args.where).includes('tipoComissao'));

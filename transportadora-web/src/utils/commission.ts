@@ -33,6 +33,16 @@ export function selectedCommissionValue(type: CommissionType | '' | null | undef
   return 0;
 }
 
+export function commissionAfterTaxDiscount(commission: number, enabled: unknown) {
+  const gross = roundCurrency(Number.isFinite(commission) ? commission : 0);
+  const taxDiscount = enabled ? roundCurrency(gross * 0.12) : 0;
+  return {
+    gross,
+    taxDiscount,
+    net: roundCurrency(gross - taxDiscount),
+  };
+}
+
 function roundCurrency(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }

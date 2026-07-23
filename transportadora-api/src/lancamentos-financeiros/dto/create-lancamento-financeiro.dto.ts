@@ -24,6 +24,7 @@ export class CreateLancamentoFinanceiroDto {
   @IsOptional() @IsEnum(TipoComissao) tipoComissao?: TipoComissao | null;
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0.01) @Max(100) percentualComissao?: number | null;
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0.01) valorComissaoPorViagem?: number | null;
+  @IsOptional() @IsBoolean() descontoImpostos?: boolean;
   @IsOptional() @IsString() observacoes?: string;
 }
 

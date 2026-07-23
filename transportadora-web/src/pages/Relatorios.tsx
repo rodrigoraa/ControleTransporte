@@ -247,10 +247,10 @@ function CommissionReport({ comissoes }: { comissoes: any }) {
         <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>Data</th><th>Cavalo</th><th>Motorista</th><th>Eixos</th><th>Tipo</th><th>Regra aplicada</th><th>Faturamento</th><th>Comissão</th><th>Após comissão</th></tr>
+              <tr><th>Data</th><th>Cavalo</th><th>Motorista</th><th>Eixos</th><th>Tipo</th><th>Regra aplicada</th><th>Faturamento</th><th>Comissão bruta</th><th>Impostos</th><th>Comissão líquida</th><th>Após comissão</th></tr>
             </thead>
             <tbody>
-              {!historico.length && <tr><td colSpan={9}>Nenhuma comissão encontrada para os filtros informados.</td></tr>}
+              {!historico.length && <tr><td colSpan={11}>Nenhuma comissão encontrada para os filtros informados.</td></tr>}
               {historico.map((item: any) => (
                 <tr key={item.id}>
                   <td>{date(item.data)}</td>
@@ -260,6 +260,8 @@ function CommissionReport({ comissoes }: { comissoes: any }) {
                   <td>{commissionTypeLabel(item.tipoComissao)}</td>
                   <td>{commissionRuleLabel(item)}</td>
                   <td className="money-cell positive">{money(item.valorTotal)}</td>
+                  <td className="money-cell negative">{money(item.valorComissaoBruta ?? item.valorComissao)}</td>
+                  <td className="money-cell">{item.descontoImpostos ? `- ${money(item.valorDescontoImpostos)}` : money(0)}</td>
                   <td className="money-cell negative">{money(item.valorComissao)}</td>
                   <td className="money-cell">{money(Number(item.valorTotal || 0) - Number(item.valorComissao || 0))}</td>
                 </tr>

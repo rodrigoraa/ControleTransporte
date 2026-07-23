@@ -425,6 +425,9 @@ model LancamentoFinanceiro {
   tipoComissao           TipoComissao?
   percentualComissao     Decimal?     @db.Decimal(5, 2)
   valorComissaoPorViagem Decimal?     @db.Decimal(14, 2)
+  descontoImpostos       Boolean      @default(false)
+  valorComissaoBruta     Decimal?     @db.Decimal(14, 2)
+  valorDescontoImpostos  Decimal?     @db.Decimal(14, 2)
   valorComissao           Decimal?     @db.Decimal(14, 2)
   quantidadeEixosComissao Int?
   faturamentoOrigemId     String?      @unique

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { billingTotal, commissionDefaults, commissionValues, selectedCommissionValue } from './commission';
+import { billingTotal, commissionAfterTaxDiscount, commissionDefaults, commissionValues, selectedCommissionValue } from './commission';
 
 describe('commission', () => {
   it('define as regras padrão somente para composições de 4, 7 e 9 eixos', () => {
@@ -21,5 +21,18 @@ describe('commission', () => {
     expect(selectedCommissionValue('PERCENTUAL', values)).toBe(1200);
     expect(selectedCommissionValue('POR_VIAGEM', values)).toBe(240);
     expect(commissionValues(101.59, 11, 330).percentual).toBe(11.17);
+  });
+
+  it('desconta 12% da comissão e retorna o valor líquido da despesa', () => {
+    expect(commissionAfterTaxDiscount(1200, true)).toEqual({
+      gross: 1200,
+      taxDiscount: 144,
+      net: 1056,
+    });
+    expect(commissionAfterTaxDiscount(240, false)).toEqual({
+      gross: 240,
+      taxDiscount: 0,
+      net: 240,
+    });
   });
 });

@@ -183,7 +183,10 @@ export class RelatoriosService {
       'Eixos da comissão',
       'Percentual de comissão',
       'Comissão por viagem',
-      'Valor da comissão',
+      'Comissão bruta',
+      'Desconto de impostos',
+      'Valor do desconto de impostos',
+      'Comissão líquida',
       'Faturamento de origem',
     ];
     const body = rows.map((item) => {
@@ -209,6 +212,9 @@ export class RelatoriosService {
         faturamentoComissao?.quantidadeEixosComissao ?? '',
         faturamentoComissao?.percentualComissao != null ? String(faturamentoComissao.percentualComissao) : '',
         faturamentoComissao?.valorComissaoPorViagem != null ? String(faturamentoComissao.valorComissaoPorViagem) : '',
+        faturamentoComissao?.valorComissaoBruta != null ? String(faturamentoComissao.valorComissaoBruta) : '',
+        faturamentoComissao ? (faturamentoComissao.descontoImpostos ? 'Sim' : 'Não') : '',
+        faturamentoComissao?.valorDescontoImpostos != null ? String(faturamentoComissao.valorDescontoImpostos) : '',
         faturamentoComissao?.valorComissao != null ? String(faturamentoComissao.valorComissao) : '',
         item.faturamentoOrigemId || '',
       ];
@@ -222,6 +228,8 @@ export class RelatoriosService {
       this.commissionTypeLabel(item.tipoComissao),
       this.commissionRuleLabel(item),
       String(item.valorTotal),
+      String(item.valorComissaoBruta ?? item.valorComissao),
+      String(item.valorDescontoImpostos || 0),
       String(item.valorComissao),
       (Number(item.valorTotal) - Number(item.valorComissao)).toFixed(2),
     ]);
@@ -257,7 +265,7 @@ export class RelatoriosService {
       ],
       [],
       ['Histórico de comissões'],
-      ['Data', 'Cavalo mecânico', 'Motorista', 'Eixos', 'Tipo', 'Regra', 'Faturamento', 'Comissão', 'Após comissão'],
+      ['Data', 'Cavalo mecânico', 'Motorista', 'Eixos', 'Tipo', 'Regra', 'Faturamento', 'Comissão bruta', 'Impostos', 'Comissão líquida', 'Após comissão'],
       ...comissoesBody,
       [],
       ['Resumo de consumo por cavalo'],
@@ -473,7 +481,7 @@ export class RelatoriosService {
         ['right', 'right', 'right', 'right'],
       );
       table(
-        ['Data', 'Cavalo', 'Motorista', 'Eixos', 'Tipo', 'Regra', 'Faturamento', 'Comissão'],
+        ['Data', 'Cavalo', 'Motorista', 'Eixos', 'Tipo', 'Regra', 'Faturamento', 'Bruta', 'Impostos', 'Líquida'],
         relatorio.comissoes.historico.map((item: any) => [
           this.formatDate(item.data),
           item.cavaloMecanico?.placa || item.placa || '-',
@@ -482,10 +490,12 @@ export class RelatoriosService {
           this.commissionTypeLabel(item.tipoComissao),
           this.commissionRuleLabel(item),
           this.formatCurrency(item.valorTotal),
+          this.formatCurrency(item.valorComissaoBruta ?? item.valorComissao),
+          this.formatCurrency(item.valorDescontoImpostos || 0),
           this.formatCurrency(item.valorComissao),
         ]),
-        [52, 59, 90, 38, 68, 72, 75, 69],
-        ['left', 'left', 'left', 'right', 'left', 'right', 'right', 'right'],
+        [45, 50, 75, 30, 55, 60, 65, 48, 48, 47],
+        ['left', 'left', 'left', 'right', 'left', 'right', 'right', 'right', 'right', 'right'],
       );
     } else {
       emptyMessage('Nenhuma comissão encontrada para os filtros informados.');

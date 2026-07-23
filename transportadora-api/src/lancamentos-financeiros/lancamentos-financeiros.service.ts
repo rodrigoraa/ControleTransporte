@@ -8,6 +8,7 @@ import { CreateLancamentoFinanceiroDto } from './dto/create-lancamento-financeir
 import { UpdateLancamentoFinanceiroDto } from './dto/update-lancamento-financeiro.dto';
 
 const CATEGORIA_COMISSAO = 'COMISSAO_MOTORISTA';
+const PERCENTUAL_DESCONTO_IMPOSTOS = 12;
 
 const lancamentoInclude = {
   motorista: true,
@@ -88,6 +89,9 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
       valorComissaoPorViagem: data.valorComissaoPorViagem === undefined
         ? (commissionAxlesChanged ? undefined : current.valorComissaoPorViagem)
         : data.valorComissaoPorViagem,
+      descontoImpostos: data.descontoImpostos === undefined
+        ? Boolean(current.descontoImpostos)
+        : data.descontoImpostos,
     };
     const shouldApplyCommission = Boolean(current.tipoComissao || commissionInput.tipoComissao);
     const comissao = this.calculateCommission(commissionInput, valorTotal, frota.quantidadeTotalEixos, shouldApplyCommission);
@@ -277,6 +281,9 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
       tipoComissao: null,
       percentualComissao: null,
       valorComissaoPorViagem: null,
+      descontoImpostos: false,
+      valorComissaoBruta: null,
+      valorDescontoImpostos: null,
       valorComissao: null,
       quantidadeEixosComissao: null,
     };
@@ -299,14 +306,22 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
       throw new BadRequestException('O valor da comissão por viagem deve ser maior que zero.');
     }
 
-    const valorComissao = data.tipoComissao === TipoComissao.PERCENTUAL
+    const valorComissaoBruta = data.tipoComissao === TipoComissao.PERCENTUAL
       ? valorTotal.mul(percentual).div(100).toDecimalPlaces(2)
       : valorPorViagem.toDecimalPlaces(2);
+    const descontoImpostos = Boolean(data.descontoImpostos);
+    const valorDescontoImpostos = descontoImpostos
+      ? valorComissaoBruta.mul(PERCENTUAL_DESCONTO_IMPOSTOS).div(100).toDecimalPlaces(2)
+      : new Prisma.Decimal(0);
+    const valorComissao = valorComissaoBruta.minus(valorDescontoImpostos).toDecimalPlaces(2);
 
     return {
       tipoComissao: data.tipoComissao as TipoComissao,
       percentualComissao: percentual.toDecimalPlaces(2),
       valorComissaoPorViagem: valorPorViagem.toDecimalPlaces(2),
+      descontoImpostos,
+      valorComissaoBruta,
+      valorDescontoImpostos,
       valorComissao,
       quantidadeEixosComissao: eixos,
     };
@@ -330,6 +345,10 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
     const tipo = faturamento.tipoComissao === TipoComissao.PERCENTUAL
       ? `${faturamento.percentualComissao}%`
       : 'por viagem';
+    const desconto = faturamento.descontoImpostos ? ' com desconto de impostos' : '';
+    const detalhesDesconto = faturamento.descontoImpostos
+      ? ` Comissão bruta: R$ ${faturamento.valorComissaoBruta}; desconto de impostos (12%): R$ ${faturamento.valorDescontoImpostos}; comissão líquida: R$ ${valorComissao}.`
+      : '';
     return {
       data: faturamento.data,
       placa: faturamento.placa,
@@ -342,13 +361,13 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
       clienteId: null,
       categoriaId,
       tipoLancamento: TipoLancamento.DESPESA,
-      descricao: `Comissão de motorista (${tipo}) - ${faturamento.quantidadeEixosComissao} eixos`,
+      descricao: `Comissão de motorista (${tipo}${desconto}) - ${faturamento.quantidadeEixosComissao} eixos`,
       quantidade: new Prisma.Decimal(1),
       unidadeQuantidade: UnidadeQuantidade.UNIDADE,
       valorUnitario: valorComissao,
       valorTotal: valorComissao,
       multiplicarQuantidade: false,
-      observacoes: `Despesa gerada automaticamente pelo faturamento ${faturamento.id}.`,
+      observacoes: `Despesa gerada automaticamente pelo faturamento ${faturamento.id}.${detalhesDesconto}`,
     };
   }
 
