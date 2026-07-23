@@ -223,16 +223,16 @@ export class RelatoriosService {
         item.categoriaFinanceira?.nome || '',
         String(item.quantidade),
         item.unidadeQuantidade,
-        String(item.valorUnitario),
-        String(item.valorTotal),
+        this.formatCsvDecimal(item.valorUnitario, 2),
+        this.formatCsvDecimal(item.valorTotal, 2),
         this.commissionTypeLabel(faturamentoComissao?.tipoComissao),
         faturamentoComissao?.quantidadeEixosComissao ?? '',
-        faturamentoComissao?.percentualComissao != null ? String(faturamentoComissao.percentualComissao) : '',
-        faturamentoComissao?.valorComissaoPorViagem != null ? String(faturamentoComissao.valorComissaoPorViagem) : '',
-        faturamentoComissao?.valorComissaoBruta != null ? String(faturamentoComissao.valorComissaoBruta) : '',
+        faturamentoComissao?.percentualComissao != null ? this.formatCsvDecimal(faturamentoComissao.percentualComissao, 2) : '',
+        faturamentoComissao?.valorComissaoPorViagem != null ? this.formatCsvDecimal(faturamentoComissao.valorComissaoPorViagem, 2) : '',
+        faturamentoComissao?.valorComissaoBruta != null ? this.formatCsvDecimal(faturamentoComissao.valorComissaoBruta, 2) : '',
         faturamentoComissao ? (faturamentoComissao.descontoImpostos ? 'Sim' : 'Não') : '',
-        faturamentoComissao?.valorDescontoImpostos != null ? String(faturamentoComissao.valorDescontoImpostos) : '',
-        faturamentoComissao?.valorComissao != null ? String(faturamentoComissao.valorComissao) : '',
+        faturamentoComissao?.valorDescontoImpostos != null ? this.formatCsvDecimal(faturamentoComissao.valorDescontoImpostos, 2) : '',
+        faturamentoComissao?.valorComissao != null ? this.formatCsvDecimal(faturamentoComissao.valorComissao, 2) : '',
         item.faturamentoOrigemId || '',
       ];
     });
@@ -244,10 +244,10 @@ export class RelatoriosService {
       String(item.quantidadeEixosComissao),
       this.commissionTypeLabel(item.tipoComissao),
       this.commissionRuleLabel(item),
-      String(item.valorTotal),
-      String(item.valorComissaoBruta ?? item.valorComissao),
-      String(item.valorDescontoImpostos || 0),
-      String(item.valorComissao),
+      this.formatCsvDecimal(item.valorTotal, 2),
+      this.formatCsvDecimal(item.valorComissaoBruta ?? item.valorComissao, 2),
+      this.formatCsvDecimal(item.valorDescontoImpostos || 0, 2),
+      this.formatCsvDecimal(item.valorComissao, 2),
       (Number(item.valorTotal) - Number(item.valorComissao)).toFixed(2),
     ]);
     const csvRows = [
@@ -258,9 +258,9 @@ export class RelatoriosService {
       ['Viagens com comissão', 'Faturamento relacionado', 'Total de comissões', 'Faturamento após comissões'],
       [
         String(resumoComissoes.quantidade),
-        String(resumoComissoes.totalFaturado),
-        String(resumoComissoes.totalComissoes),
-        String(resumoComissoes.faturamentoAposComissoes),
+        this.formatCsvDecimal(resumoComissoes.totalFaturado, 2),
+        this.formatCsvDecimal(resumoComissoes.totalComissoes, 2),
+        this.formatCsvDecimal(resumoComissoes.faturamentoAposComissoes, 2),
       ],
       [],
       ['Histórico de comissões'],
@@ -275,11 +275,11 @@ export class RelatoriosService {
     const consumoBody = consumo.historico.map((item: any) => [
       item.data.toISOString().slice(0, 10),
       [item.cavaloMecanico?.placa, item.cavaloMecanico?.marca, item.cavaloMecanico?.modelo].filter(Boolean).join(' - '),
-      String(item.kmAnterior),
-      String(item.kmAtual),
-      String(item.distanciaPercorrida),
-      String(item.litros),
-      String(item.mediaKmLitro),
+      this.formatCsvDecimal(item.kmAnterior, 1),
+      this.formatCsvDecimal(item.kmAtual, 1),
+      this.formatCsvDecimal(item.distanciaPercorrida, 1),
+      this.formatCsvDecimal(item.litros, 2),
+      this.formatCsvDecimal(item.mediaKmLitro, 2),
       item.divergente ? 'Sim' : 'Não',
       item.observacoes || '',
     ]);
@@ -288,11 +288,11 @@ export class RelatoriosService {
       item.placa,
       item.cavalo,
       String(item.quantidadeRegistros),
-      String(item.distanciaTotal),
-      String(item.litrosTotal),
-      String(item.mediaGeralKmLitro),
-      item.mediaPeriodoAnterior == null ? '' : String(item.mediaPeriodoAnterior),
-      item.variacaoPercentual == null ? '' : String(item.variacaoPercentual),
+      this.formatCsvDecimal(item.distanciaTotal, 1),
+      this.formatCsvDecimal(item.litrosTotal, 2),
+      this.formatCsvDecimal(item.mediaGeralKmLitro, 2),
+      item.mediaPeriodoAnterior == null ? '' : this.formatCsvDecimal(item.mediaPeriodoAnterior, 2),
+      item.variacaoPercentual == null ? '' : this.formatCsvDecimal(item.variacaoPercentual, 2),
       String(item.quantidadeDivergencias),
       item.amostraConfiavel ? 'Confiável' : 'Amostra pequena',
     ]);
@@ -312,6 +312,10 @@ export class RelatoriosService {
 
   private csvText(rows: any[][]) {
     return rows.map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(';')).join('\n');
+  }
+
+  private formatCsvDecimal(value: unknown, digits: number) {
+    return Number(value || 0).toFixed(digits);
   }
 
   async exportarPdf(filters: RelatorioFinanceiroQueryDto) {
@@ -557,12 +561,12 @@ export class RelatoriosService {
       table(
         ['Média da frota', 'Melhor placa', 'Menor média', 'Divergências'],
         [[
-          `${this.formatDecimal(relatorio.consumo.resumo.mediaGeralKmLitro, 3)} km/l`,
+          `${this.formatDecimal(relatorio.consumo.resumo.mediaGeralKmLitro, 2)} km/l`,
           relatorio.consumo.resumo.melhorPlaca
-            ? `${relatorio.consumo.resumo.melhorPlaca.placa} - ${this.formatDecimal(relatorio.consumo.resumo.melhorPlaca.mediaGeralKmLitro, 3)}`
+            ? `${relatorio.consumo.resumo.melhorPlaca.placa} - ${this.formatDecimal(relatorio.consumo.resumo.melhorPlaca.mediaGeralKmLitro, 2)}`
             : '-',
           relatorio.consumo.resumo.piorPlaca
-            ? `${relatorio.consumo.resumo.piorPlaca.placa} - ${this.formatDecimal(relatorio.consumo.resumo.piorPlaca.mediaGeralKmLitro, 3)}`
+            ? `${relatorio.consumo.resumo.piorPlaca.placa} - ${this.formatDecimal(relatorio.consumo.resumo.piorPlaca.mediaGeralKmLitro, 2)}`
             : '-',
           String(relatorio.consumo.resumo.quantidadeDivergencias || 0),
         ]],
@@ -576,9 +580,9 @@ export class RelatoriosService {
           item.placa || '-',
           String(item.quantidadeRegistros),
           this.formatDecimal(item.distanciaTotal, 1),
-          this.formatDecimal(item.litrosTotal, 3),
-          this.formatDecimal(item.mediaGeralKmLitro, 3),
-          item.mediaPeriodoAnterior == null ? '-' : this.formatDecimal(item.mediaPeriodoAnterior, 3),
+          this.formatDecimal(item.litrosTotal, 2),
+          this.formatDecimal(item.mediaGeralKmLitro, 2),
+          item.mediaPeriodoAnterior == null ? '-' : this.formatDecimal(item.mediaPeriodoAnterior, 2),
           item.variacaoPercentual == null ? '-' : this.formatDecimal(item.variacaoPercentual, 2),
           String(item.quantidadeDivergencias),
           item.amostraConfiavel ? 'OK' : 'Pequena',
@@ -604,8 +608,8 @@ export class RelatoriosService {
           this.formatDecimal(item.kmAnterior, 1),
           this.formatDecimal(item.kmAtual, 1),
           this.formatDecimal(item.distanciaPercorrida, 1),
-          this.formatDecimal(item.litros, 3),
-          `${this.formatDecimal(item.mediaKmLitro, 3)} km/l`,
+          this.formatDecimal(item.litros, 2),
+          `${this.formatDecimal(item.mediaKmLitro, 2)} km/l`,
           item.divergente ? 'Divergente' : 'OK',
         ]),
         [48, 61, 68, 65, 68, 64, 91, 58],

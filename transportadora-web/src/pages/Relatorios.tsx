@@ -318,9 +318,9 @@ function ConsumoReport({ consumo }: { consumo: any }) {
         </div>
       </div>
       <div className="stats-grid">
-        <article className="stat-card stat-info"><span>Média da frota</span><strong>{decimal(resumo.mediaGeralKmLitro, 3)} km/l</strong></article>
-        <article className="stat-card stat-success"><span>Melhor placa</span><strong>{resumo.melhorPlaca ? `${resumo.melhorPlaca.placa} · ${decimal(resumo.melhorPlaca.mediaGeralKmLitro, 3)} km/l` : '-'}</strong></article>
-        <article className="stat-card stat-danger"><span>Menor média</span><strong>{resumo.piorPlaca ? `${resumo.piorPlaca.placa} · ${decimal(resumo.piorPlaca.mediaGeralKmLitro, 3)} km/l` : '-'}</strong></article>
+        <article className="stat-card stat-info"><span>Média da frota</span><strong>{decimal(resumo.mediaGeralKmLitro, 2)} km/l</strong></article>
+        <article className="stat-card stat-success"><span>Melhor placa</span><strong>{resumo.melhorPlaca ? `${resumo.melhorPlaca.placa} · ${decimal(resumo.melhorPlaca.mediaGeralKmLitro, 2)} km/l` : '-'}</strong></article>
+        <article className="stat-card stat-danger"><span>Menor média</span><strong>{resumo.piorPlaca ? `${resumo.piorPlaca.placa} · ${decimal(resumo.piorPlaca.mediaGeralKmLitro, 2)} km/l` : '-'}</strong></article>
         <article className={`stat-card ${resumo.quantidadeDivergencias ? 'stat-danger' : 'stat-neutral'}`}><span>Divergências</span><strong>{resumo.quantidadeDivergencias || 0}</strong></article>
       </div>
 
@@ -347,9 +347,9 @@ function ConsumoReport({ consumo }: { consumo: any }) {
                   <td>{item.cavalo}</td>
                   <td>{item.quantidadeRegistros}</td>
                   <td>{decimal(item.distanciaTotal, 1)} km</td>
-                  <td>{decimal(item.litrosTotal, 3)} L</td>
-                  <td><strong>{decimal(item.mediaGeralKmLitro, 3)} km/l</strong></td>
-                  <td>{item.mediaPeriodoAnterior == null ? '-' : `${decimal(item.mediaPeriodoAnterior, 3)} km/l`}</td>
+                  <td>{decimal(item.litrosTotal, 2)} L</td>
+                  <td><strong>{decimal(item.mediaGeralKmLitro, 2)} km/l</strong></td>
+                  <td>{item.mediaPeriodoAnterior == null ? '-' : `${decimal(item.mediaPeriodoAnterior, 2)} km/l`}</td>
                   <td className={`money-cell ${item.variacaoPercentual > 0 ? 'positive' : item.variacaoPercentual < 0 ? 'negative' : ''}`}>
                     {item.variacaoPercentual == null ? '-' : `${item.variacaoPercentual > 0 ? '+' : ''}${decimal(item.variacaoPercentual, 2)}%`}
                   </td>
@@ -381,8 +381,8 @@ function ConsumoReport({ consumo }: { consumo: any }) {
                   <td>{decimal(item.kmAnterior, 1)}</td>
                   <td>{decimal(item.kmAtual, 1)}</td>
                   <td>{decimal(item.distanciaPercorrida, 1)} km</td>
-                  <td>{decimal(item.litros, 3)} L</td>
-                  <td><strong>{decimal(item.mediaKmLitro, 3)} km/l</strong></td>
+                  <td>{decimal(item.litros, 2)} L</td>
+                  <td><strong>{decimal(item.mediaKmLitro, 2)} km/l</strong></td>
                 </tr>
               ))}
             </tbody>

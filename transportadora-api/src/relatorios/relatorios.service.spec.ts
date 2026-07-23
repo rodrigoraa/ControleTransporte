@@ -293,8 +293,8 @@ describe('RelatoriosService', () => {
     expect(csv).toContain('"12,00%"');
     expect(csv).toContain('"Comissão bruta"');
     expect(csv).toContain('"Valor do desconto de impostos"');
-    expect(csv).toContain('"2.3"');
-    expect(csv).toContain('"16.9"');
+    expect(csv).toContain('"2.30"');
+    expect(csv).toContain('"16.90"');
     expect(csv).not.toContain('"Média da frota"');
     expect(csv).not.toContain('"Histórico de abastecimentos"');
     const commissionCall = prisma.lancamentoFinanceiro.findMany.mock.calls.find(([args]: any[]) => JSON.stringify(args.where).includes('tipoComissao'));
@@ -336,6 +336,10 @@ describe('RelatoriosService', () => {
     expect(csv).toContain('"Média anterior km/l"');
     expect(csv).toContain('"Divergências"');
     expect(csv).toContain('"Histórico de abastecimentos"');
+    expect(csv).toContain('"3.00"');
+    expect(csv).toContain('"250.00"');
+    expect(csv).toContain('"750.0"');
+    expect(csv).not.toContain('"3.000"');
     expect(csv).not.toContain('"Resumo de comissões dos faturamentos"');
     expect(pdf.toString('latin1')).toContain('Relatório de média da frota');
     expect(pdf.toString('latin1')).toContain('Média da frota');
