@@ -320,6 +320,23 @@ describe('RelatoriosService', () => {
     expect(pdf.toString('latin1')).not.toContain('Histórico de abastecimentos');
   });
 
+  it('exporta somente as seções e colunas escolhidas no PDF financeiro', async () => {
+    const { service } = makeService();
+
+    const pdf = await service.exportarPdf({
+      tipoRelatorio: 'REGISTRO_GERAL',
+      secoesPdf: 'lancamentos',
+      colunasPdf: 'lancamentos:data,lancamentos:valorTotal',
+    });
+    const content = pdf.toString('latin1');
+
+    expect(content).toContain('Lançamentos encontrados');
+    expect(content).toContain('Valor total');
+    expect(content).not.toContain('(Motorista) Tj');
+    expect(content).not.toContain('Resumo por composição do cavalo');
+    expect(content).not.toContain('Comissões dos faturamentos');
+  });
+
   it('exporta CSV e PDF específicos da média da frota', async () => {
     const { service } = makeService();
 
@@ -345,5 +362,61 @@ describe('RelatoriosService', () => {
     expect(pdf.toString('latin1')).toContain('Média da frota');
     expect(pdf.toString('latin1')).toContain('Histórico de abastecimentos');
     expect(pdf.toString('latin1')).not.toContain('Lançamentos encontrados');
+  });
+
+  it('exporta somente o histórico e as colunas escolhidas no PDF da média da frota', async () => {
+    const { service } = makeService();
+
+    const pdf = await service.exportarPdf({
+      tipoRelatorio: 'MEDIA_FROTA',
+      secoesPdf: 'historico_abastecimentos',
+      colunasPdf: 'historico:data,historico:media',
+    });
+    const content = pdf.toString('latin1');
+
+    expect(content).toContain('Histórico de abastecimentos');
+    expect(content).toContain('(Data) Tj');
+    expect(content).toContain('(Média) Tj');
+    expect(content).not.toContain('Ranking da frota');
+    expect(content).not.toContain('Comparação com período anterior');
+    expect(content).not.toContain('(Km anterior) Tj');
+  });
+
+  it('mantém os dados nas colunas e repete o cabeçalho do histórico em novas páginas', async () => {
+    const { service, prisma } = makeService();
+    const registros = Array.from({ length: 60 }, (_, index) => {
+      const kmAnterior = 10_000_000 + index * 725;
+      return {
+        id: `ab-${index + 1}`,
+        data: new Date('2026-07-25T12:00:00.000Z'),
+        createdAt: new Date(2026, 6, 25, 12, 0, index),
+        cavaloMecanicoId: 'cav-1',
+        kmAnterior,
+        kmAtual: kmAnterior + 725,
+        distanciaPercorrida: 725,
+        litros: 241.67,
+        mediaKmLitro: 3,
+        observacoes: null,
+        cavaloMecanico: { id: 'cav-1', placa: 'ABC1D23', marca: 'Volvo', modelo: 'FH' },
+      };
+    });
+    prisma.abastecimento.aggregate.mockResolvedValue({
+      _count: { _all: registros.length },
+      _sum: { distanciaPercorrida: 43_500, litros: 14_500.2 },
+    });
+    prisma.abastecimento.groupBy.mockResolvedValue([{
+      cavaloMecanicoId: 'cav-1',
+      _count: { _all: registros.length },
+      _sum: { distanciaPercorrida: 43_500, litros: 14_500.2 },
+    }]);
+    prisma.abastecimento.findMany.mockResolvedValue(registros);
+
+    const pdf = await service.exportarPdf({ tipoRelatorio: 'MEDIA_FROTA' });
+    const content = pdf.toString('latin1');
+
+    expect(content).toContain('25/07/2026');
+    expect(content).toContain('10.000.000,0');
+    expect(content).not.toContain('25/07/...');
+    expect(content.match(/\(Data\) Tj/g)?.length).toBeGreaterThanOrEqual(3);
   });
 });

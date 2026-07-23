@@ -325,6 +325,7 @@ export class RelatoriosService {
         { tipoRelatorio: 'MEDIA_FROTA', consumo, total: consumo.resumo.quantidadeRegistros },
         [],
         true,
+        filters,
       );
     }
 
@@ -334,7 +335,7 @@ export class RelatoriosService {
       this.comissoes(filters, 5000),
     ]);
     relatorio.comissoes = comissoes;
-    return this.styledFinancialPdf(relatorio, rows);
+    return this.styledFinancialPdf(relatorio, rows, false, filters);
   }
 
   private async exportRows(filters: RelatorioFinanceiroQueryDto) {
@@ -367,12 +368,30 @@ export class RelatoriosService {
     };
   }
 
-  private styledFinancialPdf(relatorio: any, rows: any[], somenteConsumo = false) {
+  private styledFinancialPdf(
+    relatorio: any,
+    rows: any[],
+    somenteConsumo = false,
+    filters: RelatorioFinanceiroQueryDto = {},
+  ) {
     const pages: string[][] = [[]];
     const pageWidth = 595;
     const pageHeight = 842;
     const margin = 36;
     let y = pageHeight - margin;
+    const defaultSections = somenteConsumo
+      ? ['resumo_frota', 'ranking_frota', 'comparacao_periodo', 'historico_abastecimentos']
+      : ['resumo_financeiro', 'lancamentos', 'grupos_cavalo', 'grupos_motorista', 'composicoes', 'comissoes'];
+    const selectedSections = new Set(
+      filters.secoesPdf === undefined
+        ? defaultSections
+        : filters.secoesPdf.split(',').map((item) => item.trim()).filter(Boolean),
+    );
+    const selectedColumns = filters.colunasPdf === undefined
+      ? null
+      : new Set(filters.colunasPdf.split(',').map((item) => item.trim()).filter(Boolean));
+    const hasSection = (section: string) => selectedSections.has(section);
+    const hasColumn = (tableName: string, column: string) => selectedColumns === null || selectedColumns.has(`${tableName}:${column}`);
 
     const current = () => pages[pages.length - 1];
     const add = (command: string) => current().push(command);
@@ -417,19 +436,27 @@ export class RelatoriosService {
     const table = (headers: string[], values: string[][], widths: number[], aligns: Array<'left' | 'right'> = []) => {
       const rowHeight = 22;
       const tableWidth = widths.reduce((sum, width) => sum + width, 0);
+      const drawHeader = () => {
+        rect(margin, y, tableWidth, rowHeight, [31, 122, 140]);
+        let headerX = margin;
+        headers.forEach((header, index) => {
+          const clipped = this.truncatePdfText(header, Math.max(8, Math.floor(widths[index] / 5.2)));
+          text(clipped, headerX + 7, y - 15, { size: 8.5, font: 'bold', color: [255, 255, 255] });
+          headerX += widths[index];
+        });
+        y -= rowHeight;
+      };
+
       ensureSpace(rowHeight * 2);
-      rect(margin, y, tableWidth, rowHeight, [31, 122, 140]);
-      let x = margin;
-      headers.forEach((header, index) => {
-        text(header, x + 7, y - 15, { size: 8.5, font: 'bold', color: [255, 255, 255] });
-        x += widths[index];
-      });
-      y -= rowHeight;
+      drawHeader();
 
       for (const [rowIndex, row] of values.entries()) {
-        ensureSpace(rowHeight + 4);
+        if (y - rowHeight < 58) {
+          newPage();
+          drawHeader();
+        }
         if (rowIndex % 2 === 0) rect(margin, y, tableWidth, rowHeight, [248, 250, 252]);
-        x = margin;
+        let x = margin;
         row.forEach((value, index) => {
           const clipped = this.truncatePdfText(value, Math.max(8, Math.floor(widths[index] / 5.2)));
           const align = aligns[index] || 'left';
@@ -441,6 +468,33 @@ export class RelatoriosService {
         y -= rowHeight;
       }
       y -= 12;
+    };
+    const configurableTable = (
+      tableName: string,
+      columns: Array<{
+        key: string;
+        header: string;
+        width: number;
+        align?: 'left' | 'right';
+        value: (item: any) => string;
+      }>,
+      values: any[],
+    ) => {
+      const activeColumns = columns.filter((column) => hasColumn(tableName, column.key));
+      if (!activeColumns.length) {
+        emptyMessage('Selecione ao menos uma coluna para exibir esta seção.');
+        return;
+      }
+      const availableWidth = pageWidth - margin * 2;
+      const originalWidth = activeColumns.reduce((sum, column) => sum + column.width, 0);
+      const widths = activeColumns.map((column) => Math.floor((column.width / originalWidth) * availableWidth));
+      widths[widths.length - 1] += availableWidth - widths.reduce((sum, width) => sum + width, 0);
+      table(
+        activeColumns.map((column) => column.header),
+        values.map((item) => activeColumns.map((column) => column.value(item))),
+        widths,
+        activeColumns.map((column) => column.align || 'left'),
+      );
     };
 
     rect(0, pageHeight, pageWidth, 92, [15, 48, 63]);
@@ -457,166 +511,175 @@ export class RelatoriosService {
     y = pageHeight - 120;
 
     if (!somenteConsumo) {
-      const cards = [
-      { label: 'Despesas', value: this.formatCurrency(relatorio.totalDespesas), color: [180, 35, 24] as [number, number, number] },
-      { label: 'Faturamento', value: this.formatCurrency(relatorio.totalFaturamento), color: [22, 128, 60] as [number, number, number] },
-      { label: 'Saldo final', value: this.formatCurrency(relatorio.saldoFinal), color: relatorio.saldoFinal >= 0 ? [31, 122, 140] as [number, number, number] : [180, 35, 24] as [number, number, number] },
-    ];
-    const cardGap = 12;
-    const cardWidth = (pageWidth - margin * 2 - cardGap * 2) / 3;
-    cards.forEach((card, index) => {
-      const x = margin + index * (cardWidth + cardGap);
-      rect(x, y, cardWidth, 70, [248, 250, 252]);
-      rect(x, y, cardWidth, 5, card.color);
-      text(card.label, x + 14, y - 25, { size: 9, font: 'bold', color: [100, 116, 139] });
-      text(card.value, x + 14, y - 51, { size: 15, font: 'bold', color: [15, 23, 42] });
-    });
-    y -= 94;
+      if (hasSection('resumo_financeiro')) {
+        const cards = [
+          { label: 'Despesas', value: this.formatCurrency(relatorio.totalDespesas), color: [180, 35, 24] as [number, number, number] },
+          { label: 'Faturamento', value: this.formatCurrency(relatorio.totalFaturamento), color: [22, 128, 60] as [number, number, number] },
+          { label: 'Saldo final', value: this.formatCurrency(relatorio.saldoFinal), color: relatorio.saldoFinal >= 0 ? [31, 122, 140] as [number, number, number] : [180, 35, 24] as [number, number, number] },
+        ];
+        const cardGap = 12;
+        const cardWidth = (pageWidth - margin * 2 - cardGap * 2) / 3;
+        cards.forEach((card, index) => {
+          const x = margin + index * (cardWidth + cardGap);
+          rect(x, y, cardWidth, 70, [248, 250, 252]);
+          rect(x, y, cardWidth, 5, card.color);
+          text(card.label, x + 14, y - 25, { size: 9, font: 'bold', color: [100, 116, 139] });
+          text(card.value, x + 14, y - 51, { size: 15, font: 'bold', color: [15, 23, 42] });
+        });
+        y -= 94;
+      }
 
-    sectionTitle('Lançamentos encontrados');
-    if (rows.length) {
-      table(
-        ['Data', 'Tipo', 'Placa', 'Motorista', 'Categoria', 'Valor total'],
-        rows.map((item) => [
-          this.formatDate(item.data),
-          item.tipoLancamento === TipoLancamento.DESPESA ? 'Despesa' : 'Faturamento',
-          item.cavaloMecanico?.placa || item.placa || '-',
-          item.motorista?.nome || '-',
-          item.categoriaFinanceira?.nome || '-',
-          this.formatCurrency(item.valorTotal),
-        ]),
-        [58, 78, 62, 116, 104, 105],
-        ['left', 'left', 'left', 'left', 'left', 'right'],
-      );
-    } else {
-      emptyMessage('Nenhum lançamento encontrado para os filtros informados.');
-    }
+      if (hasSection('lancamentos')) {
+        sectionTitle('Lançamentos encontrados');
+        if (rows.length) {
+          configurableTable('lancamentos', [
+            { key: 'data', header: 'Data', width: 58, value: (item) => this.formatDate(item.data) },
+            { key: 'tipo', header: 'Tipo', width: 78, value: (item) => item.tipoLancamento === TipoLancamento.DESPESA ? 'Despesa' : 'Faturamento' },
+            { key: 'cavalo', header: 'Placa', width: 62, value: (item) => item.cavaloMecanico?.placa || item.placa || '-' },
+            { key: 'motorista', header: 'Motorista', width: 116, value: (item) => item.motorista?.nome || '-' },
+            { key: 'categoria', header: 'Categoria', width: 104, value: (item) => item.categoriaFinanceira?.nome || '-' },
+            { key: 'valorTotal', header: 'Valor total', width: 105, align: 'right', value: (item) => this.formatCurrency(item.valorTotal) },
+          ], rows);
+        } else {
+          emptyMessage('Nenhum lançamento encontrado para os filtros informados.');
+        }
+      }
 
-    sectionTitle('Resumo por grupo');
-    table(['Despesas por cavalo mecânico', 'Total'], this.pdfGroupRows(relatorio.despesasPorCavaloMecanico), [390, 133], ['left', 'right']);
-    table(['Despesas por motorista', 'Total'], this.pdfGroupRows(relatorio.despesasPorMotorista), [390, 133], ['left', 'right']);
-    table(['Faturamento por cavalo mecânico', 'Total'], this.pdfGroupRows(relatorio.faturamentoPorCavaloMecanico), [390, 133], ['left', 'right']);
-    table(['Faturamento por motorista', 'Total'], this.pdfGroupRows(relatorio.faturamentoPorMotorista), [390, 133], ['left', 'right']);
+      if (hasSection('grupos_cavalo') || hasSection('grupos_motorista')) {
+        sectionTitle('Resumo por grupo');
+        if (hasSection('grupos_cavalo')) {
+          table(['Despesas por cavalo mecânico', 'Total'], this.pdfGroupRows(relatorio.despesasPorCavaloMecanico), [390, 133], ['left', 'right']);
+          table(['Faturamento por cavalo mecânico', 'Total'], this.pdfGroupRows(relatorio.faturamentoPorCavaloMecanico), [390, 133], ['left', 'right']);
+        }
+        if (hasSection('grupos_motorista')) {
+          table(['Despesas por motorista', 'Total'], this.pdfGroupRows(relatorio.despesasPorMotorista), [390, 133], ['left', 'right']);
+          table(['Faturamento por motorista', 'Total'], this.pdfGroupRows(relatorio.faturamentoPorMotorista), [390, 133], ['left', 'right']);
+        }
+      }
 
-    sectionTitle('Resumo por composição do cavalo');
-    if (relatorio.conjuntosPorCavalo.length) {
-      table(
-        ['Cavalo', 'Conjunto', 'Tipo', 'Lanc.', 'Despesas', 'Faturamento', 'Saldo'],
-        relatorio.conjuntosPorCavalo.map((item: any) => [
-          item.cavalo || '-',
-          item.conjunto || '-',
-          item.tipoConjunto || '-',
-          String(item.quantidadeLancamentos),
-          this.formatCurrency(item.totalDespesas),
-          this.formatCurrency(item.totalFaturamento),
-          this.formatCurrency(item.saldo),
-        ]),
-        [90, 96, 56, 42, 78, 88, 73],
-        ['left', 'left', 'left', 'right', 'right', 'right', 'right'],
-      );
-    } else {
-      emptyMessage('Nenhum conjunto encontrado para os filtros informados.');
-    }
+      if (hasSection('composicoes')) {
+        sectionTitle('Resumo por composição do cavalo');
+        if (relatorio.conjuntosPorCavalo.length) {
+          configurableTable('composicoes', [
+            { key: 'cavalo', header: 'Cavalo', width: 90, value: (item) => item.cavalo || '-' },
+            { key: 'conjunto', header: 'Conjunto', width: 96, value: (item) => item.conjunto || '-' },
+            { key: 'tipo', header: 'Tipo', width: 56, value: (item) => item.tipoConjunto || '-' },
+            { key: 'lancamentos', header: 'Lanc.', width: 42, align: 'right', value: (item) => String(item.quantidadeLancamentos) },
+            { key: 'despesas', header: 'Despesas', width: 78, align: 'right', value: (item) => this.formatCurrency(item.totalDespesas) },
+            { key: 'faturamento', header: 'Faturamento', width: 88, align: 'right', value: (item) => this.formatCurrency(item.totalFaturamento) },
+            { key: 'saldo', header: 'Saldo', width: 73, align: 'right', value: (item) => this.formatCurrency(item.saldo) },
+          ], relatorio.conjuntosPorCavalo);
+        } else {
+          emptyMessage('Nenhum conjunto encontrado para os filtros informados.');
+        }
+      }
 
-    sectionTitle('Comissões dos faturamentos');
-    if (relatorio.comissoes.resumo.quantidade) {
-      const resumo = relatorio.comissoes.resumo;
-      table(
-        ['Viagens', 'Faturamento relacionado', 'Total de comissões', 'Após comissões'],
-        [[
-          String(resumo.quantidade),
-          this.formatCurrency(resumo.totalFaturado),
-          this.formatCurrency(resumo.totalComissoes),
-          this.formatCurrency(resumo.faturamentoAposComissoes),
-        ]],
-        [62, 154, 145, 162],
-        ['right', 'right', 'right', 'right'],
-      );
-      table(
-        ['Data', 'Cavalo', 'Motorista', 'Eixos', 'Tipo', 'Regra', 'Faturamento', 'Bruta', 'Impostos', 'Líquida'],
-        relatorio.comissoes.historico.map((item: any) => [
-          this.formatDate(item.data),
-          item.cavaloMecanico?.placa || item.placa || '-',
-          item.motorista?.nome || '-',
-          String(item.quantidadeEixosComissao),
-          this.commissionTypeLabel(item.tipoComissao),
-          this.commissionRuleLabel(item),
-          this.formatCurrency(item.valorTotal),
-          this.formatCurrency(item.valorComissaoBruta ?? item.valorComissao),
-          this.formatCurrency(item.valorDescontoImpostos || 0),
-          this.formatCurrency(item.valorComissao),
-        ]),
-        [45, 50, 75, 30, 55, 60, 65, 48, 48, 47],
-        ['left', 'left', 'left', 'right', 'left', 'right', 'right', 'right', 'right', 'right'],
-      );
-      } else {
-        emptyMessage('Nenhuma comissão encontrada para os filtros informados.');
+      if (hasSection('comissoes')) {
+        sectionTitle('Comissões dos faturamentos');
+        if (relatorio.comissoes.resumo.quantidade) {
+          const resumo = relatorio.comissoes.resumo;
+          table(
+            ['Viagens', 'Faturamento relacionado', 'Total de comissões', 'Após comissões'],
+            [[
+              String(resumo.quantidade),
+              this.formatCurrency(resumo.totalFaturado),
+              this.formatCurrency(resumo.totalComissoes),
+              this.formatCurrency(resumo.faturamentoAposComissoes),
+            ]],
+            [62, 154, 145, 162],
+            ['right', 'right', 'right', 'right'],
+          );
+          configurableTable('comissoes', [
+            { key: 'data', header: 'Data', width: 45, value: (item) => this.formatDate(item.data) },
+            { key: 'cavalo', header: 'Cavalo', width: 50, value: (item) => item.cavaloMecanico?.placa || item.placa || '-' },
+            { key: 'motorista', header: 'Motorista', width: 75, value: (item) => item.motorista?.nome || '-' },
+            { key: 'eixos', header: 'Eixos', width: 30, align: 'right', value: (item) => String(item.quantidadeEixosComissao) },
+            { key: 'tipo', header: 'Tipo', width: 55, value: (item) => this.commissionTypeLabel(item.tipoComissao) },
+            { key: 'regra', header: 'Regra', width: 60, align: 'right', value: (item) => this.commissionRuleLabel(item) },
+            { key: 'faturamento', header: 'Faturamento', width: 65, align: 'right', value: (item) => this.formatCurrency(item.valorTotal) },
+            { key: 'bruta', header: 'Bruta', width: 48, align: 'right', value: (item) => this.formatCurrency(item.valorComissaoBruta ?? item.valorComissao) },
+            { key: 'impostos', header: 'Impostos', width: 48, align: 'right', value: (item) => this.formatCurrency(item.valorDescontoImpostos || 0) },
+            { key: 'liquida', header: 'Líquida', width: 47, align: 'right', value: (item) => this.formatCurrency(item.valorComissao) },
+          ], relatorio.comissoes.historico);
+        } else {
+          emptyMessage('Nenhuma comissão encontrada para os filtros informados.');
+        }
       }
     }
 
     if (somenteConsumo) {
-      sectionTitle('Média da frota');
-      if (relatorio.consumo.resumo.quantidadeRegistros) {
-      const periodoComparacao = relatorio.consumo.periodoComparacao;
-      table(
-        ['Média da frota', 'Melhor placa', 'Menor média', 'Divergências'],
-        [[
-          `${this.formatDecimal(relatorio.consumo.resumo.mediaGeralKmLitro, 2)} km/l`,
-          relatorio.consumo.resumo.melhorPlaca
-            ? `${relatorio.consumo.resumo.melhorPlaca.placa} - ${this.formatDecimal(relatorio.consumo.resumo.melhorPlaca.mediaGeralKmLitro, 2)}`
-            : '-',
-          relatorio.consumo.resumo.piorPlaca
-            ? `${relatorio.consumo.resumo.piorPlaca.placa} - ${this.formatDecimal(relatorio.consumo.resumo.piorPlaca.mediaGeralKmLitro, 2)}`
-            : '-',
-          String(relatorio.consumo.resumo.quantidadeDivergencias || 0),
-        ]],
-        [130, 145, 145, 103],
-        ['right', 'right', 'right', 'right'],
-      );
-      table(
-        ['Pos.', 'Placa', 'Abast.', 'Dist.', 'Litros', 'Média', 'Ant.', 'Var.%', 'Diverg.', 'Amostra'],
-        relatorio.consumo.porCavalo.map((item: any) => [
-          item.posicao == null ? '-' : String(item.posicao),
-          item.placa || '-',
-          String(item.quantidadeRegistros),
-          this.formatDecimal(item.distanciaTotal, 1),
-          this.formatDecimal(item.litrosTotal, 2),
-          this.formatDecimal(item.mediaGeralKmLitro, 2),
-          item.mediaPeriodoAnterior == null ? '-' : this.formatDecimal(item.mediaPeriodoAnterior, 2),
-          item.variacaoPercentual == null ? '-' : this.formatDecimal(item.variacaoPercentual, 2),
-          String(item.quantidadeDivergencias),
-          item.amostraConfiavel ? 'OK' : 'Pequena',
-        ]),
-        [27, 55, 42, 62, 62, 55, 55, 50, 52, 63],
-        ['right', 'left', 'right', 'right', 'right', 'right', 'right', 'right', 'right', 'left'],
-      );
-      if (periodoComparacao) {
-        table(
-          ['Período anterior comparado'],
-          [[`${periodoComparacao.dataInicial.split('-').reverse().join('/')} a ${periodoComparacao.dataFinal.split('-').reverse().join('/')}`]],
-          [523],
-          ['left'],
-        );
-      }
-
-      sectionTitle('Histórico de abastecimentos');
-      table(
-        ['Data', 'Cavalo', 'Km anterior', 'Km atual', 'Distância', 'Litros', 'Média', 'Status'],
-        relatorio.consumo.historico.map((item: any) => [
-          this.formatDate(item.data),
-          item.cavaloMecanico?.placa || '-',
-          this.formatDecimal(item.kmAnterior, 1),
-          this.formatDecimal(item.kmAtual, 1),
-          this.formatDecimal(item.distanciaPercorrida, 1),
-          this.formatDecimal(item.litros, 2),
-          `${this.formatDecimal(item.mediaKmLitro, 2)} km/l`,
-          item.divergente ? 'Divergente' : 'OK',
-        ]),
-        [48, 61, 68, 65, 68, 64, 91, 58],
-        ['left', 'left', 'right', 'right', 'right', 'right', 'right', 'left'],
-      );
-      } else {
+      const consumo = relatorio.consumo;
+      if (!consumo.resumo.quantidadeRegistros) {
         emptyMessage('Nenhum abastecimento encontrado para os filtros informados.');
+      } else {
+        if (hasSection('resumo_frota')) {
+          sectionTitle('Média da frota');
+          table(
+            ['Média da frota', 'Melhor placa', 'Menor média', 'Divergências'],
+            [[
+              `${this.formatDecimal(consumo.resumo.mediaGeralKmLitro, 2)} km/l`,
+              consumo.resumo.melhorPlaca
+                ? `${consumo.resumo.melhorPlaca.placa} - ${this.formatDecimal(consumo.resumo.melhorPlaca.mediaGeralKmLitro, 2)}`
+                : '-',
+              consumo.resumo.piorPlaca
+                ? `${consumo.resumo.piorPlaca.placa} - ${this.formatDecimal(consumo.resumo.piorPlaca.mediaGeralKmLitro, 2)}`
+                : '-',
+              String(consumo.resumo.quantidadeDivergencias || 0),
+            ]],
+            [130, 145, 145, 103],
+            ['right', 'right', 'right', 'right'],
+          );
+        }
+
+        if (hasSection('ranking_frota')) {
+          sectionTitle('Ranking da frota');
+          configurableTable('ranking', [
+            { key: 'posicao', header: 'Pos.', width: 27, align: 'right', value: (item) => item.posicao == null ? '-' : String(item.posicao) },
+            { key: 'placa', header: 'Placa', width: 55, value: (item) => item.placa || '-' },
+            { key: 'abastecimentos', header: 'Abast.', width: 42, align: 'right', value: (item) => String(item.quantidadeRegistros) },
+            { key: 'distancia', header: 'Dist.', width: 62, align: 'right', value: (item) => this.formatDecimal(item.distanciaTotal, 1) },
+            { key: 'litros', header: 'Litros', width: 62, align: 'right', value: (item) => this.formatDecimal(item.litrosTotal, 2) },
+            { key: 'media', header: 'Média', width: 55, align: 'right', value: (item) => this.formatDecimal(item.mediaGeralKmLitro, 2) },
+            { key: 'mediaAnterior', header: 'Ant.', width: 55, align: 'right', value: (item) => item.mediaPeriodoAnterior == null ? '-' : this.formatDecimal(item.mediaPeriodoAnterior, 2) },
+            { key: 'variacao', header: 'Var.%', width: 50, align: 'right', value: (item) => item.variacaoPercentual == null ? '-' : this.formatDecimal(item.variacaoPercentual, 2) },
+            { key: 'divergencias', header: 'Diverg.', width: 52, align: 'right', value: (item) => String(item.quantidadeDivergencias) },
+            { key: 'amostra', header: 'Amostra', width: 63, value: (item) => item.amostraConfiavel ? 'OK' : 'Pequena' },
+          ], consumo.porCavalo);
+        }
+
+        if (hasSection('comparacao_periodo')) {
+          sectionTitle('Comparação com período anterior');
+          if (consumo.periodoComparacao) {
+            table(
+              ['Período anterior comparado'],
+              [[`${consumo.periodoComparacao.dataInicial.split('-').reverse().join('/')} a ${consumo.periodoComparacao.dataFinal.split('-').reverse().join('/')}`]],
+              [523],
+              ['left'],
+            );
+            configurableTable('comparacao', [
+              { key: 'placa', header: 'Placa', width: 120, value: (item) => item.placa || '-' },
+              { key: 'mediaAtual', header: 'Média atual', width: 135, align: 'right', value: (item) => this.formatDecimal(item.mediaGeralKmLitro, 2) },
+              { key: 'mediaAnterior', header: 'Média anterior', width: 135, align: 'right', value: (item) => item.mediaPeriodoAnterior == null ? '-' : this.formatDecimal(item.mediaPeriodoAnterior, 2) },
+              { key: 'variacao', header: 'Variação %', width: 133, align: 'right', value: (item) => item.variacaoPercentual == null ? '-' : this.formatDecimal(item.variacaoPercentual, 2) },
+            ], consumo.porCavalo);
+          } else {
+            emptyMessage('Informe data inicial e final para comparar com o período anterior.');
+          }
+        }
+
+        if (hasSection('historico_abastecimentos')) {
+          sectionTitle('Histórico de abastecimentos');
+          configurableTable('historico', [
+            { key: 'data', header: 'Data', width: 58, value: (item) => this.formatDate(item.data) },
+            { key: 'cavalo', header: 'Cavalo', width: 58, value: (item) => item.cavaloMecanico?.placa || '-' },
+            { key: 'kmAnterior', header: 'Km anterior', width: 78, align: 'right', value: (item) => this.formatDecimal(item.kmAnterior, 1) },
+            { key: 'kmAtual', header: 'Km atual', width: 78, align: 'right', value: (item) => this.formatDecimal(item.kmAtual, 1) },
+            { key: 'distancia', header: 'Distância', width: 65, align: 'right', value: (item) => this.formatDecimal(item.distanciaPercorrida, 1) },
+            { key: 'litros', header: 'Litros', width: 60, align: 'right', value: (item) => this.formatDecimal(item.litros, 2) },
+            { key: 'media', header: 'Média', width: 78, align: 'right', value: (item) => `${this.formatDecimal(item.mediaKmLitro, 2)} km/l` },
+            { key: 'status', header: 'Status', width: 48, value: (item) => item.divergente ? 'Divergente' : 'OK' },
+          ], consumo.historico);
+        }
       }
     }
 

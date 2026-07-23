@@ -21,6 +21,8 @@ export class RelatorioFinanceiroQueryDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(500) limit?: number;
   @IsOptional() @IsIn(['data', 'valorTotal']) orderBy?: 'data' | 'valorTotal';
   @IsOptional() @IsIn(['asc', 'desc']) orderDirection?: 'asc' | 'desc';
+  @IsOptional() @IsString() secoesPdf?: string;
+  @IsOptional() @IsString() colunasPdf?: string;
 }
 
 

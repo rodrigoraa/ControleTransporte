@@ -23,6 +23,14 @@ describe('crudResources', () => {
     expect(field('faturamento', 'categoriaId')?.relation?.params).toEqual({ tipoLancamento: 'FATURAMENTO' });
   });
 
+  it('exibe quantidade e oculta conjunto e descrição nas tabelas financeiras', () => {
+    for (const path of ['despesas', 'faturamento']) {
+      expect(field(path, 'quantidade')?.table).toBe(true);
+      expect(field(path, 'conjuntoId')?.table).not.toBe(true);
+      expect(field(path, 'descricao')?.table).not.toBe(true);
+    }
+  });
+
   it('mantém rotas de retorno distintas para despesas e faturamento apesar do endpoint compartilhado', () => {
     const despesas = byPath('despesas');
     const faturamento = byPath('faturamento');

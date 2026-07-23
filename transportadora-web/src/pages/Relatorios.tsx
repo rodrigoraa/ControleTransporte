@@ -1,9 +1,18 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { BarChart3, Download, FileSpreadsheet, FileText, Filter, Search } from 'lucide-react';
+import { BarChart3, Download, FileSpreadsheet, FileText, Filter, Search, X } from 'lucide-react';
 import { api } from '../services/api';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { apiErrorMessage } from '../utils/apiError';
 import { date, money } from '../utils/formatters';
+import {
+  defaultPdfSelection,
+  pdfColumnId,
+  pdfReportConfigs,
+  pdfSelectionParams,
+  PdfReportType,
+  PdfSelection,
+  validatePdfSelection,
+} from './pdfReportOptions';
 
 type Option = { value: string; label: string; cavaloMecanicoId?: string | null; tipo?: string; quantidadeTotalEixos?: number };
 type ReportOptions = {
@@ -16,7 +25,7 @@ type ReportOptions = {
   categorias: Option[];
   tipos: Option[];
 };
-type ReportType = 'REGISTRO_GERAL' | 'MEDIA_FROTA';
+type ReportType = PdfReportType;
 
 const tiposConjunto = [
   { value: 'SIMPLES', label: 'Simples' },
@@ -36,6 +45,7 @@ export function Relatorios() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [pdfOptionsOpen, setPdfOptionsOpen] = useState(false);
   const [options, setOptions] = useState<ReportOptions>({
     motoristas: [],
     cavalosMecanicos: [],
@@ -87,18 +97,23 @@ export function Relatorios() {
     }
   }
 
-  async function exportReport(format: 'csv' | 'pdf') {
+  async function exportReport(format: 'csv' | 'pdf', extraParams: Record<string, string> = {}) {
     setError('');
     try {
-      const { data } = await api.get(`/relatorios/financeiros/exportar.${format}`, { params: reportParams(), responseType: 'blob' });
+      const { data } = await api.get(`/relatorios/financeiros/exportar.${format}`, {
+        params: { ...reportParams(), ...extraParams },
+        responseType: 'blob',
+      });
       const url = URL.createObjectURL(data);
       const link = document.createElement('a');
       link.href = url;
       link.download = `${reportType === 'MEDIA_FROTA' ? 'relatorio-media-frota' : 'registro-geral'}.${format}`;
       link.click();
       URL.revokeObjectURL(url);
+      return true;
     } catch (requestError: any) {
       setError(await apiErrorMessage(requestError, `Não foi possível exportar o relatório em ${format.toUpperCase()}.`));
+      return false;
     }
   }
 
@@ -115,7 +130,7 @@ export function Relatorios() {
               <FileSpreadsheet size={18} />
               Excel
             </button>
-            <button className="button primary" type="button" onClick={() => exportReport('pdf')}>
+            <button className="button primary" type="button" onClick={() => setPdfOptionsOpen(true)}>
               <Download size={18} />
               PDF
             </button>
@@ -192,7 +207,7 @@ export function Relatorios() {
                   <FileSpreadsheet size={18} />
                   Exportar Excel
                 </button>
-                <button className="button" type="button" onClick={() => exportReport('pdf')}>
+                <button className="button" type="button" onClick={() => setPdfOptionsOpen(true)}>
                   <FileText size={18} />
                   Exportar PDF
                 </button>
@@ -243,7 +258,153 @@ export function Relatorios() {
         </>
         )
       )}
+      {pdfOptionsOpen && (
+        <PdfExportModal
+          key={reportType}
+          reportType={reportType}
+          onClose={() => setPdfOptionsOpen(false)}
+          onExport={(selection) => exportReport('pdf', pdfSelectionParams(selection))}
+        />
+      )}
     </section>
+  );
+}
+
+function PdfExportModal({
+  reportType,
+  onClose,
+  onExport,
+}: {
+  reportType: ReportType;
+  onClose: () => void;
+  onExport: (selection: PdfSelection) => Promise<boolean>;
+}) {
+  const config = pdfReportConfigs[reportType];
+  const defaults = defaultPdfSelection(reportType);
+  const [selection, setSelection] = useState<PdfSelection>(defaults);
+  const [localError, setLocalError] = useState('');
+  const [exporting, setExporting] = useState(false);
+  const allSectionsSelected = selection.sections.length === config.sections.length;
+  const allColumnsSelected = selection.columns.length === defaults.columns.length;
+  const activeColumnGroups = config.columnGroups.filter((group) => selection.sections.includes(group.sectionId));
+
+  function toggleSection(sectionId: string) {
+    setSelection((current) => ({
+      ...current,
+      sections: current.sections.includes(sectionId)
+        ? current.sections.filter((item) => item !== sectionId)
+        : [...current.sections, sectionId],
+    }));
+    setLocalError('');
+  }
+
+  function toggleColumn(columnId: string) {
+    setSelection((current) => ({
+      ...current,
+      columns: current.columns.includes(columnId)
+        ? current.columns.filter((item) => item !== columnId)
+        : [...current.columns, columnId],
+    }));
+    setLocalError('');
+  }
+
+  async function generate() {
+    const validationError = validatePdfSelection(reportType, selection);
+    if (validationError) {
+      setLocalError(validationError);
+      return;
+    }
+    setExporting(true);
+    const exported = await onExport(selection);
+    setExporting(false);
+    if (exported) onClose();
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <div className="modal pdf-options-modal" role="dialog" aria-modal="true" aria-labelledby="pdf-options-title">
+        <div className="modal-header">
+          <div>
+            <h2 id="pdf-options-title">Personalizar PDF</h2>
+            <p>Escolha as seções e, nas opções avançadas, as colunas que serão emitidas.</p>
+          </div>
+          <button className="icon-button" type="button" disabled={exporting} onClick={onClose} aria-label="Fechar"><X size={18} /></button>
+        </div>
+
+        <div className="pdf-option-heading">
+          <strong>Seções do relatório</strong>
+          <button
+            className="button ghost"
+            type="button"
+            onClick={() => setSelection((current) => ({
+              ...current,
+              sections: allSectionsSelected ? [] : config.sections.map((section) => section.id),
+            }))}
+          >
+            {allSectionsSelected ? 'Desmarcar tudo' : 'Selecionar tudo'}
+          </button>
+        </div>
+        <div className="pdf-option-grid">
+          {config.sections.map((section) => (
+            <label className="check-row pdf-option-item" key={section.id}>
+              <input
+                type="checkbox"
+                checked={selection.sections.includes(section.id)}
+                onChange={() => toggleSection(section.id)}
+              />
+              <span>{section.label}</span>
+            </label>
+          ))}
+        </div>
+
+        <details className="pdf-advanced-options">
+          <summary>Opções avançadas — escolher colunas</summary>
+          <div className="pdf-option-heading">
+            <span>Somente as tabelas selecionadas acima são exibidas.</span>
+            <button
+              className="button ghost"
+              type="button"
+              onClick={() => setSelection((current) => ({
+                ...current,
+                columns: allColumnsSelected ? [] : defaults.columns,
+              }))}
+            >
+              {allColumnsSelected ? 'Desmarcar colunas' : 'Selecionar todas as colunas'}
+            </button>
+          </div>
+          {!activeColumnGroups.length && <div className="empty-inline">Selecione uma seção com tabela para configurar suas colunas.</div>}
+          {activeColumnGroups.map((group) => (
+            <div className="pdf-column-group" key={group.id}>
+              <strong>{group.label}</strong>
+              <div className="pdf-option-grid">
+                {group.columns.map((column) => {
+                  const columnId = pdfColumnId(group.id, column.key);
+                  return (
+                    <label className="check-row pdf-option-item" key={columnId}>
+                      <input
+                        type="checkbox"
+                        checked={selection.columns.includes(columnId)}
+                        onChange={() => toggleColumn(columnId)}
+                      />
+                      <span>{column.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </details>
+
+        {localError && <div className="form-error">{localError}</div>}
+        <div className="modal-actions">
+          <button className="button ghost" type="button" disabled={exporting} onClick={onClose}>Cancelar</button>
+          <button className="button primary" type="button" disabled={exporting} onClick={generate}>
+            <Download size={18} />
+            {exporting ? 'Gerando PDF...' : 'Gerar PDF'}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

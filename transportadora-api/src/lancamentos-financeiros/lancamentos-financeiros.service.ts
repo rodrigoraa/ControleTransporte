@@ -393,6 +393,29 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
 
   protected buildWhere(query: PaginationDto & Record<string, any>) {
     const where = super.buildWhere(query);
+    const search = query.search?.trim();
+    delete where.OR;
+    if (search) {
+      const textSearch = (field: string) => ({
+        [field]: { contains: search, mode: 'insensitive' as const },
+      });
+      const relatedSearch = (relation: string, fields: string[]) => ({
+        [relation]: { is: { OR: fields.map(textSearch) } },
+      });
+      where.OR = [
+        textSearch('placa'),
+        textSearch('descricao'),
+        textSearch('observacoes'),
+        relatedSearch('motorista', ['nome', 'cpf', 'cnh', 'categoriaCnh', 'telefone', 'observacoes']),
+        relatedSearch('fornecedor', ['nome', 'documento', 'telefone', 'email', 'endereco', 'observacoes']),
+        relatedSearch('cliente', ['nome', 'documento', 'telefone', 'email', 'endereco', 'observacoes']),
+        relatedSearch('categoriaFinanceira', ['nome', 'codigoSistema', 'observacoes']),
+        relatedSearch('caminhao', ['placa', 'marca', 'modelo', 'cor', 'chassi', 'renavam', 'observacoes']),
+        relatedSearch('cavaloMecanico', ['placa', 'marca', 'modelo', 'cor', 'chassi', 'renavam', 'observacoes']),
+        relatedSearch('conjunto', ['nome', 'placa', 'dollyPlaca', 'segundaCarretaPlaca', 'justificativaSemImplemento', 'observacoes']),
+        relatedSearch('implemento', ['placa', 'observacoes']),
+      ];
+    }
     if (query.dataInicial || query.dataFinal) {
       where.data = {};
       if (query.dataInicial) where.data.gte = new Date(query.dataInicial);

@@ -82,6 +82,47 @@ const baseDto = {
 };
 
 describe('LancamentosFinanceirosService', () => {
+  it('busca o texto em todos os dados relacionados do lançamento', () => {
+    const { service } = makeService();
+
+    const where = (service as any).buildWhere({
+      search: '  Edinaldo  ',
+      tipoLancamento: TipoLancamento.DESPESA,
+    });
+
+    expect(where.tipoLancamento).toBe(TipoLancamento.DESPESA);
+    expect(where.OR).toEqual(expect.arrayContaining([
+      { descricao: { contains: 'Edinaldo', mode: 'insensitive' } },
+      {
+        motorista: {
+          is: {
+            OR: expect.arrayContaining([
+              { nome: { contains: 'Edinaldo', mode: 'insensitive' } },
+            ]),
+          },
+        },
+      },
+      {
+        fornecedor: {
+          is: {
+            OR: expect.arrayContaining([
+              { nome: { contains: 'Edinaldo', mode: 'insensitive' } },
+            ]),
+          },
+        },
+      },
+      {
+        cliente: {
+          is: {
+            OR: expect.arrayContaining([
+              { nome: { contains: 'Edinaldo', mode: 'insensitive' } },
+            ]),
+          },
+        },
+      },
+    ]));
+  });
+
   it('cria despesa manual com fornecedor, calcula total e zera cliente', async () => {
     const { service, create } = makeService();
 
