@@ -278,41 +278,54 @@ function ConsumoReport({ consumo }: { consumo: any }) {
   const resumo = consumo?.resumo || {};
   const porCavalo = consumo?.porCavalo || [];
   const historico = consumo?.historico || [];
+  const periodoComparacao = consumo?.periodoComparacao;
 
   return (
     <>
       <div className="panel-title-row report-section-heading">
         <div>
-          <h2>Consumo dos cavalos</h2>
-          <p>Indicadores calculados a partir dos abastecimentos dentro do período e dos filtros selecionados.</p>
+          <h2>Média de consumo por placa</h2>
+          <p>Ranking calculado pela distância total dividida pelo total de litros de cada cavalo.</p>
         </div>
       </div>
       <div className="stats-grid">
-        <article className="stat-card stat-info"><span>Média geral</span><strong>{decimal(resumo.mediaGeralKmLitro, 3)} km/l</strong></article>
-        <article className="stat-card stat-neutral"><span>Distância total</span><strong>{decimal(resumo.distanciaTotal, 1)} km</strong></article>
-        <article className="stat-card stat-neutral"><span>Litros registrados</span><strong>{decimal(resumo.litrosTotal, 3)} L</strong></article>
-        <article className="stat-card stat-neutral"><span>Abastecimentos</span><strong>{resumo.quantidadeRegistros || 0}</strong></article>
+        <article className="stat-card stat-info"><span>Média da frota</span><strong>{decimal(resumo.mediaGeralKmLitro, 3)} km/l</strong></article>
+        <article className="stat-card stat-success"><span>Melhor placa</span><strong>{resumo.melhorPlaca ? `${resumo.melhorPlaca.placa} · ${decimal(resumo.melhorPlaca.mediaGeralKmLitro, 3)} km/l` : '-'}</strong></article>
+        <article className="stat-card stat-danger"><span>Menor média</span><strong>{resumo.piorPlaca ? `${resumo.piorPlaca.placa} · ${decimal(resumo.piorPlaca.mediaGeralKmLitro, 3)} km/l` : '-'}</strong></article>
+        <article className={`stat-card ${resumo.quantidadeDivergencias ? 'stat-danger' : 'stat-neutral'}`}><span>Divergências</span><strong>{resumo.quantidadeDivergencias || 0}</strong></article>
       </div>
 
       <div className="panel report-table-panel">
         <div className="panel-title-row">
           <div>
-            <h2>Resumo de consumo por cavalo</h2>
-            <p>A média geral é ponderada: distância total dividida pelo total de litros.</p>
+            <h2>Ranking por placa</h2>
+            <p>
+              A média é ponderada, e placas com apenas um abastecimento são sinalizadas como amostra pequena.
+              {periodoComparacao
+                ? ` Comparação com ${date(periodoComparacao.dataInicial)} a ${date(periodoComparacao.dataFinal)}.`
+                : ' Informe data inicial e final para comparar com o período anterior equivalente.'}
+            </p>
           </div>
         </div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Cavalo</th><th>Abastecimentos</th><th>Distância total</th><th>Litros registrados</th><th>Média geral</th></tr></thead>
+            <thead><tr><th>Pos.</th><th>Placa / cavalo</th><th>Abastecimentos</th><th>Distância</th><th>Litros</th><th>Média atual</th><th>Média anterior</th><th>Variação</th><th>Divergências</th><th>Amostra</th></tr></thead>
             <tbody>
-              {!porCavalo.length && <tr><td colSpan={5}>Nenhum abastecimento encontrado para os filtros informados.</td></tr>}
+              {!porCavalo.length && <tr><td colSpan={10}>Nenhum abastecimento encontrado para os filtros informados.</td></tr>}
               {porCavalo.map((item: any) => (
                 <tr key={item.cavaloMecanicoId}>
+                  <td><strong>{item.posicao == null ? '-' : `${item.posicao}º`}</strong></td>
                   <td>{item.cavalo}</td>
                   <td>{item.quantidadeRegistros}</td>
                   <td>{decimal(item.distanciaTotal, 1)} km</td>
                   <td>{decimal(item.litrosTotal, 3)} L</td>
                   <td><strong>{decimal(item.mediaGeralKmLitro, 3)} km/l</strong></td>
+                  <td>{item.mediaPeriodoAnterior == null ? '-' : `${decimal(item.mediaPeriodoAnterior, 3)} km/l`}</td>
+                  <td className={`money-cell ${item.variacaoPercentual > 0 ? 'positive' : item.variacaoPercentual < 0 ? 'negative' : ''}`}>
+                    {item.variacaoPercentual == null ? '-' : `${item.variacaoPercentual > 0 ? '+' : ''}${decimal(item.variacaoPercentual, 2)}%`}
+                  </td>
+                  <td>{item.quantidadeDivergencias || 0}</td>
+                  <td>{item.amostraConfiavel ? 'Confiável' : 'Pequena'}</td>
                 </tr>
               ))}
             </tbody>
@@ -333,8 +346,8 @@ function ConsumoReport({ consumo }: { consumo: any }) {
             <tbody>
               {!historico.length && <tr><td colSpan={7}>Nenhum abastecimento encontrado para os filtros informados.</td></tr>}
               {historico.map((item: any) => (
-                <tr key={item.id}>
-                  <td>{date(item.data)}</td>
+                <tr key={item.id} className={item.divergente ? 'consumo-divergente' : ''}>
+                  <td>{date(item.data)}{item.divergente && <small title="A sequência de quilometragens não coincide com o registro anterior ou seguinte.">Sequência divergente</small>}</td>
                   <td>{item.cavaloMecanico?.placa || '-'}</td>
                   <td>{decimal(item.kmAnterior, 1)}</td>
                   <td>{decimal(item.kmAtual, 1)}</td>

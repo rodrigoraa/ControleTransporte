@@ -112,6 +112,23 @@ export class RelatoriosService {
     return where;
   }
 
+  private periodoAnteriorConsumo(filters: RelatorioFinanceiroQueryDto) {
+    if (!filters.dataInicial || !filters.dataFinal) return null;
+    const inicioAtual = new Date(`${filters.dataInicial}T00:00:00.000Z`);
+    const fimAtual = new Date(`${filters.dataFinal}T23:59:59.999Z`);
+    if (fimAtual < inicioAtual) return null;
+
+    const duracao = fimAtual.getTime() - inicioAtual.getTime() + 1;
+    const fimAnterior = new Date(inicioAtual.getTime() - 1);
+    const inicioAnterior = new Date(fimAnterior.getTime() - duracao + 1);
+    return {
+      inicio: inicioAnterior,
+      fim: fimAnterior,
+      dataInicial: inicioAnterior.toISOString().slice(0, 10),
+      dataFinal: fimAnterior.toISOString().slice(0, 10),
+    };
+  }
+
   async financeiros(filters: RelatorioFinanceiroQueryDto) {
     const where = await this.buildWhere(filters);
     const page = filters.page || 1;
@@ -233,7 +250,7 @@ export class RelatoriosService {
       String(item.valorComissao),
       (Number(item.valorTotal) - Number(item.valorComissao)).toFixed(2),
     ]);
-    const consumoHeader = ['Data', 'Cavalo mecânico', 'Km anterior', 'Km atual', 'Distância percorrida', 'Litros', 'Média km/l', 'Observações'];
+    const consumoHeader = ['Data', 'Cavalo mecânico', 'Km anterior', 'Km atual', 'Distância percorrida', 'Litros', 'Média km/l', 'Divergência', 'Observações'];
     const consumoBody = consumo.historico.map((item: any) => [
       item.data.toISOString().slice(0, 10),
       [item.cavaloMecanico?.placa, item.cavaloMecanico?.marca, item.cavaloMecanico?.modelo].filter(Boolean).join(' - '),
@@ -242,14 +259,21 @@ export class RelatoriosService {
       String(item.distanciaPercorrida),
       String(item.litros),
       String(item.mediaKmLitro),
+      item.divergente ? 'Sim' : 'Não',
       item.observacoes || '',
     ]);
     const resumoConsumo = consumo.porCavalo.map((item: any) => [
+      item.posicao == null ? '' : String(item.posicao),
+      item.placa,
       item.cavalo,
       String(item.quantidadeRegistros),
       String(item.distanciaTotal),
       String(item.litrosTotal),
       String(item.mediaGeralKmLitro),
+      item.mediaPeriodoAnterior == null ? '' : String(item.mediaPeriodoAnterior),
+      item.variacaoPercentual == null ? '' : String(item.variacaoPercentual),
+      String(item.quantidadeDivergencias),
+      item.amostraConfiavel ? 'Confiável' : 'Amostra pequena',
     ]);
     const csvRows = [
       header,
@@ -268,8 +292,11 @@ export class RelatoriosService {
       ['Data', 'Cavalo mecânico', 'Motorista', 'Eixos', 'Tipo', 'Regra', 'Faturamento', 'Comissão bruta', 'Impostos', 'Comissão líquida', 'Após comissão'],
       ...comissoesBody,
       [],
-      ['Resumo de consumo por cavalo'],
-      ['Cavalo mecânico', 'Abastecimentos', 'Distância total', 'Litros registrados', 'Média geral km/l'],
+      ['Média de consumo por placa'],
+      consumo.periodoComparacao
+        ? ['Período anterior comparado', consumo.periodoComparacao.dataInicial, consumo.periodoComparacao.dataFinal]
+        : ['Período anterior comparado', 'Não disponível: informe data inicial e final'],
+      ['Posição', 'Placa', 'Cavalo mecânico', 'Abastecimentos', 'Distância total', 'Litros registrados', 'Média atual km/l', 'Média anterior km/l', 'Variação %', 'Divergências', 'Amostra'],
       ...resumoConsumo,
       [],
       ['Histórico de abastecimentos'],
@@ -501,24 +528,53 @@ export class RelatoriosService {
       emptyMessage('Nenhuma comissão encontrada para os filtros informados.');
     }
 
-    sectionTitle('Consumo dos cavalos');
+    sectionTitle('Média de consumo por placa');
     if (relatorio.consumo.resumo.quantidadeRegistros) {
+      const periodoComparacao = relatorio.consumo.periodoComparacao;
       table(
-        ['Cavalo', 'Abast.', 'Distância', 'Litros', 'Média km/l'],
-        relatorio.consumo.porCavalo.map((item: any) => [
-          item.cavalo || '-',
-          String(item.quantidadeRegistros),
-          `${this.formatDecimal(item.distanciaTotal, 1)} km`,
-          `${this.formatDecimal(item.litrosTotal, 3)} L`,
-          this.formatDecimal(item.mediaGeralKmLitro, 3),
-        ]),
-        [188, 54, 96, 96, 89],
-        ['left', 'right', 'right', 'right', 'right'],
+        ['Média da frota', 'Melhor placa', 'Menor média', 'Divergências'],
+        [[
+          `${this.formatDecimal(relatorio.consumo.resumo.mediaGeralKmLitro, 3)} km/l`,
+          relatorio.consumo.resumo.melhorPlaca
+            ? `${relatorio.consumo.resumo.melhorPlaca.placa} - ${this.formatDecimal(relatorio.consumo.resumo.melhorPlaca.mediaGeralKmLitro, 3)}`
+            : '-',
+          relatorio.consumo.resumo.piorPlaca
+            ? `${relatorio.consumo.resumo.piorPlaca.placa} - ${this.formatDecimal(relatorio.consumo.resumo.piorPlaca.mediaGeralKmLitro, 3)}`
+            : '-',
+          String(relatorio.consumo.resumo.quantidadeDivergencias || 0),
+        ]],
+        [130, 145, 145, 103],
+        ['right', 'right', 'right', 'right'],
       );
+      table(
+        ['Pos.', 'Placa', 'Abast.', 'Dist.', 'Litros', 'Média', 'Ant.', 'Var.%', 'Diverg.', 'Amostra'],
+        relatorio.consumo.porCavalo.map((item: any) => [
+          item.posicao == null ? '-' : String(item.posicao),
+          item.placa || '-',
+          String(item.quantidadeRegistros),
+          this.formatDecimal(item.distanciaTotal, 1),
+          this.formatDecimal(item.litrosTotal, 3),
+          this.formatDecimal(item.mediaGeralKmLitro, 3),
+          item.mediaPeriodoAnterior == null ? '-' : this.formatDecimal(item.mediaPeriodoAnterior, 3),
+          item.variacaoPercentual == null ? '-' : this.formatDecimal(item.variacaoPercentual, 2),
+          String(item.quantidadeDivergencias),
+          item.amostraConfiavel ? 'OK' : 'Pequena',
+        ]),
+        [27, 55, 42, 62, 62, 55, 55, 50, 52, 63],
+        ['right', 'left', 'right', 'right', 'right', 'right', 'right', 'right', 'right', 'left'],
+      );
+      if (periodoComparacao) {
+        table(
+          ['Período anterior comparado'],
+          [[`${periodoComparacao.dataInicial.split('-').reverse().join('/')} a ${periodoComparacao.dataFinal.split('-').reverse().join('/')}`]],
+          [523],
+          ['left'],
+        );
+      }
 
       sectionTitle('Histórico de abastecimentos');
       table(
-        ['Data', 'Cavalo', 'Km anterior', 'Km atual', 'Distância', 'Litros', 'Média'],
+        ['Data', 'Cavalo', 'Km anterior', 'Km atual', 'Distância', 'Litros', 'Média', 'Status'],
         relatorio.consumo.historico.map((item: any) => [
           this.formatDate(item.data),
           item.cavaloMecanico?.placa || '-',
@@ -527,9 +583,10 @@ export class RelatoriosService {
           this.formatDecimal(item.distanciaPercorrida, 1),
           this.formatDecimal(item.litros, 3),
           `${this.formatDecimal(item.mediaKmLitro, 3)} km/l`,
+          item.divergente ? 'Divergente' : 'OK',
         ]),
-        [55, 72, 76, 70, 76, 70, 104],
-        ['left', 'left', 'right', 'right', 'right', 'right', 'right'],
+        [48, 61, 68, 65, 68, 64, 91, 58],
+        ['left', 'left', 'right', 'right', 'right', 'right', 'right', 'left'],
       );
     } else {
       emptyMessage('Nenhum abastecimento encontrado para os filtros informados.');
@@ -712,7 +769,14 @@ export class RelatoriosService {
 
   private async consumo(filters: RelatorioFinanceiroQueryDto, take = 50) {
     const where = this.buildAbastecimentoWhere(filters);
-    const [totais, grupos, historico] = await Promise.all([
+    const periodoAnterior = this.periodoAnteriorConsumo(filters);
+    const wherePeriodoAnterior = periodoAnterior
+      ? {
+        ...this.buildAbastecimentoWhere({ ...filters, dataInicial: undefined, dataFinal: undefined }),
+        data: { gte: periodoAnterior.inicio, lte: periodoAnterior.fim },
+      }
+      : null;
+    const [totais, grupos, gruposPeriodoAnterior, registros] = await Promise.all([
       this.prisma.abastecimento.aggregate({
         where,
         _count: { _all: true },
@@ -724,11 +788,18 @@ export class RelatoriosService {
         _count: { _all: true },
         _sum: { distanciaPercorrida: true, litros: true },
       }),
+      wherePeriodoAnterior
+        ? this.prisma.abastecimento.groupBy({
+          by: ['cavaloMecanicoId'],
+          where: wherePeriodoAnterior,
+          _count: { _all: true },
+          _sum: { distanciaPercorrida: true, litros: true },
+        })
+        : Promise.resolve([]),
       this.prisma.abastecimento.findMany({
         where,
         include: { cavaloMecanico: true },
-        orderBy: [{ data: 'desc' }, { createdAt: 'desc' }],
-        take,
+        orderBy: [{ cavaloMecanicoId: 'asc' }, { data: 'asc' }, { createdAt: 'asc' }],
       }),
     ]);
     const ids = grupos.map((item) => item.cavaloMecanicoId);
@@ -736,9 +807,56 @@ export class RelatoriosService {
       where: { id: { in: ids } },
       select: { id: true, placa: true, marca: true, modelo: true },
     });
-    const labels = new Map(cavalos.map((item) => [item.id, [item.placa, item.marca, item.modelo].filter(Boolean).join(' - ')]));
+    const cavalosPorId = new Map(cavalos.map((item) => [item.id, item]));
+    const anterioresPorCavalo = new Map(gruposPeriodoAnterior.map((item) => {
+      const distancia = Number(item._sum.distanciaPercorrida || 0);
+      const litros = Number(item._sum.litros || 0);
+      return [item.cavaloMecanicoId, litros > 0 ? distancia / litros : 0];
+    }));
+    const divergencias = new Set<string>();
+    const divergenciasPorCavalo = new Map<string, number>();
+    const anteriorPorCavalo = new Map<string, any>();
+    for (const item of registros) {
+      const anterior = anteriorPorCavalo.get(item.cavaloMecanicoId);
+      if (anterior && Number(anterior.kmAtual) !== Number(item.kmAnterior)) {
+        divergencias.add(anterior.id);
+        divergencias.add(item.id);
+        divergenciasPorCavalo.set(item.cavaloMecanicoId, (divergenciasPorCavalo.get(item.cavaloMecanicoId) || 0) + 1);
+      }
+      anteriorPorCavalo.set(item.cavaloMecanicoId, item);
+    }
     const distanciaTotal = Number(totais._sum.distanciaPercorrida || 0);
     const litrosTotal = Number(totais._sum.litros || 0);
+    const porCavalo = grupos
+      .map((item) => {
+        const distancia = Number(item._sum.distanciaPercorrida || 0);
+        const litros = Number(item._sum.litros || 0);
+        const media = litros > 0 ? distancia / litros : 0;
+        const mediaAnterior = anterioresPorCavalo.get(item.cavaloMecanicoId);
+        const cavalo = cavalosPorId.get(item.cavaloMecanicoId);
+        return {
+          cavaloMecanicoId: item.cavaloMecanicoId,
+          placa: cavalo?.placa || 'Sem placa',
+          cavalo: cavalo ? [cavalo.placa, cavalo.marca, cavalo.modelo].filter(Boolean).join(' - ') : 'Sem cadastro',
+          quantidadeRegistros: item._count._all,
+          distanciaTotal: distancia,
+          litrosTotal: litros,
+          mediaGeralKmLitro: media,
+          mediaPeriodoAnterior: mediaAnterior ?? null,
+          variacaoPercentual: mediaAnterior && mediaAnterior > 0
+            ? Number((((media - mediaAnterior) / mediaAnterior) * 100).toFixed(2))
+            : null,
+          quantidadeDivergencias: divergenciasPorCavalo.get(item.cavaloMecanicoId) || 0,
+          amostraConfiavel: item._count._all >= 2,
+        };
+      })
+      .sort((a, b) => Number(b.amostraConfiavel) - Number(a.amostraConfiavel) || b.mediaGeralKmLitro - a.mediaGeralKmLitro);
+    let posicao = 0;
+    const rankingPorCavalo = porCavalo.map((item) => ({
+      ...item,
+      posicao: item.amostraConfiavel ? ++posicao : null,
+    }));
+    const placasComAmostraConfiavel = rankingPorCavalo.filter((item) => item.amostraConfiavel);
 
     return {
       resumo: {
@@ -746,20 +864,22 @@ export class RelatoriosService {
         distanciaTotal,
         litrosTotal,
         mediaGeralKmLitro: litrosTotal > 0 ? distanciaTotal / litrosTotal : 0,
+        placasAnalisadas: rankingPorCavalo.length,
+        melhorPlaca: placasComAmostraConfiavel[0] || null,
+        piorPlaca: placasComAmostraConfiavel[placasComAmostraConfiavel.length - 1] || null,
+        quantidadeDivergencias: [...divergenciasPorCavalo.values()].reduce((total, quantidade) => total + quantidade, 0),
       },
-      porCavalo: grupos.map((item) => {
-        const distancia = Number(item._sum.distanciaPercorrida || 0);
-        const litros = Number(item._sum.litros || 0);
-        return {
-          cavaloMecanicoId: item.cavaloMecanicoId,
-          cavalo: labels.get(item.cavaloMecanicoId) || 'Sem cadastro',
-          quantidadeRegistros: item._count._all,
-          distanciaTotal: distancia,
-          litrosTotal: litros,
-          mediaGeralKmLitro: litros > 0 ? distancia / litros : 0,
-        };
-      }),
-      historico,
+      periodoComparacao: periodoAnterior
+        ? { dataInicial: periodoAnterior.dataInicial, dataFinal: periodoAnterior.dataFinal }
+        : null,
+      porCavalo: rankingPorCavalo,
+      historico: [...registros]
+        .sort((a, b) => {
+          const data = b.data.getTime() - a.data.getTime();
+          return data || b.createdAt.getTime() - a.createdAt.getTime();
+        })
+        .slice(0, take)
+        .map((item) => ({ ...item, divergente: divergencias.has(item.id) })),
     };
   }
 

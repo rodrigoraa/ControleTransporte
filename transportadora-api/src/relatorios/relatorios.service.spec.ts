@@ -122,6 +122,18 @@ function makeService() {
     observacoes: 'Viagem completa',
     createdAt: new Date('2026-05-12T12:00:00.000Z'),
     cavaloMecanico: { id: 'cav-1', placa: 'ABC1D23', marca: 'Volvo', modelo: 'FH' },
+  }, {
+    id: 'ab-2',
+    data: new Date('2026-05-13T12:00:00.000Z'),
+    cavaloMecanicoId: 'cav-1',
+    kmAnterior: 100800,
+    kmAtual: 101550,
+    distanciaPercorrida: 750,
+    litros: 250,
+    mediaKmLitro: 3,
+    observacoes: 'Sequência com divergência',
+    createdAt: new Date('2026-05-13T12:00:00.000Z'),
+    cavaloMecanico: { id: 'cav-1', placa: 'ABC1D23', marca: 'Volvo', modelo: 'FH' },
   }];
 
   const prisma = {
@@ -147,13 +159,18 @@ function makeService() {
     abastecimento: {
       aggregate: jest.fn(async () => ({
         _count: { _all: abastecimentos.length },
-        _sum: { distanciaPercorrida: 750, litros: 250 },
+        _sum: { distanciaPercorrida: 1500, litros: 500 },
       })),
-      groupBy: jest.fn(async () => [{
-        cavaloMecanicoId: 'cav-1',
-        _count: { _all: abastecimentos.length },
-        _sum: { distanciaPercorrida: 750, litros: 250 },
-      }]),
+      groupBy: jest.fn(async ({ where }: any) => {
+        const periodoAnterior = where.data?.lte && where.data.lte < new Date('2026-05-01T00:00:00.000Z');
+        return [{
+          cavaloMecanicoId: 'cav-1',
+          _count: { _all: 2 },
+          _sum: periodoAnterior
+            ? { distanciaPercorrida: 1250, litros: 500 }
+            : { distanciaPercorrida: 1500, litros: 500 },
+        }];
+      }),
       findMany: jest.fn(async () => abastecimentos),
     },
     cavaloMecanico: {
@@ -206,12 +223,27 @@ describe('RelatoriosService', () => {
       totalFaturamento: 160,
       saldo: 93.1,
     });
-    expect(result.consumo.resumo).toEqual({
-      quantidadeRegistros: 1,
-      distanciaTotal: 750,
-      litrosTotal: 250,
+    expect(result.consumo.resumo).toMatchObject({
+      quantidadeRegistros: 2,
+      distanciaTotal: 1500,
+      litrosTotal: 500,
       mediaGeralKmLitro: 3,
+      placasAnalisadas: 1,
+      quantidadeDivergencias: 1,
+      melhorPlaca: { placa: 'ABC1D23', mediaGeralKmLitro: 3 },
+      piorPlaca: { placa: 'ABC1D23', mediaGeralKmLitro: 3 },
     });
+    expect(result.consumo.periodoComparacao).toEqual({ dataInicial: '2026-03-31', dataFinal: '2026-04-30' });
+    expect(result.consumo.porCavalo[0]).toMatchObject({
+      posicao: 1,
+      placa: 'ABC1D23',
+      mediaGeralKmLitro: 3,
+      mediaPeriodoAnterior: 2.5,
+      variacaoPercentual: 20,
+      quantidadeDivergencias: 1,
+      amostraConfiavel: true,
+    });
+    expect(result.consumo.historico.every((item: any) => item.divergente)).toBe(true);
     expect(prisma.conjuntoImplemento.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { implementoId: 'imp-1' } }));
     const paginatedCall = prisma.lancamentoFinanceiro.findMany.mock.calls.find(([args]: any[]) => args.skip === 1);
     expect(paginatedCall?.[0]).toEqual(expect.objectContaining({
@@ -249,7 +281,9 @@ describe('RelatoriosService', () => {
     expect(csv).toContain('"Valor do desconto de impostos"');
     expect(csv).toContain('"2.3"');
     expect(csv).toContain('"16.9"');
-    expect(csv).toContain('"Resumo de consumo por cavalo"');
+    expect(csv).toContain('"Média de consumo por placa"');
+    expect(csv).toContain('"Média anterior km/l"');
+    expect(csv).toContain('"Divergências"');
     expect(csv).toContain('"Histórico de abastecimentos"');
     const commissionCall = prisma.lancamentoFinanceiro.findMany.mock.calls.find(([args]: any[]) => JSON.stringify(args.where).includes('tipoComissao'));
     const commissionWhere = JSON.stringify(commissionCall?.[0].where);
@@ -269,7 +303,7 @@ describe('RelatoriosService', () => {
     expect(pdf.toString('latin1')).toContain('Resumo por composição do cavalo');
     expect(pdf.toString('latin1')).toContain('Comissões dos faturamentos');
     expect(pdf.toString('latin1')).toContain('Percentual');
-    expect(pdf.toString('latin1')).toContain('Consumo dos cavalos');
+    expect(pdf.toString('latin1')).toContain('Média de consumo por placa');
     expect(pdf.toString('latin1')).toContain('Histórico de abastecimentos');
   });
 });
