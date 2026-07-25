@@ -39,6 +39,10 @@ export abstract class CrudService<CreateDto extends object, UpdateDto extends ob
     return where;
   }
 
+  protected buildOrderBy(_query: PaginationDto & Record<string, any>): object[] {
+    return [{ createdAt: 'desc' as const }];
+  }
+
   protected normalizeCreate(dto: CreateDto): any {
     return dto;
   }
@@ -105,13 +109,14 @@ export abstract class CrudService<CreateDto extends object, UpdateDto extends ob
     const page = query.page || 1;
     const limit = query.limit || 10;
     const where = this.buildWhere(query as any);
+    const orderBy = this.buildOrderBy(query as any);
     const [data, total] = await Promise.all([
       this.repo.findMany({
         where,
         include: this.include,
         skip: (page - 1) * limit,
         take: limit,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
       }),
       this.repo.count({ where }),
     ]);

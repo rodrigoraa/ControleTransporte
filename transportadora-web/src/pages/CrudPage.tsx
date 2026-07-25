@@ -2,6 +2,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Fuel } from 'lucide-react';
 import { History } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Toast } from '../components/Toast';
 import { SearchableSelect } from '../components/SearchableSelect';
@@ -10,6 +11,7 @@ import { api } from '../services/api';
 import { apiErrorMessage } from '../utils/apiError';
 import { date, maskPlate, money } from '../utils/formatters';
 import { billingTotal, commissionAfterTaxDiscount, commissionDefaults, commissionValues, selectedCommissionValue } from '../utils/commission';
+import { nextTableSort, TableSort } from '../utils/tableSorting';
 import { carrocerias, crudResources, Field, Resource, resourceListPath, tiposImplemento } from './resources';
 
 type Mode = 'create' | 'edit' | 'view';
@@ -21,6 +23,7 @@ export function CrudPage({ resource }: { resource: Resource }) {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
+  const [sort, setSort] = useState<TableSort>({ orderBy: '', orderDirection: 'asc' });
   const [modal, setModal] = useState<{ mode: Mode; item: any } | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -34,10 +37,18 @@ export function CrudPage({ resource }: { resource: Resource }) {
   const tableFields = useMemo(() => resource.fields.filter((field) => field.table), [resource]);
   const groupedRows = useMemo(() => groupRowsByOperationalStatus(resource, rows), [resource, rows]);
 
-  async function load() {
+  async function load(targetPage = page) {
     setLoading(true);
     try {
-      const { data } = await api.get(resource.endpoint, { params: { page, limit, search, ...resource.fixedParams } });
+      const { data } = await api.get(resource.endpoint, {
+        params: {
+          page: targetPage,
+          limit,
+          search,
+          ...(sort.orderBy ? sort : {}),
+          ...resource.fixedParams,
+        },
+      });
       setRows(data.data);
       setTotal(data.total);
     } catch (requestError) {
@@ -49,7 +60,13 @@ export function CrudPage({ resource }: { resource: Resource }) {
 
   useEffect(() => {
     load();
-  }, [resource.path, page]);
+  }, [resource.path, page, sort.orderBy, sort.orderDirection]);
+
+  function changeSort(field: Field) {
+    if (!field.sortable) return;
+    setPage(1);
+    setSort((current) => nextTableSort(current, field.sortKey || field.name));
+  }
 
   async function remove(item: any) {
     try {
@@ -85,7 +102,11 @@ export function CrudPage({ resource }: { resource: Resource }) {
           </button>
         )}
       </div>
-      <form className="toolbar" onSubmit={(event) => { event.preventDefault(); setPage(1); load(); }}>
+      <form className="toolbar" onSubmit={(event) => {
+        event.preventDefault();
+        if (page === 1) void load(1);
+        else setPage(1);
+      }}>
         <div className="search-box">
           <Search size={18} />
           <input placeholder="Buscar..." value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -97,7 +118,30 @@ export function CrudPage({ resource }: { resource: Resource }) {
           <table>
             <thead>
               <tr>
-                {tableFields.map((field) => <th key={field.name}>{field.label}</th>)}
+                {tableFields.map((field) => {
+                  const sortKey = field.sortKey || field.name;
+                  const active = field.sortable && sort.orderBy === sortKey;
+                  return (
+                    <th
+                      key={field.name}
+                      aria-sort={active ? (sort.orderDirection === 'asc' ? 'ascending' : 'descending') : undefined}
+                    >
+                      {field.sortable ? (
+                        <button
+                          className={`sortable-header ${active ? 'active' : ''}`}
+                          type="button"
+                          title={`Ordenar por ${field.label}`}
+                          onClick={() => changeSort(field)}
+                        >
+                          <span>{field.label}</span>
+                          {active
+                            ? sort.orderDirection === 'asc' ? <ArrowUp size={15} /> : <ArrowDown size={15} />
+                            : <ArrowUpDown size={15} />}
+                        </button>
+                      ) : field.label}
+                    </th>
+                  );
+                })}
                 <th>Ações</th>
               </tr>
             </thead>

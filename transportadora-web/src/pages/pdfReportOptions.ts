@@ -17,6 +17,11 @@ export type PdfReportConfig = {
   columnGroups: PdfColumnGroup[];
 };
 
+type PdfSelectionStorage = {
+  getItem: (key: string) => string | null;
+  setItem: (key: string, value: string) => void;
+};
+
 export const pdfReportConfigs: Record<PdfReportType, PdfReportConfig> = {
   REGISTRO_GERAL: {
     sections: [
@@ -158,4 +163,60 @@ export function pdfSelectionParams(selection: PdfSelection) {
     secoesPdf: selection.sections.join(','),
     colunasPdf: selection.columns.join(','),
   };
+}
+
+function pdfSelectionStorageKey(reportType: PdfReportType, scope: string) {
+  return `controle-transporte:pdf-options:v1:${scope}:${reportType}`;
+}
+
+function browserStorage(): PdfSelectionStorage | null {
+  try {
+    return typeof window === 'undefined' ? null : window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+export function loadPdfSelection(
+  reportType: PdfReportType,
+  scope = 'default',
+  storage: PdfSelectionStorage | null = browserStorage(),
+): PdfSelection {
+  const defaults = defaultPdfSelection(reportType);
+  if (!storage) return defaults;
+
+  try {
+    const stored = storage.getItem(pdfSelectionStorageKey(reportType, scope));
+    if (!stored) return defaults;
+    const parsed = JSON.parse(stored) as Partial<PdfSelection>;
+    if (!Array.isArray(parsed.sections) || !Array.isArray(parsed.columns)) return defaults;
+
+    const config = pdfReportConfigs[reportType];
+    const validSections = new Set(config.sections.map((section) => section.id));
+    const validColumns = new Set(
+      config.columnGroups.flatMap((group) => group.columns.map((column) => pdfColumnId(group.id, column.key))),
+    );
+    const selection = {
+      sections: parsed.sections.filter((item): item is string => typeof item === 'string' && validSections.has(item)),
+      columns: parsed.columns.filter((item): item is string => typeof item === 'string' && validColumns.has(item)),
+    };
+    return validatePdfSelection(reportType, selection) ? defaults : selection;
+  } catch {
+    return defaults;
+  }
+}
+
+export function savePdfSelection(
+  reportType: PdfReportType,
+  selection: PdfSelection,
+  scope = 'default',
+  storage: PdfSelectionStorage | null = browserStorage(),
+) {
+  if (!storage || validatePdfSelection(reportType, selection)) return false;
+  try {
+    storage.setItem(pdfSelectionStorageKey(reportType, scope), JSON.stringify(selection));
+    return true;
+  } catch {
+    return false;
+  }
 }

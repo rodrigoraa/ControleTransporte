@@ -31,6 +31,13 @@ describe('crudResources', () => {
     }
   });
 
+  it('permite ordenar todas as colunas exibidas em despesas e faturamento', () => {
+    for (const path of ['despesas', 'faturamento']) {
+      const tableFields = byPath(path).fields.filter((item) => item.table);
+      expect(tableFields.every((item) => item.sortable)).toBe(true);
+    }
+  });
+
   it('mantém rotas de retorno distintas para despesas e faturamento apesar do endpoint compartilhado', () => {
     const despesas = byPath('despesas');
     const faturamento = byPath('faturamento');

@@ -29,7 +29,14 @@ function makeService(eixos = 6, currentOverrides: Record<string, any> = {}) {
   });
 
   const prisma: any = {
-    lancamentoFinanceiro: { create, update, delete: remove, findUnique: jest.fn() },
+    lancamentoFinanceiro: {
+      create,
+      update,
+      delete: remove,
+      findUnique: jest.fn(),
+      findMany: jest.fn(async () => []),
+      count: jest.fn(async () => 0),
+    },
     cavaloMecanico: { findUnique },
     conjunto: { findUnique: jest.fn() },
     categoriaFinanceira: {
@@ -82,6 +89,35 @@ const baseDto = {
 };
 
 describe('LancamentosFinanceirosService', () => {
+  it('ordena a listagem pelo valor exibido da coluna e mantém a paginação estável', async () => {
+    const { service, prisma } = makeService();
+
+    await service.findAll({
+      page: 2,
+      limit: 10,
+      orderBy: 'motoristaId',
+      orderDirection: 'desc',
+    });
+
+    expect(prisma.lancamentoFinanceiro.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      skip: 10,
+      take: 10,
+      orderBy: [
+        { motorista: { nome: 'desc' } },
+        { createdAt: 'desc' },
+      ],
+    }));
+  });
+
+  it('ignora campos de ordenação não permitidos', () => {
+    const { service } = makeService();
+
+    expect((service as any).buildOrderBy({
+      orderBy: 'campoInexistente',
+      orderDirection: 'asc',
+    })).toEqual([{ createdAt: 'desc' }]);
+  });
+
   it('busca o texto em todos os dados relacionados do lançamento', () => {
     const { service } = makeService();
 

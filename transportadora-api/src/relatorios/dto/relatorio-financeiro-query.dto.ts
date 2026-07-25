@@ -19,7 +19,9 @@ export class RelatorioFinanceiroQueryDto {
   @IsOptional() @IsString() placa?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(500) limit?: number;
-  @IsOptional() @IsIn(['data', 'valorTotal']) orderBy?: 'data' | 'valorTotal';
+  @IsOptional()
+  @IsIn(['data', 'tipoLancamento', 'cavalo', 'conjunto', 'motorista', 'parte', 'categoria', 'quantidade', 'valorUnitario', 'valorTotal'])
+  orderBy?: 'data' | 'tipoLancamento' | 'cavalo' | 'conjunto' | 'motorista' | 'parte' | 'categoria' | 'quantidade' | 'valorUnitario' | 'valorTotal';
   @IsOptional() @IsIn(['asc', 'desc']) orderDirection?: 'asc' | 'desc';
   @IsOptional() @IsString() secoesPdf?: string;
   @IsOptional() @IsString() colunasPdf?: string;

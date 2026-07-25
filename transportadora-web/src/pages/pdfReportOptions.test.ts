@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   defaultPdfSelection,
+  loadPdfSelection,
   pdfReportConfigs,
   pdfSelectionParams,
+  savePdfSelection,
   validatePdfSelection,
 } from './pdfReportOptions';
 
@@ -38,5 +40,38 @@ describe('opções do PDF', () => {
       secoesPdf: 'lancamentos,comissoes',
       colunasPdf: 'lancamentos:data,comissoes:liquida',
     });
+  });
+
+  it('salva e recupera as preferências separadamente por usuário e tipo de relatório', () => {
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) || null,
+      setItem: (key: string, value: string) => { values.set(key, value); },
+    };
+    const generalSelection = {
+      sections: ['resumo_financeiro', 'lancamentos'],
+      columns: ['lancamentos:data', 'lancamentos:valorTotal'],
+    };
+    const fleetSelection = {
+      sections: ['resumo_frota'],
+      columns: [],
+    };
+
+    expect(savePdfSelection('REGISTRO_GERAL', generalSelection, 'user-1', storage)).toBe(true);
+    expect(savePdfSelection('MEDIA_FROTA', fleetSelection, 'user-1', storage)).toBe(true);
+    expect(loadPdfSelection('REGISTRO_GERAL', 'user-1', storage)).toEqual(generalSelection);
+    expect(loadPdfSelection('MEDIA_FROTA', 'user-1', storage)).toEqual(fleetSelection);
+    expect(loadPdfSelection('REGISTRO_GERAL', 'user-2', storage))
+      .toEqual(defaultPdfSelection('REGISTRO_GERAL'));
+  });
+
+  it('ignora preferências inválidas e restaura a configuração padrão', () => {
+    const storage = {
+      getItem: () => '{"sections":["removida"],"columns":[]}',
+      setItem: () => undefined,
+    };
+
+    expect(loadPdfSelection('REGISTRO_GERAL', 'user-1', storage))
+      .toEqual(defaultPdfSelection('REGISTRO_GERAL'));
   });
 });

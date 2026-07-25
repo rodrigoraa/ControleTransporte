@@ -429,6 +429,23 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
     return where;
   }
 
+  protected buildOrderBy(query: PaginationDto & Record<string, any>) {
+    const direction = query.orderDirection === 'desc' ? 'desc' : 'asc';
+    const sortableFields: Record<string, object> = {
+      data: { data: direction },
+      cavaloMecanicoId: { placa: direction },
+      motoristaId: { motorista: { nome: direction } },
+      fornecedorId: { fornecedor: { nome: direction } },
+      clienteId: { cliente: { nome: direction } },
+      categoriaId: { categoriaFinanceira: { nome: direction } },
+      quantidade: { quantidade: direction },
+      valorUnitario: { valorUnitario: direction },
+      valorTotal: { valorTotal: direction },
+    };
+    const selectedOrder = query.orderBy ? sortableFields[query.orderBy] : null;
+    return selectedOrder ? [selectedOrder, { createdAt: 'desc' as const }] : super.buildOrderBy(query);
+  }
+
   private applyBusinessRules(data: any) {
     const normalized = { ...data };
 

@@ -280,6 +280,35 @@ th {
   white-space: nowrap;
 }
 
+.sortable-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.sortable-header svg {
+  flex: 0 0 auto;
+  color: #80939c;
+}
+
+.sortable-header:hover,
+.sortable-header.active {
+  color: #145767;
+}
+
+.sortable-header:hover svg,
+.sortable-header.active svg {
+  color: #1f7a8c;
+}
+
 td {
   max-width: 220px;
   overflow-wrap: anywhere;

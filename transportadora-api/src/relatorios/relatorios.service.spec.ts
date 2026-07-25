@@ -228,7 +228,7 @@ describe('RelatoriosService', () => {
     expect(paginatedCall?.[0]).toEqual(expect.objectContaining({
       skip: 1,
       take: 1,
-      orderBy: { valorTotal: 'asc' },
+      orderBy: [{ valorTotal: 'asc' }, { createdAt: 'desc' }],
     }));
     const commissionCall = prisma.lancamentoFinanceiro.findMany.mock.calls.find(([args]: any[]) => JSON.stringify(args.where).includes('tipoComissao'));
     expect(JSON.stringify(commissionCall?.[0].where)).toContain('quantidadeEixosComissao');
@@ -277,6 +277,22 @@ describe('RelatoriosService', () => {
       }),
     }));
     expect(prisma.lancamentoFinanceiro.count).not.toHaveBeenCalled();
+  });
+
+  it('ordena os lançamentos do relatório pelo texto exibido das relações', async () => {
+    const { service, prisma } = makeService();
+
+    await service.financeiros({
+      tipoRelatorio: 'REGISTRO_GERAL',
+      orderBy: 'motorista',
+      orderDirection: 'asc',
+    } as any);
+
+    const paginatedCall = prisma.lancamentoFinanceiro.findMany.mock.calls.find(([args]: any[]) => args.skip === 0);
+    expect(paginatedCall?.[0].orderBy).toEqual([
+      { motorista: { nome: 'asc' } },
+      { createdAt: 'desc' },
+    ]);
   });
 
   it('exporta CSV com comissão detalhada sem duplicar o valor na linha da despesa automática', async () => {

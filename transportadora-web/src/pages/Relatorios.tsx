@@ -1,16 +1,20 @@
-import { FormEvent, useEffect, useState } from 'react';
-import { BarChart3, Download, FileSpreadsheet, FileText, Filter, Search, X } from 'lucide-react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { ArrowDown, ArrowUp, ArrowUpDown, BarChart3, Download, FileSpreadsheet, FileText, Filter, Search, X } from 'lucide-react';
 import { api } from '../services/api';
 import { SearchableSelect } from '../components/SearchableSelect';
+import { useAuth } from '../contexts/AuthContext';
 import { apiErrorMessage } from '../utils/apiError';
 import { date, money } from '../utils/formatters';
+import { nextTableSort, sortTableRows, TableSort } from '../utils/tableSorting';
 import {
   defaultPdfSelection,
+  loadPdfSelection,
   pdfColumnId,
   pdfReportConfigs,
   pdfSelectionParams,
   PdfReportType,
   PdfSelection,
+  savePdfSelection,
   validatePdfSelection,
 } from './pdfReportOptions';
 
@@ -39,6 +43,7 @@ const tiposRelatorio = [
 ];
 
 export function Relatorios() {
+  const { user } = useAuth();
   const [reportType, setReportType] = useState<ReportType>('REGISTRO_GERAL');
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [financeiro, setFinanceiro] = useState<any>(null);
@@ -59,6 +64,10 @@ export function Relatorios() {
   const activeFilters = Object.entries(filters)
     .filter(([name, value]) => value && (reportType === 'REGISTRO_GERAL' || ['dataInicial', 'dataFinal', 'cavaloMecanicoId'].includes(name)))
     .length;
+  const reportSort: TableSort = {
+    orderBy: filters.orderBy || '',
+    orderDirection: filters.orderDirection === 'asc' ? 'asc' : 'desc',
+  };
 
   useEffect(() => {
     api.get('/relatorios/opcoes').then((response) => setOptions(response.data));
@@ -70,10 +79,10 @@ export function Relatorios() {
     setFilters(next);
   }
 
-  function reportParams() {
+  function reportParams(sourceFilters = filters) {
     const relevantFilters = reportType === 'MEDIA_FROTA'
-      ? Object.fromEntries(Object.entries(filters).filter(([name, value]) => value && ['dataInicial', 'dataFinal', 'cavaloMecanicoId'].includes(name)))
-      : Object.fromEntries(Object.entries(filters).filter(([, value]) => value));
+      ? Object.fromEntries(Object.entries(sourceFilters).filter(([name, value]) => value && ['dataInicial', 'dataFinal', 'cavaloMecanicoId'].includes(name)))
+      : Object.fromEntries(Object.entries(sourceFilters).filter(([, value]) => value));
     return { ...relevantFilters, tipoRelatorio: reportType };
   }
 
@@ -83,11 +92,11 @@ export function Relatorios() {
     await loadReport(1);
   }
 
-  async function loadReport(targetPage = page) {
+  async function loadReport(targetPage = page, sourceFilters = filters) {
     setLoading(true);
     setError('');
     try {
-      const { data } = await api.get('/relatorios/financeiros', { params: { ...reportParams(), page: targetPage, limit: 50 } });
+      const { data } = await api.get('/relatorios/financeiros', { params: { ...reportParams(sourceFilters), page: targetPage, limit: 50 } });
       setPage(targetPage);
       setFinanceiro(data);
     } catch (requestError: any) {
@@ -115,6 +124,18 @@ export function Relatorios() {
       setError(await apiErrorMessage(requestError, `Não foi possível exportar o relatório em ${format.toUpperCase()}.`));
       return false;
     }
+  }
+
+  async function changeReportSort(orderBy: string) {
+    const currentSort: TableSort = {
+      orderBy: filters.orderBy || '',
+      orderDirection: filters.orderDirection === 'asc' ? 'asc' : 'desc',
+    };
+    const nextSort = nextTableSort(currentSort, orderBy);
+    const nextFilters = { ...filters, ...nextSort };
+    setFilters(nextFilters);
+    setPage(1);
+    await loadReport(1, nextFilters);
   }
 
   return (
@@ -175,7 +196,24 @@ export function Relatorios() {
             <SelectFilter label="Cliente" name="clienteId" value={filters.clienteId || ''} options={options.clientes} onChange={updateFilter} />
             <SelectFilter label="Tipo financeiro" name="tipoLancamento" value={filters.tipoLancamento || ''} options={options.tipos} onChange={updateFilter} />
             <SelectFilter label="Categoria" name="categoriaId" value={filters.categoriaId || ''} options={options.categorias} onChange={updateFilter} />
-            <SelectFilter label="Ordenar por" name="orderBy" value={filters.orderBy || ''} options={[{ value: 'data', label: 'Data' }, { value: 'valorTotal', label: 'Valor total' }]} onChange={updateFilter} />
+            <SelectFilter
+              label="Ordenar por"
+              name="orderBy"
+              value={filters.orderBy || ''}
+              options={[
+                { value: 'data', label: 'Data' },
+                { value: 'tipoLancamento', label: 'Tipo' },
+                { value: 'cavalo', label: 'Cavalo' },
+                { value: 'conjunto', label: 'Conjunto' },
+                { value: 'motorista', label: 'Motorista' },
+                { value: 'parte', label: 'Fornecedor/Cliente' },
+                { value: 'categoria', label: 'Categoria' },
+                { value: 'quantidade', label: 'Quantidade' },
+                { value: 'valorUnitario', label: 'Valor unitário' },
+                { value: 'valorTotal', label: 'Valor total' },
+              ]}
+              onChange={updateFilter}
+            />
             <SelectFilter label="Direção" name="orderDirection" value={filters.orderDirection || ''} options={[{ value: 'desc', label: 'Decrescente' }, { value: 'asc', label: 'Crescente' }]} onChange={updateFilter} />
           </>
         )}
@@ -216,7 +254,19 @@ export function Relatorios() {
             <div className="table-wrap">
               <table>
                 <thead>
-                  <tr><th>Data</th><th>Tipo</th><th>Cavalo</th><th>Conjunto registrado</th><th>Implementos usados no lançamento</th><th>Motorista</th><th>Fornecedor/Cliente</th><th>Categoria</th><th>Qtd.</th><th>Valor unitário</th><th>Valor total</th></tr>
+                  <tr>
+                    <SortableHeader label="Data" sortKey="data" sort={reportSort} onSort={changeReportSort} />
+                    <SortableHeader label="Tipo" sortKey="tipoLancamento" sort={reportSort} onSort={changeReportSort} />
+                    <SortableHeader label="Cavalo" sortKey="cavalo" sort={reportSort} onSort={changeReportSort} />
+                    <SortableHeader label="Conjunto registrado" sortKey="conjunto" sort={reportSort} onSort={changeReportSort} />
+                    <th>Implementos usados no lançamento</th>
+                    <SortableHeader label="Motorista" sortKey="motorista" sort={reportSort} onSort={changeReportSort} />
+                    <SortableHeader label="Fornecedor/Cliente" sortKey="parte" sort={reportSort} onSort={changeReportSort} />
+                    <SortableHeader label="Categoria" sortKey="categoria" sort={reportSort} onSort={changeReportSort} />
+                    <SortableHeader label="Qtd." sortKey="quantidade" sort={reportSort} onSort={changeReportSort} />
+                    <SortableHeader label="Valor unitário" sortKey="valorUnitario" sort={reportSort} onSort={changeReportSort} />
+                    <SortableHeader label="Valor total" sortKey="valorTotal" sort={reportSort} onSort={changeReportSort} />
+                  </tr>
                 </thead>
                 <tbody>
                   {!financeiro.historico.length && (
@@ -262,6 +312,7 @@ export function Relatorios() {
         <PdfExportModal
           key={reportType}
           reportType={reportType}
+          preferenceScope={user?.id || 'anonymous'}
           onClose={() => setPdfOptionsOpen(false)}
           onExport={(selection) => exportReport('pdf', pdfSelectionParams(selection))}
         />
@@ -272,16 +323,18 @@ export function Relatorios() {
 
 function PdfExportModal({
   reportType,
+  preferenceScope,
   onClose,
   onExport,
 }: {
   reportType: ReportType;
+  preferenceScope: string;
   onClose: () => void;
   onExport: (selection: PdfSelection) => Promise<boolean>;
 }) {
   const config = pdfReportConfigs[reportType];
   const defaults = defaultPdfSelection(reportType);
-  const [selection, setSelection] = useState<PdfSelection>(defaults);
+  const [selection, setSelection] = useState<PdfSelection>(() => loadPdfSelection(reportType, preferenceScope));
   const [localError, setLocalError] = useState('');
   const [exporting, setExporting] = useState(false);
   const allSectionsSelected = selection.sections.length === config.sections.length;
@@ -317,7 +370,10 @@ function PdfExportModal({
     setExporting(true);
     const exported = await onExport(selection);
     setExporting(false);
-    if (exported) onClose();
+    if (exported) {
+      savePdfSelection(reportType, selection, preferenceScope);
+      onClose();
+    }
   }
 
   return (
@@ -326,23 +382,35 @@ function PdfExportModal({
         <div className="modal-header">
           <div>
             <h2 id="pdf-options-title">Personalizar PDF</h2>
-            <p>Escolha as seções e, nas opções avançadas, as colunas que serão emitidas.</p>
+            <p>Escolha as seções e colunas. Suas preferências ficam salvas para os próximos relatórios.</p>
           </div>
           <button className="icon-button" type="button" disabled={exporting} onClick={onClose} aria-label="Fechar"><X size={18} /></button>
         </div>
 
         <div className="pdf-option-heading">
           <strong>Seções do relatório</strong>
-          <button
-            className="button ghost"
-            type="button"
-            onClick={() => setSelection((current) => ({
-              ...current,
-              sections: allSectionsSelected ? [] : config.sections.map((section) => section.id),
-            }))}
-          >
-            {allSectionsSelected ? 'Desmarcar tudo' : 'Selecionar tudo'}
-          </button>
+          <div className="actions">
+            <button
+              className="button ghost"
+              type="button"
+              onClick={() => {
+                setSelection(defaults);
+                setLocalError('');
+              }}
+            >
+              Restaurar padrão
+            </button>
+            <button
+              className="button ghost"
+              type="button"
+              onClick={() => setSelection((current) => ({
+                ...current,
+                sections: allSectionsSelected ? [] : config.sections.map((section) => section.id),
+              }))}
+            >
+              {allSectionsSelected ? 'Desmarcar tudo' : 'Selecionar tudo'}
+            </button>
+          </div>
         </div>
         <div className="pdf-option-grid">
           {config.sections.map((section) => (
@@ -411,6 +479,20 @@ function PdfExportModal({
 function CommissionReport({ comissoes }: { comissoes: any }) {
   const resumo = comissoes?.resumo || {};
   const historico = comissoes?.historico || [];
+  const [sort, setSort] = useState<TableSort>({ orderBy: 'data', orderDirection: 'desc' });
+  const sortedHistorico = useMemo(() => sortTableRows<any>(historico, sort, {
+    data: (item) => new Date(item.data),
+    cavalo: (item) => item.cavaloMecanico?.placa || item.placa,
+    motorista: (item) => item.motorista?.nome,
+    eixos: (item) => Number(item.quantidadeEixosComissao),
+    tipo: (item) => commissionTypeLabel(item.tipoComissao),
+    regra: (item) => item.tipoComissao === 'PERCENTUAL' ? Number(item.percentualComissao) : Number(item.valorComissaoPorViagem),
+    faturamento: (item) => Number(item.valorTotal),
+    bruta: (item) => Number(item.valorComissaoBruta ?? item.valorComissao),
+    impostos: (item) => Number(item.valorDescontoImpostos || 0),
+    liquida: (item) => Number(item.valorComissao),
+    aposComissao: (item) => Number(item.valorTotal || 0) - Number(item.valorComissao || 0),
+  }), [historico, sort]);
 
   return (
     <>
@@ -437,11 +519,23 @@ function CommissionReport({ comissoes }: { comissoes: any }) {
         <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>Data</th><th>Cavalo</th><th>Motorista</th><th>Eixos</th><th>Tipo</th><th>Regra aplicada</th><th>Faturamento</th><th>Comissão bruta</th><th>Impostos</th><th>Comissão líquida</th><th>Após comissão</th></tr>
+              <tr>
+                <SortableHeader label="Data" sortKey="data" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
+                <SortableHeader label="Cavalo" sortKey="cavalo" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
+                <SortableHeader label="Motorista" sortKey="motorista" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
+                <SortableHeader label="Eixos" sortKey="eixos" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
+                <SortableHeader label="Tipo" sortKey="tipo" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
+                <SortableHeader label="Regra aplicada" sortKey="regra" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
+                <SortableHeader label="Faturamento" sortKey="faturamento" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
+                <SortableHeader label="Comissão bruta" sortKey="bruta" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
+                <SortableHeader label="Impostos" sortKey="impostos" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
+                <SortableHeader label="Comissão líquida" sortKey="liquida" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
+                <SortableHeader label="Após comissão" sortKey="aposComissao" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
+              </tr>
             </thead>
             <tbody>
               {!historico.length && <tr><td colSpan={11}>Nenhuma comissão encontrada para os filtros informados.</td></tr>}
-              {historico.map((item: any) => (
+              {sortedHistorico.map((item: any) => (
                 <tr key={item.id}>
                   <td>{date(item.data)}</td>
                   <td>{item.cavaloMecanico?.placa || item.placa || '-'}</td>
@@ -469,6 +563,29 @@ function ConsumoReport({ consumo }: { consumo: any }) {
   const porCavalo = consumo?.porCavalo || [];
   const historico = consumo?.historico || [];
   const periodoComparacao = consumo?.periodoComparacao;
+  const [rankingSort, setRankingSort] = useState<TableSort>({ orderBy: 'posicao', orderDirection: 'asc' });
+  const [historySort, setHistorySort] = useState<TableSort>({ orderBy: 'data', orderDirection: 'desc' });
+  const sortedRanking = useMemo(() => sortTableRows<any>(porCavalo, rankingSort, {
+    posicao: (item) => item.posicao,
+    cavalo: (item) => item.cavalo,
+    abastecimentos: (item) => Number(item.quantidadeRegistros),
+    distancia: (item) => Number(item.distanciaTotal),
+    litros: (item) => Number(item.litrosTotal),
+    mediaAtual: (item) => Number(item.mediaGeralKmLitro),
+    mediaAnterior: (item) => item.mediaPeriodoAnterior == null ? null : Number(item.mediaPeriodoAnterior),
+    variacao: (item) => item.variacaoPercentual == null ? null : Number(item.variacaoPercentual),
+    divergencias: (item) => Number(item.quantidadeDivergencias),
+    amostra: (item) => item.amostraConfiavel ? 1 : 0,
+  }), [porCavalo, rankingSort]);
+  const sortedHistory = useMemo(() => sortTableRows<any>(historico, historySort, {
+    data: (item) => new Date(item.data),
+    cavalo: (item) => item.cavaloMecanico?.placa,
+    kmAnterior: (item) => Number(item.kmAnterior),
+    kmAtual: (item) => Number(item.kmAtual),
+    distancia: (item) => Number(item.distanciaPercorrida),
+    litros: (item) => Number(item.litros),
+    media: (item) => Number(item.mediaKmLitro),
+  }), [historico, historySort]);
 
   return (
     <>
@@ -499,10 +616,23 @@ function ConsumoReport({ consumo }: { consumo: any }) {
         </div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Pos.</th><th>Placa / cavalo</th><th>Abastecimentos</th><th>Distância</th><th>Litros</th><th>Média atual</th><th>Média anterior</th><th>Variação</th><th>Divergências</th><th>Amostra</th></tr></thead>
+            <thead>
+              <tr>
+                <SortableHeader label="Pos." sortKey="posicao" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />
+                <SortableHeader label="Placa / cavalo" sortKey="cavalo" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />
+                <SortableHeader label="Abastecimentos" sortKey="abastecimentos" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />
+                <SortableHeader label="Distância" sortKey="distancia" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />
+                <SortableHeader label="Litros" sortKey="litros" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />
+                <SortableHeader label="Média atual" sortKey="mediaAtual" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />
+                <SortableHeader label="Média anterior" sortKey="mediaAnterior" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />
+                <SortableHeader label="Variação" sortKey="variacao" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />
+                <SortableHeader label="Divergências" sortKey="divergencias" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />
+                <SortableHeader label="Amostra" sortKey="amostra" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />
+              </tr>
+            </thead>
             <tbody>
               {!porCavalo.length && <tr><td colSpan={10}>Nenhum abastecimento encontrado para os filtros informados.</td></tr>}
-              {porCavalo.map((item: any) => (
+              {sortedRanking.map((item: any) => (
                 <tr key={item.cavaloMecanicoId}>
                   <td><strong>{item.posicao == null ? '-' : `${item.posicao}º`}</strong></td>
                   <td>{item.cavalo}</td>
@@ -532,10 +662,20 @@ function ConsumoReport({ consumo }: { consumo: any }) {
         </div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Data</th><th>Cavalo</th><th>Km anterior</th><th>Km atual</th><th>Distância</th><th>Litros</th><th>Média</th></tr></thead>
+            <thead>
+              <tr>
+                <SortableHeader label="Data" sortKey="data" sort={historySort} onSort={(key) => setHistorySort((current) => nextTableSort(current, key))} />
+                <SortableHeader label="Cavalo" sortKey="cavalo" sort={historySort} onSort={(key) => setHistorySort((current) => nextTableSort(current, key))} />
+                <SortableHeader label="Km anterior" sortKey="kmAnterior" sort={historySort} onSort={(key) => setHistorySort((current) => nextTableSort(current, key))} />
+                <SortableHeader label="Km atual" sortKey="kmAtual" sort={historySort} onSort={(key) => setHistorySort((current) => nextTableSort(current, key))} />
+                <SortableHeader label="Distância" sortKey="distancia" sort={historySort} onSort={(key) => setHistorySort((current) => nextTableSort(current, key))} />
+                <SortableHeader label="Litros" sortKey="litros" sort={historySort} onSort={(key) => setHistorySort((current) => nextTableSort(current, key))} />
+                <SortableHeader label="Média" sortKey="media" sort={historySort} onSort={(key) => setHistorySort((current) => nextTableSort(current, key))} />
+              </tr>
+            </thead>
             <tbody>
               {!historico.length && <tr><td colSpan={7}>Nenhum abastecimento encontrado para os filtros informados.</td></tr>}
-              {historico.map((item: any) => (
+              {sortedHistory.map((item: any) => (
                 <tr key={item.id} className={item.divergente ? 'consumo-divergente' : ''}>
                   <td>{date(item.data)}{item.divergente && <small title="A sequência de quilometragens não coincide com o registro anterior ou seguinte.">Sequência divergente</small>}</td>
                   <td>{item.cavaloMecanico?.placa || '-'}</td>
@@ -580,6 +720,19 @@ function Group({ title, rows }: { title: string; rows: any[] }) {
 }
 
 function ConjuntosPorCavalo({ rows }: { rows: any[] }) {
+  const [sort, setSort] = useState<TableSort>({ orderBy: 'cavalo', orderDirection: 'asc' });
+  const sortedRows = useMemo(() => sortTableRows<any>(rows, sort, {
+    cavalo: (row) => row.cavalo,
+    conjunto: (row) => row.conjunto,
+    tipo: (row) => row.tipoConjunto,
+    eixos: (row) => Number(row.quantidadeTotalEixos),
+    implementos: (row) => row.implementos,
+    lancamentos: (row) => Number(row.quantidadeLancamentos),
+    despesas: (row) => Number(row.totalDespesas),
+    faturamento: (row) => Number(row.totalFaturamento),
+    saldo: (row) => Number(row.saldo),
+  }), [rows, sort]);
+
   return (
     <div className="panel report-table-panel">
       <div className="panel-title-row">
@@ -591,11 +744,21 @@ function ConjuntosPorCavalo({ rows }: { rows: any[] }) {
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>Cavalo</th><th>Conjunto</th><th>Tipo</th><th>Eixos</th><th>Implementos</th><th>Lanc.</th><th>Despesas</th><th>Faturamento</th><th>Saldo</th></tr>
+            <tr>
+              <SortableHeader label="Cavalo" sortKey="cavalo" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
+              <SortableHeader label="Conjunto" sortKey="conjunto" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
+              <SortableHeader label="Tipo" sortKey="tipo" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
+              <SortableHeader label="Eixos" sortKey="eixos" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
+              <SortableHeader label="Implementos" sortKey="implementos" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
+              <SortableHeader label="Lanc." sortKey="lancamentos" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
+              <SortableHeader label="Despesas" sortKey="despesas" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
+              <SortableHeader label="Faturamento" sortKey="faturamento" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
+              <SortableHeader label="Saldo" sortKey="saldo" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
+            </tr>
           </thead>
           <tbody>
             {!rows.length && <tr><td colSpan={9}>Nenhum conjunto encontrado para os filtros informados.</td></tr>}
-            {rows.map((row, index) => (
+            {sortedRows.map((row, index) => (
               <tr key={`${row.cavaloId}-${row.conjuntoId || index}`}>
                 <td>{row.cavalo || '-'}</td>
                 <td>{row.conjunto || '-'}</td>
@@ -612,6 +775,35 @@ function ConjuntosPorCavalo({ rows }: { rows: any[] }) {
         </table>
       </div>
     </div>
+  );
+}
+
+function SortableHeader({
+  label,
+  sortKey,
+  sort,
+  onSort,
+}: {
+  label: string;
+  sortKey: string;
+  sort: TableSort;
+  onSort: (sortKey: string) => void | Promise<void>;
+}) {
+  const active = sort.orderBy === sortKey;
+  return (
+    <th aria-sort={active ? (sort.orderDirection === 'asc' ? 'ascending' : 'descending') : undefined}>
+      <button
+        className={`sortable-header ${active ? 'active' : ''}`}
+        type="button"
+        title={`Ordenar por ${label}`}
+        onClick={() => void onSort(sortKey)}
+      >
+        <span>{label}</span>
+        {active
+          ? sort.orderDirection === 'asc' ? <ArrowUp size={15} /> : <ArrowDown size={15} />
+          : <ArrowUpDown size={15} />}
+      </button>
+    </th>
   );
 }
 

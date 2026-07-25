@@ -131,7 +131,7 @@ export class RelatoriosService {
     const where = await this.buildWhere(filters);
     const page = filters.page || 1;
     const limit = filters.limit || 50;
-    const orderBy = { [filters.orderBy || 'data']: filters.orderDirection || 'desc' };
+    const orderBy = this.lancamentoOrderBy(filters);
     const [despesas, faturamento, total, historico, despesasPorCavaloMecanico, despesasPorMotorista, faturamentoPorCavaloMecanico, faturamentoPorMotorista, conjuntosPorCavalo, comissoes] =
       await Promise.all([
         this.sum({ ...where, tipoLancamento: TipoLancamento.DESPESA }),
@@ -342,7 +342,7 @@ export class RelatoriosService {
     return this.prisma.lancamentoFinanceiro.findMany({
       where: await this.buildWhere(filters),
       include: this.lancamentoInclude(),
-      orderBy: { [filters.orderBy || 'data']: filters.orderDirection || 'desc' },
+      orderBy: this.lancamentoOrderBy(filters),
       take: 5000,
     });
   }
@@ -752,6 +752,26 @@ export class RelatoriosService {
     return value.toISOString().slice(0, 10).split('-').reverse().join('/');
   }
 
+  private lancamentoOrderBy(filters: RelatorioFinanceiroQueryDto): object[] {
+    const direction = filters.orderDirection === 'asc' ? 'asc' : 'desc';
+    const sortableFields: Record<string, object[]> = {
+      data: [{ data: direction }],
+      tipoLancamento: [{ tipoLancamento: direction }],
+      cavalo: [{ placa: direction }],
+      conjunto: [{ conjunto: { nome: direction } }],
+      motorista: [{ motorista: { nome: direction } }],
+      parte: [{ fornecedor: { nome: direction } }, { cliente: { nome: direction } }],
+      categoria: [{ categoriaFinanceira: { nome: direction } }],
+      quantidade: [{ quantidade: direction }],
+      valorUnitario: [{ valorUnitario: direction }],
+      valorTotal: [{ valorTotal: direction }],
+    };
+    return [
+      ...(sortableFields[filters.orderBy || 'data'] || sortableFields.data),
+      { createdAt: 'desc' },
+    ];
+  }
+
   private async sum(where: any) {
     const result = await this.prisma.lancamentoFinanceiro.aggregate({ where, _sum: { valorTotal: true } });
     return Number(result._sum.valorTotal || 0);
@@ -828,7 +848,7 @@ export class RelatoriosService {
       this.prisma.lancamentoFinanceiro.findMany({
         where,
         include: this.lancamentoInclude(),
-        orderBy: { [filters.orderBy || 'data']: filters.orderDirection || 'desc' },
+        orderBy: this.lancamentoOrderBy(filters),
         take,
       }),
     ]);
