@@ -1,6 +1,7 @@
 ﻿import { TipoConjuntoOperacional, TipoLancamento } from '@prisma/client';
-import { Type } from 'class-transformer';
-import { IsDateString, IsEnum, IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { IsDateString, IsEnum, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { normalizePlate, PLATE_MAX_LENGTH } from '../../common/validation/normalize-plate';
 
 export class RelatorioFinanceiroQueryDto {
   @IsOptional() @IsIn(['REGISTRO_GERAL', 'MEDIA_FROTA']) tipoRelatorio?: 'REGISTRO_GERAL' | 'MEDIA_FROTA';
@@ -16,7 +17,8 @@ export class RelatorioFinanceiroQueryDto {
   @IsOptional() @IsEnum(TipoLancamento) tipoLancamento?: TipoLancamento;
   @IsOptional() @IsEnum(TipoConjuntoOperacional) tipoConjunto?: TipoConjuntoOperacional;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(20) quantidadeEixos?: number;
-  @IsOptional() @IsString() placa?: string;
+  @Transform(({ value }) => normalizePlate(value))
+  @IsOptional() @IsString() @MaxLength(PLATE_MAX_LENGTH) placa?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(500) limit?: number;
   @IsOptional()

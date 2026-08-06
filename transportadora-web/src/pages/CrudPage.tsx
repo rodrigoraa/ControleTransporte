@@ -9,6 +9,7 @@ import { SearchableSelect } from '../components/SearchableSelect';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../services/api';
 import { apiErrorMessage } from '../utils/apiError';
+import { buildColumnFilterParams } from '../utils/columnFilters';
 import { date, maskPlate, money } from '../utils/formatters';
 import { billingTotal, commissionAfterTaxDiscount, commissionDefaults, commissionValues, selectedCommissionValue } from '../utils/commission';
 import { nextTableSort, TableSort } from '../utils/tableSorting';
@@ -17,12 +18,24 @@ import { carrocerias, crudResources, Field, Resource, resourceListPath, tiposImp
 type Mode = 'create' | 'edit' | 'view';
 const relationPageLimit = 100;
 
+function useDebouncedValue<T>(value: T, delay: number) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedValue(value), delay);
+    return () => window.clearTimeout(timeout);
+  }, [value, delay]);
+
+  return debouncedValue;
+}
+
 export function CrudPage({ resource }: { resource: Resource }) {
   const navigate = useNavigate();
   const [rows, setRows] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
+  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [sort, setSort] = useState<TableSort>({ orderBy: '', orderDirection: 'asc' });
   const [modal, setModal] = useState<{ mode: Mode; item: any } | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -35,6 +48,9 @@ export function CrudPage({ resource }: { resource: Resource }) {
   const limit = 10;
 
   const tableFields = useMemo(() => resource.fields.filter((field) => field.table), [resource]);
+  const isFinancialList = ['despesas', 'faturamento'].includes(resource.path);
+  const pendingFilters = useMemo(() => ({ search, columns: columnFilters }), [search, columnFilters]);
+  const debouncedFilters = useDebouncedValue(pendingFilters, 350);
   const groupedRows = useMemo(() => groupRowsByOperationalStatus(resource, rows), [resource, rows]);
 
   async function load(targetPage = page) {
@@ -44,7 +60,8 @@ export function CrudPage({ resource }: { resource: Resource }) {
         params: {
           page: targetPage,
           limit,
-          search,
+          search: debouncedFilters.search.trim() || undefined,
+          ...buildColumnFilterParams(tableFields, debouncedFilters.columns),
           ...(sort.orderBy ? sort : {}),
           ...resource.fixedParams,
         },
@@ -60,7 +77,7 @@ export function CrudPage({ resource }: { resource: Resource }) {
 
   useEffect(() => {
     load();
-  }, [resource.path, page, sort.orderBy, sort.orderDirection]);
+  }, [resource.path, page, sort.orderBy, sort.orderDirection, debouncedFilters]);
 
   function changeSort(field: Field) {
     if (!field.sortable) return;
@@ -102,17 +119,20 @@ export function CrudPage({ resource }: { resource: Resource }) {
           </button>
         )}
       </div>
-      <form className="toolbar" onSubmit={(event) => {
-        event.preventDefault();
-        if (page === 1) void load(1);
-        else setPage(1);
-      }}>
+      <div className="toolbar">
         <div className="search-box">
           <Search size={18} />
-          <input placeholder="Buscar..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          <input
+            placeholder="Buscar em todos os campos..."
+            value={search}
+            onChange={(event) => {
+              setPage(1);
+              setSearch(event.target.value);
+            }}
+          />
         </div>
-        <button className="button">Filtrar</button>
-      </form>
+        <span className="automatic-filter-hint">{loading ? 'Buscando...' : 'Busca automática'}</span>
+      </div>
       <div className="panel">
         <div className="table-wrap">
           <table>
@@ -144,6 +164,28 @@ export function CrudPage({ resource }: { resource: Resource }) {
                 })}
                 <th>Ações</th>
               </tr>
+              {isFinancialList && (
+                <tr className="column-filter-row">
+                  {tableFields.map((field) => (
+                    <th key={field.name}>
+                      <input
+                        className="column-filter-input"
+                        type={field.filterType || 'text'}
+                        min={field.filterType === 'number' ? '0' : undefined}
+                        step={field.filterType === 'number' ? 'any' : undefined}
+                        placeholder={field.filterType === 'date' ? undefined : 'Pesquisar...'}
+                        aria-label={`Filtrar por ${field.label}`}
+                        value={columnFilters[field.name] || ''}
+                        onChange={(event) => {
+                          setPage(1);
+                          setColumnFilters((current) => ({ ...current, [field.name]: event.target.value }));
+                        }}
+                      />
+                    </th>
+                  ))}
+                  <th aria-label="Sem filtro para ações" />
+                </tr>
+              )}
             </thead>
             <tbody>
               {groupedRows.map((group) => (
@@ -218,7 +260,7 @@ export function CrudPage({ resource }: { resource: Resource }) {
 
 const implementoFields: Field[] = [
   { name: 'id', label: 'ID', hidden: true },
-  { name: 'placa', label: 'Placa', mask: maskPlate },
+  { name: 'placa', label: 'Placa', mask: maskPlate, maxLength: 128 },
   { name: 'tipo', label: 'Tipo', type: 'select', required: true, options: tiposImplemento },
   { name: 'carroceria', label: 'Carroceria', type: 'select', required: true, options: carrocerias },
   { name: 'quantidadeEixos', label: 'Eixos', type: 'select', required: true, options: [{ label: '2 eixos', value: '2' }, { label: '3 eixos', value: '3' }] },
@@ -622,11 +664,11 @@ function FieldControl({ field, value, relationOptions = {}, onChange }: { field:
           onChange={onChange}
         />
       ) : field.type === 'textarea' ? (
-        <textarea value={value || ''} onChange={(e) => onChange(e.target.value)} />
+        <textarea maxLength={field.maxLength} value={value || ''} onChange={(e) => onChange(e.target.value)} />
       ) : field.type === 'checkbox' ? (
         <input type="checkbox" checked={Boolean(value)} onChange={(e) => onChange(e.target.checked)} />
       ) : (
-        <input type={field.type === 'money' ? 'number' : field.type || 'text'} step={field.type === 'money' ? '0.01' : undefined} value={value ?? ''} required={field.required} onChange={(e) => onChange(e.target.value)} />
+        <input type={field.type === 'money' ? 'number' : field.type || 'text'} step={field.type === 'money' ? '0.01' : undefined} maxLength={field.maxLength} value={value ?? ''} required={field.required} onChange={(e) => onChange(e.target.value)} />
       )}
     </label>
   );

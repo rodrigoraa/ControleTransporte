@@ -416,7 +416,12 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
         relatedSearch('implemento', ['placa', 'observacoes']),
       ];
     }
-    if (query.dataInicial || query.dataFinal) {
+    if (query.data) {
+      const start = new Date(`${query.data}T00:00:00.000Z`);
+      const end = new Date(start);
+      end.setUTCDate(end.getUTCDate() + 1);
+      where.data = { gte: start, lt: end };
+    } else if (query.dataInicial || query.dataFinal) {
       where.data = {};
       if (query.dataInicial) where.data.gte = new Date(query.dataInicial);
       if (query.dataFinal) where.data.lte = new Date(query.dataFinal);
@@ -426,6 +431,17 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
     }
     if (query.tipoLancamento) where.tipoLancamento = query.tipoLancamento as TipoLancamento;
     if (query.placa) where.placa = { contains: query.placa, mode: 'insensitive' };
+    const relatedFilter = (fields: string[], value: string) => ({
+      is: { OR: fields.map((field) => ({ [field]: { contains: value.trim(), mode: 'insensitive' as const } })) },
+    });
+    if (query.cavalo?.trim()) where.cavaloMecanico = relatedFilter(['placa', 'marca', 'modelo'], query.cavalo);
+    if (query.motorista?.trim()) where.motorista = relatedFilter(['nome', 'cpf', 'cnh'], query.motorista);
+    if (query.fornecedor?.trim()) where.fornecedor = relatedFilter(['nome', 'documento'], query.fornecedor);
+    if (query.cliente?.trim()) where.cliente = relatedFilter(['nome', 'documento'], query.cliente);
+    if (query.categoria?.trim()) where.categoriaFinanceira = relatedFilter(['nome'], query.categoria);
+    for (const field of ['quantidade', 'valorUnitario', 'valorTotal']) {
+      if (query[field] !== undefined) where[field] = query[field];
+    }
     return where;
   }
 
@@ -443,7 +459,9 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
       valorTotal: { valorTotal: direction },
     };
     const selectedOrder = query.orderBy ? sortableFields[query.orderBy] : null;
-    return selectedOrder ? [selectedOrder, { createdAt: 'desc' as const }] : super.buildOrderBy(query);
+    return selectedOrder
+      ? [selectedOrder, { createdAt: 'desc' as const }]
+      : [{ createdAt: 'desc' as const }];
   }
 
   private applyBusinessRules(data: any) {

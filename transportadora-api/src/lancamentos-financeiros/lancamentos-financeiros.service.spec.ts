@@ -89,6 +89,24 @@ const baseDto = {
 };
 
 describe('LancamentosFinanceirosService', () => {
+  it.each([TipoLancamento.DESPESA, TipoLancamento.FATURAMENTO])(
+    'ordena %s por ordem de lançamento decrescente quando nenhuma outra ordenação é escolhida',
+    async (tipoLancamento) => {
+      const { service, prisma } = makeService();
+
+      await service.findAll({
+        page: 1,
+        limit: 10,
+        tipoLancamento,
+      });
+
+      expect(prisma.lancamentoFinanceiro.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: { tipoLancamento },
+        orderBy: [{ createdAt: 'desc' }],
+      }));
+    },
+  );
+
   it('ordena a listagem pelo valor exibido da coluna e mantém a paginação estável', async () => {
     const { service, prisma } = makeService();
 
@@ -157,6 +175,45 @@ describe('LancamentosFinanceirosService', () => {
         },
       },
     ]));
+  });
+
+  it('combina os filtros específicos de todas as colunas financeiras', () => {
+    const { service } = makeService();
+
+    const where = (service as any).buildWhere({
+      tipoLancamento: TipoLancamento.DESPESA,
+      data: '2026-08-06',
+      cavalo: 'volvo',
+      motorista: 'edinaldo',
+      fornecedor: 'posto',
+      categoria: 'diesel',
+      quantidade: 2.5,
+      valorUnitario: 10,
+      valorTotal: 25,
+    });
+
+    expect(where).toEqual(expect.objectContaining({
+      tipoLancamento: TipoLancamento.DESPESA,
+      data: {
+        gte: new Date('2026-08-06T00:00:00.000Z'),
+        lt: new Date('2026-08-07T00:00:00.000Z'),
+      },
+      cavaloMecanico: {
+        is: { OR: expect.arrayContaining([{ placa: { contains: 'volvo', mode: 'insensitive' } }]) },
+      },
+      motorista: {
+        is: { OR: expect.arrayContaining([{ nome: { contains: 'edinaldo', mode: 'insensitive' } }]) },
+      },
+      fornecedor: {
+        is: { OR: expect.arrayContaining([{ nome: { contains: 'posto', mode: 'insensitive' } }]) },
+      },
+      categoriaFinanceira: {
+        is: { OR: [{ nome: { contains: 'diesel', mode: 'insensitive' } }] },
+      },
+      quantidade: 2.5,
+      valorUnitario: 10,
+      valorTotal: 25,
+    }));
   });
 
   it('cria despesa manual com fornecedor, calcula total e zera cliente', async () => {

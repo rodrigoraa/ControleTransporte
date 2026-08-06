@@ -17,7 +17,10 @@ export type Field = {
   table?: boolean;
   sortable?: boolean;
   sortKey?: string;
+  filterKey?: string;
+  filterType?: 'text' | 'date' | 'number';
   required?: boolean;
+  maxLength?: number;
   hidden?: boolean;
   showWhen?: { field: string; hasValue?: boolean };
 };
@@ -65,20 +68,20 @@ export const carrocerias = [
 ];
 
 const lancamentoFields: Field[] = [
-  { name: 'data', label: 'Data', type: 'date', required: true, table: true, sortable: true },
-  { name: 'cavaloMecanicoId', label: 'Cavalo mecânico', type: 'select', required: true, table: true, sortable: true, relation: { endpoint: '/caminhoes', labelKey: 'placa', fallbackKey: 'modelo', objectKey: 'cavaloMecanico' } },
+  { name: 'data', label: 'Data', type: 'date', required: true, table: true, sortable: true, filterKey: 'data', filterType: 'date' },
+  { name: 'cavaloMecanicoId', label: 'Cavalo mecânico', type: 'select', required: true, table: true, sortable: true, filterKey: 'cavalo', filterType: 'text', relation: { endpoint: '/caminhoes', labelKey: 'placa', fallbackKey: 'modelo', objectKey: 'cavaloMecanico' } },
   { name: 'conjuntoId', label: 'Conjunto usado', type: 'select', hidden: true, relation: { endpoint: '/conjuntos', labelKey: 'nome', fallbackKey: 'tipo', objectKey: 'conjunto' } },
-  { name: 'motoristaId', label: 'Motorista', type: 'select', table: true, sortable: true, relation: { endpoint: '/motoristas', labelKey: 'nome', fallbackKey: 'cpf', objectKey: 'motorista' } },
-  { name: 'fornecedorId', label: 'Fornecedor', type: 'select', required: true, table: true, sortable: true, relation: { endpoint: '/fornecedores', labelKey: 'nome', fallbackKey: 'documento', objectKey: 'fornecedor' } },
-  { name: 'clienteId', label: 'Cliente', type: 'select', relation: { endpoint: '/clientes', labelKey: 'nome', fallbackKey: 'documento', objectKey: 'cliente' } },
+  { name: 'motoristaId', label: 'Motorista', type: 'select', table: true, sortable: true, filterKey: 'motorista', filterType: 'text', relation: { endpoint: '/motoristas', labelKey: 'nome', fallbackKey: 'cpf', objectKey: 'motorista' } },
+  { name: 'fornecedorId', label: 'Fornecedor', type: 'select', required: true, table: true, sortable: true, filterKey: 'fornecedor', filterType: 'text', relation: { endpoint: '/fornecedores', labelKey: 'nome', fallbackKey: 'documento', objectKey: 'fornecedor' } },
+  { name: 'clienteId', label: 'Cliente', type: 'select', filterKey: 'cliente', filterType: 'text', relation: { endpoint: '/clientes', labelKey: 'nome', fallbackKey: 'documento', objectKey: 'cliente' } },
   { name: 'tipoLancamento', label: 'Tipo', type: 'select', required: true, table: true, options: [{ label: 'Despesa', value: 'DESPESA' }, { label: 'Faturamento', value: 'FATURAMENTO' }] },
-  { name: 'categoriaId', label: 'Categoria', type: 'select', table: true, sortable: true, relation: { endpoint: '/categorias-financeiras', labelKey: 'nome', fallbackKey: 'tipoLancamento', objectKey: 'categoriaFinanceira' } },
+  { name: 'categoriaId', label: 'Categoria', type: 'select', table: true, sortable: true, filterKey: 'categoria', filterType: 'text', relation: { endpoint: '/categorias-financeiras', labelKey: 'nome', fallbackKey: 'tipoLancamento', objectKey: 'categoriaFinanceira' } },
   { name: 'descricao', label: 'Descrição' },
-  { name: 'quantidade', label: 'Quantidade', type: 'number', required: true, table: true, sortable: true },
+  { name: 'quantidade', label: 'Quantidade', type: 'number', required: true, table: true, sortable: true, filterKey: 'quantidade', filterType: 'number' },
   { name: 'unidadeQuantidade', label: 'Unidade da quantidade', type: 'select', required: true, options: [{ label: 'KG', value: 'KG' }, { label: 'Litros', value: 'LITROS' }, { label: 'Unidade', value: 'UNIDADE' }] },
-  { name: 'valorUnitario', label: 'Valor unitário', type: 'money', required: true, table: true, sortable: true },
+  { name: 'valorUnitario', label: 'Valor unitário', type: 'money', required: true, table: true, sortable: true, filterKey: 'valorUnitario', filterType: 'number' },
   { name: 'multiplicarQuantidade', label: 'Multiplicar quantidade pelo valor unitário', type: 'checkbox', required: true },
-  { name: 'valorTotal', label: 'Valor total', type: 'money', table: true, sortable: true },
+  { name: 'valorTotal', label: 'Valor total', type: 'money', table: true, sortable: true, filterKey: 'valorTotal', filterType: 'number' },
   { name: 'observacoes', label: 'Observações', type: 'textarea' },
 ];
 
@@ -117,7 +120,7 @@ export const crudResources: Resource[] = [
     path: 'caminhoes',
     endpoint: '/caminhoes',
     fields: [
-      { name: 'placa', label: 'Placa do cavalo', required: true, table: true, mask: maskPlate },
+      { name: 'placa', label: 'Placa do cavalo', required: true, table: true, mask: maskPlate, maxLength: 128 },
       { name: 'composicaoAtual', label: 'Composição atual', table: true, hidden: true },
       { name: 'marca', label: 'Marca', table: true },
       { name: 'modelo', label: 'Modelo', table: true },

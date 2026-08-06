@@ -1,11 +1,12 @@
 ﻿import { StatusGeral, TipoCarroceria, TipoImplemento } from '@prisma/client';
 import { Transform, Type } from 'class-transformer';
-import { IsEnum, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsEnum, IsInt, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { normalizePlate, PLATE_MAX_LENGTH } from '../../common/validation/normalize-plate';
 
 export class CreateImplementoDto {
   @IsOptional() @IsString() id?: string;
-  @Transform(({ value }) => (typeof value === 'string' && !value.trim() ? null : typeof value === 'string' ? value.trim().toUpperCase() : value))
-  @IsOptional() @IsString() placa?: string | null;
+  @Transform(({ value }) => normalizePlate(value))
+  @IsOptional() @IsString() @MaxLength(PLATE_MAX_LENGTH) placa?: string | null;
   @IsEnum(TipoImplemento) tipo!: TipoImplemento;
   @IsEnum(TipoCarroceria) carroceria!: TipoCarroceria;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) quantidadeEixos?: number | null;

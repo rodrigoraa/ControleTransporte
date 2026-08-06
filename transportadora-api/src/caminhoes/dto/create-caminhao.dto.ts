@@ -1,11 +1,12 @@
 import { StatusGeral, TipoCavaloMecanico } from '@prisma/client';
 import { Transform, Type } from 'class-transformer';
-import { IsArray, IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, Max, Min, ValidateNested } from 'class-validator';
+import { IsArray, IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, Max, MaxLength, Min, ValidateNested } from 'class-validator';
+import { normalizePlate, PLATE_MAX_LENGTH } from '../../common/validation/normalize-plate';
 import { CreateImplementoDto } from '../../implementos/dto/create-implemento.dto';
 
 export class CreateCaminhaoDto {
-  @Transform(({ value }) => (typeof value === 'string' ? value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 7) : value))
-  @IsString() @IsNotEmpty() placa!: string;
+  @Transform(({ value }) => normalizePlate(value))
+  @IsString() @IsNotEmpty() @MaxLength(PLATE_MAX_LENGTH) placa!: string;
   @IsOptional() @IsString() marca?: string | null;
   @IsOptional() @IsString() modelo?: string | null;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1950) @Max(2100) ano?: number | null;

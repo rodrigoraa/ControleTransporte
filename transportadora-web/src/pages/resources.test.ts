@@ -62,9 +62,18 @@ describe('crudResources', () => {
     expect(field('caminhoes', 'composicaoAtual')?.hidden).toBe(true);
   });
 
-  it('marca senha como obrigatória na criação de usuários e normaliza placa do cavalo', () => {
+  it('marca senha como obrigatória na criação de usuários e limita a placa do cavalo a 128 caracteres', () => {
     expect(field('users', 'senha')?.required).toBe(true);
     expect(field('caminhoes', 'placa')?.mask?.('abc-1d23')).toBe('ABC1D23');
+    expect(field('caminhoes', 'placa')?.maxLength).toBe(128);
+    expect(field('caminhoes', 'placa')?.mask?.('a'.repeat(129))).toHaveLength(128);
+  });
+
+  it('permite filtrar individualmente todas as colunas exibidas em despesas e faturamento', () => {
+    for (const path of ['despesas', 'faturamento']) {
+      const tableFields = byPath(path).fields.filter((item) => item.table);
+      expect(tableFields.every((item) => item.filterKey && item.filterType)).toBe(true);
+    }
   });
 });
 //teste

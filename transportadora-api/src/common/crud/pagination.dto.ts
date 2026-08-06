@@ -1,5 +1,5 @@
 ﻿import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsDateString, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class PaginationDto {
   @IsOptional()
@@ -26,6 +26,48 @@ export class PaginationDto {
   @IsOptional()
   @IsString()
   ativo?: string;
+
+  @IsOptional()
+  @IsDateString()
+  data?: string;
+
+  @IsOptional()
+  @IsString()
+  cavalo?: string;
+
+  @IsOptional()
+  @IsString()
+  motorista?: string;
+
+  @IsOptional()
+  @IsString()
+  fornecedor?: string;
+
+  @IsOptional()
+  @IsString()
+  cliente?: string;
+
+  @IsOptional()
+  @IsString()
+  categoria?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  quantidade?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  valorUnitario?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  valorTotal?: number;
 
   @IsOptional()
   @IsString()

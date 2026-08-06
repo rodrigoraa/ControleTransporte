@@ -234,7 +234,15 @@ p {
 
 .toolbar {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
+}
+
+.automatic-filter-hint {
+  color: #5d6e76;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .search-box {
@@ -307,6 +315,28 @@ th {
 .sortable-header:hover svg,
 .sortable-header.active svg {
   color: #1f7a8c;
+}
+
+.column-filter-row th {
+  padding: 6px 8px 10px;
+  vertical-align: middle;
+}
+
+.column-filter-input {
+  width: 100%;
+  min-width: 112px;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid #cbd8dd;
+  border-radius: 6px;
+  background: white;
+  color: #15202b;
+  font: inherit;
+  font-weight: 500;
+}
+
+.column-filter-input[type='date'] {
+  min-width: 138px;
 }
 
 td {

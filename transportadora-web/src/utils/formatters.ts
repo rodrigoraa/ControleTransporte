@@ -17,5 +17,8 @@ export const maskDocument = (value: string) => {
 export const maskPhone = (value: string) =>
   value.replace(/\D/g, '').replace(/(\d{2})(\d{0,5})(\d{0,4})/, (_, a, b, c) => `(${a}) ${b}${c ? `-${c}` : ''}`).slice(0, 15);
 
-export const maskPlate = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 7);
+const normalizePlate = (value: string, maxLength: number) =>
+  value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, maxLength);
+
+export const maskPlate = (value: string, maxLength = 128) => normalizePlate(value, maxLength);
 
