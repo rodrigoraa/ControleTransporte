@@ -36,6 +36,13 @@ export abstract class CrudService<CreateDto extends object, UpdateDto extends ob
         [field]: { contains: query.search, mode: 'insensitive' },
       }));
     }
+    for (const field of this.searchFields) {
+      const value = query[field];
+      if (typeof value === 'string' && value.trim()) {
+        where[field] = { contains: value.trim(), mode: 'insensitive' };
+      }
+    }
+    if (query.status) where.status = query.status;
     return where;
   }
 

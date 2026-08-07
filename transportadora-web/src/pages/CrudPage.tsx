@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { Toast } from '../components/Toast';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { useAuth } from '../contexts/AuthContext';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import { api } from '../services/api';
 import { apiErrorMessage } from '../utils/apiError';
 import { buildColumnFilterParams } from '../utils/columnFilters';
@@ -48,7 +49,7 @@ export function CrudPage({ resource }: { resource: Resource }) {
   const limit = 10;
 
   const tableFields = useMemo(() => resource.fields.filter((field) => field.table), [resource]);
-  const isFinancialList = ['despesas', 'faturamento'].includes(resource.path);
+  const hasColumnFilters = tableFields.some((field) => field.filterKey);
   const pendingFilters = useMemo(() => ({ search, columns: columnFilters }), [search, columnFilters]);
   const debouncedFilters = useDebouncedValue(pendingFilters, 350);
   const groupedRows = useMemo(() => groupRowsByOperationalStatus(resource, rows), [resource, rows]);
@@ -164,25 +165,43 @@ export function CrudPage({ resource }: { resource: Resource }) {
                 })}
                 <th>Ações</th>
               </tr>
-              {isFinancialList && (
+              {hasColumnFilters && (
                 <tr className="column-filter-row">
-                  {tableFields.map((field) => (
-                    <th key={field.name}>
-                      <input
-                        className="column-filter-input"
-                        type={field.filterType || 'text'}
-                        min={field.filterType === 'number' ? '0' : undefined}
-                        step={field.filterType === 'number' ? 'any' : undefined}
-                        placeholder={field.filterType === 'date' ? undefined : 'Pesquisar...'}
-                        aria-label={`Filtrar por ${field.label}`}
-                        value={columnFilters[field.name] || ''}
-                        onChange={(event) => {
-                          setPage(1);
-                          setColumnFilters((current) => ({ ...current, [field.name]: event.target.value }));
-                        }}
-                      />
-                    </th>
-                  ))}
+                  {tableFields.map((field) => {
+                    const updateFilter = (value: string) => {
+                      const normalized = field.filterType === 'text' && field.mask ? field.mask(value) : value;
+                      setPage(1);
+                      setColumnFilters((current) => ({ ...current, [field.name]: normalized }));
+                    };
+                    return (
+                      <th key={field.name}>
+                        {field.filterType === 'select' ? (
+                          <select
+                            className="column-filter-input"
+                            aria-label={`Filtrar por ${field.label}`}
+                            value={columnFilters[field.name] || ''}
+                            onChange={(event) => updateFilter(event.target.value)}
+                          >
+                            <option value="">Todos</option>
+                            {(field.filterOptions || field.options || []).map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            className="column-filter-input"
+                            type={field.filterType || 'text'}
+                            min={field.filterType === 'number' ? '0' : undefined}
+                            step={field.filterType === 'number' ? 'any' : undefined}
+                            placeholder={field.filterType === 'date' ? undefined : 'Pesquisar...'}
+                            aria-label={`Filtrar por ${field.label}`}
+                            value={columnFilters[field.name] || ''}
+                            onChange={(event) => updateFilter(event.target.value)}
+                          />
+                        )}
+                      </th>
+                    );
+                  })}
                   <th aria-label="Sem filtro para ações" />
                 </tr>
               )}
@@ -335,6 +354,7 @@ function HistoricoOperacionalModal({ resource, item, onClose }: { resource: Reso
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState('');
   const isCavalo = resource.path === 'caminhoes';
+  useEscapeToClose(onClose);
 
   useEffect(() => {
     api.get(`${resource.endpoint}/${item.id}/historico`)
@@ -425,6 +445,7 @@ function ConsumoModal({ cavalo, canWrite, onClose }: { cavalo: any; canWrite: bo
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [pendingDelete, setPendingDelete] = useState<any | null>(null);
+  useEscapeToClose(onClose);
 
   async function load(reset = false) {
     setLoading(true);
@@ -517,6 +538,7 @@ function CaminhaoCompletoModal({ resource, mode, item, onClose, onSaved }: { res
   const [implementos, setImplementos] = useState<any[]>(() => compositionImplementos(item));
   const [relationOptions, setRelationOptions] = useState<Record<string, { label: string; value: string }[]>>({});
   const [error, setError] = useState('');
+  useEscapeToClose(onClose);
 
   useEffect(() => {
     const fields = cavaloFields.filter((field) => field.relation);
@@ -775,6 +797,7 @@ function ConfirmModal({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  useEscapeToClose(onCancel);
   const visibleMessage = title === 'Excluir cavalo mecânico'
     ? 'Esta ação remove o cavalo mecânico inteiro, não apenas a carreta. Para remover uma carreta ou dolly, edite o cavalo e altere a composição.'
     : message;
@@ -805,6 +828,7 @@ function RecordModal({ resource, mode, item, onClose, onSaved }: { resource: Res
   const [pendingNoCommissionPayload, setPendingNoCommissionPayload] = useState<any | null>(null);
   const [error, setError] = useState('');
   const { user, logout } = useAuth();
+  useEscapeToClose(onClose);
   const readonly = mode === 'view';
   const selectedCavalo = relationRows.cavaloMecanicoId?.find((row: any) => row.id === form.cavaloMecanicoId);
   const changedCavalo = mode === 'edit' && item.cavaloMecanicoId && item.cavaloMecanicoId !== form.cavaloMecanicoId;

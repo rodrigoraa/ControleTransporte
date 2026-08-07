@@ -75,6 +75,14 @@ describe('crudResources', () => {
       expect(tableFields.every((item) => item.filterKey && item.filterType)).toBe(true);
     }
   });
+
+  it('permite filtrar todas as colunas dos cadastros principais', () => {
+    for (const path of ['clientes', 'fornecedores', 'motoristas', 'caminhoes', 'categorias-financeiras']) {
+      const tableFields = byPath(path).fields.filter((item) => item.table);
+      expect(tableFields.length).toBeGreaterThan(0);
+      expect(tableFields.every((item) => item.filterKey && item.filterType)).toBe(true);
+    }
+  });
 });
 //teste
 

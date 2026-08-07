@@ -92,6 +92,42 @@ function makePrisma() {
 describe('CaminhoesService', () => {
   const makeService = (prisma: any) => new CaminhoesService(prisma, new ComposicoesCavaloService());
 
+  it('combina filtros das colunas do cavalo, motorista e composição atual', () => {
+    const { prisma } = makePrisma();
+    const service = makeService(prisma);
+
+    const where = (service as any).buildWhere({
+      placa: 'abc',
+      marca: 'volvo',
+      modelo: 'fh',
+      ano: 2024,
+      tipoCavalo: TipoCavaloMecanico.TRUCADO_6X2,
+      motoristaAtual: 'edinaldo',
+      composicao: 'carreta',
+      status: StatusGeral.ATIVO,
+    });
+
+    expect(where).toEqual(expect.objectContaining({
+      placa: { contains: 'abc', mode: 'insensitive' },
+      marca: { contains: 'volvo', mode: 'insensitive' },
+      modelo: { contains: 'fh', mode: 'insensitive' },
+      ano: 2024,
+      tipoCavalo: TipoCavaloMecanico.TRUCADO_6X2,
+      status: StatusGeral.ATIVO,
+      motorista: {
+        is: { OR: expect.arrayContaining([{ nome: { contains: 'edinaldo', mode: 'insensitive' } }]) },
+      },
+      conjuntos: {
+        some: expect.objectContaining({
+          status: 'ATIVO',
+          OR: expect.arrayContaining([
+            { implementos: { some: { implemento: { is: { OR: expect.arrayContaining([{ tipo: TipoImplemento.CARRETA }]) } } } } },
+          ]),
+        }),
+      },
+    }));
+  });
+
   it('cria cavalo com carreta e calcula total de eixos incluindo o cavalo', async () => {
     const { prisma, tx } = makePrisma();
     const service = makeService(prisma);

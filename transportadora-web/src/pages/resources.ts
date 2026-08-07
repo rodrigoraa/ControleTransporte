@@ -18,7 +18,8 @@ export type Field = {
   sortable?: boolean;
   sortKey?: string;
   filterKey?: string;
-  filterType?: 'text' | 'date' | 'number';
+  filterType?: 'text' | 'date' | 'number' | 'select';
+  filterOptions?: { label: string; value: string }[];
   required?: boolean;
   maxLength?: number;
   hidden?: boolean;
@@ -91,10 +92,10 @@ export const crudResources: Resource[] = [
     path: 'clientes',
     endpoint: '/clientes',
     fields: [
-      { name: 'nome', label: 'Nome', required: true, table: true },
-      { name: 'documento', label: 'CPF/CNPJ', table: true, mask: maskDocument },
-      { name: 'telefone', label: 'Telefone', table: true, mask: maskPhone },
-      { name: 'email', label: 'E-mail', type: 'email', table: true },
+      { name: 'nome', label: 'Nome', required: true, table: true, filterKey: 'nome', filterType: 'text' },
+      { name: 'documento', label: 'CPF/CNPJ', table: true, mask: maskDocument, filterKey: 'documento', filterType: 'text' },
+      { name: 'telefone', label: 'Telefone', table: true, mask: maskPhone, filterKey: 'telefone', filterType: 'text' },
+      { name: 'email', label: 'E-mail', type: 'email', table: true, filterKey: 'email', filterType: 'text' },
       { name: 'endereco', label: 'Endereço' },
       { name: 'observacoes', label: 'Observações', type: 'textarea' },
       { name: 'ativo', label: 'Ativo', type: 'checkbox', required: true },
@@ -105,12 +106,12 @@ export const crudResources: Resource[] = [
     path: 'motoristas',
     endpoint: '/motoristas',
     fields: [
-      { name: 'nome', label: 'Nome', required: true, table: true },
-      { name: 'cpf', label: 'CPF', table: true, mask: maskDocument },
-      { name: 'cnh', label: 'CNH', table: true },
+      { name: 'nome', label: 'Nome', required: true, table: true, filterKey: 'nome', filterType: 'text' },
+      { name: 'cpf', label: 'CPF', table: true, mask: maskDocument, filterKey: 'cpf', filterType: 'text' },
+      { name: 'cnh', label: 'CNH', table: true, filterKey: 'cnh', filterType: 'text' },
       { name: 'categoriaCnh', label: 'Categoria CNH' },
       { name: 'validadeCnh', label: 'Validade CNH', type: 'date' },
-      { name: 'telefone', label: 'Telefone', table: true, mask: maskPhone },
+      { name: 'telefone', label: 'Telefone', table: true, mask: maskPhone, filterKey: 'telefone', filterType: 'text' },
       { name: 'status', label: 'Status', type: 'select', options: statusGeral },
       { name: 'observacoes', label: 'Observações', type: 'textarea' },
     ],
@@ -120,17 +121,17 @@ export const crudResources: Resource[] = [
     path: 'caminhoes',
     endpoint: '/caminhoes',
     fields: [
-      { name: 'placa', label: 'Placa do cavalo', required: true, table: true, mask: maskPlate, maxLength: 128 },
-      { name: 'composicaoAtual', label: 'Composição atual', table: true, hidden: true },
-      { name: 'marca', label: 'Marca', table: true },
-      { name: 'modelo', label: 'Modelo', table: true },
-      { name: 'ano', label: 'Ano', type: 'number', table: true },
-      { name: 'tipoCavalo', label: 'Tipo de cavalo', type: 'select', options: tiposCavalo, table: true },
-      { name: 'motoristaId', label: 'Motorista atual', type: 'select', table: true, relation: { endpoint: '/motoristas', labelKey: 'nome', fallbackKey: 'cpf', objectKey: 'motorista' } },
+      { name: 'placa', label: 'Placa do cavalo', required: true, table: true, mask: maskPlate, maxLength: 128, filterKey: 'placa', filterType: 'text' },
+      { name: 'composicaoAtual', label: 'Composição atual', table: true, hidden: true, filterKey: 'composicao', filterType: 'text' },
+      { name: 'marca', label: 'Marca', table: true, filterKey: 'marca', filterType: 'text' },
+      { name: 'modelo', label: 'Modelo', table: true, filterKey: 'modelo', filterType: 'text' },
+      { name: 'ano', label: 'Ano', type: 'number', table: true, filterKey: 'ano', filterType: 'number' },
+      { name: 'tipoCavalo', label: 'Tipo de cavalo', type: 'select', options: tiposCavalo, table: true, filterKey: 'tipoCavalo', filterType: 'select' },
+      { name: 'motoristaId', label: 'Motorista atual', type: 'select', table: true, filterKey: 'motoristaAtual', filterType: 'text', relation: { endpoint: '/motoristas', labelKey: 'nome', fallbackKey: 'cpf', objectKey: 'motorista' } },
       { name: 'cor', label: 'Cor' },
       { name: 'chassi', label: 'Chassi' },
       { name: 'renavam', label: 'Renavam' },
-      { name: 'status', label: 'Status', type: 'select', options: statusGeral, table: true },
+      { name: 'status', label: 'Status', type: 'select', options: statusGeral, table: true, filterKey: 'status', filterType: 'select' },
       { name: 'observacoes', label: 'Observações', type: 'textarea' },
     ],
   },
@@ -139,10 +140,10 @@ export const crudResources: Resource[] = [
     path: 'fornecedores',
     endpoint: '/fornecedores',
     fields: [
-      { name: 'nome', label: 'Nome', required: true, table: true },
-      { name: 'documento', label: 'CPF/CNPJ', table: true, mask: maskDocument },
-      { name: 'telefone', label: 'Telefone', table: true, mask: maskPhone },
-      { name: 'email', label: 'E-mail', type: 'email', table: true },
+      { name: 'nome', label: 'Nome', required: true, table: true, filterKey: 'nome', filterType: 'text' },
+      { name: 'documento', label: 'CPF/CNPJ', table: true, mask: maskDocument, filterKey: 'documento', filterType: 'text' },
+      { name: 'telefone', label: 'Telefone', table: true, mask: maskPhone, filterKey: 'telefone', filterType: 'text' },
+      { name: 'email', label: 'E-mail', type: 'email', table: true, filterKey: 'email', filterType: 'text' },
       { name: 'endereco', label: 'Endereço' },
       { name: 'observacoes', label: 'Observações', type: 'textarea' },
       { name: 'ativo', label: 'Ativo', type: 'checkbox' },
@@ -153,9 +154,9 @@ export const crudResources: Resource[] = [
     path: 'categorias-financeiras',
     endpoint: '/categorias-financeiras',
     fields: [
-      { name: 'nome', label: 'Nome', required: true, table: true },
-      { name: 'tipoLancamento', label: 'Tipo', type: 'select', table: true, options: [{ label: 'Despesa', value: 'DESPESA' }, { label: 'Faturamento', value: 'FATURAMENTO' }] },
-      { name: 'ativo', label: 'Ativo', type: 'checkbox', table: true },
+      { name: 'nome', label: 'Nome', required: true, table: true, filterKey: 'nome', filterType: 'text' },
+      { name: 'tipoLancamento', label: 'Tipo', type: 'select', table: true, filterKey: 'tipoLancamento', filterType: 'select', options: [{ label: 'Despesa', value: 'DESPESA' }, { label: 'Faturamento', value: 'FATURAMENTO' }] },
+      { name: 'ativo', label: 'Ativo', type: 'checkbox', table: true, filterKey: 'ativo', filterType: 'select', filterOptions: [{ label: 'Sim', value: 'true' }, { label: 'Não', value: 'false' }] },
       { name: 'observacoes', label: 'Observações', type: 'textarea' },
     ],
   },

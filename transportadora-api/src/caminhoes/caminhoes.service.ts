@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
+import { TipoConjuntoOperacional, TipoImplemento } from '@prisma/client';
 import { AuditActor } from '../common/audit/audit-context';
 import { CrudService } from '../common/crud/crud.service';
+import { PaginationDto } from '../common/crud/pagination.dto';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { ComposicoesCavaloService } from './composicoes-cavalo.service';
 import { CreateCaminhaoDto } from './dto/create-caminhao.dto';
@@ -21,6 +23,52 @@ export class CaminhoesService extends CrudService<CreateCaminhaoDto, UpdateCamin
         take: 1,
       },
     });
+  }
+
+  protected buildWhere(query: PaginationDto & Record<string, any>) {
+    const where = super.buildWhere(query);
+    if (query.ano !== undefined) where.ano = query.ano;
+    if (query.tipoCavalo) where.tipoCavalo = query.tipoCavalo;
+
+    const motoristaAtual = query.motoristaAtual?.trim();
+    if (motoristaAtual) {
+      where.motorista = {
+        is: {
+          OR: ['nome', 'cpf', 'cnh'].map((field) => ({
+            [field]: { contains: motoristaAtual, mode: 'insensitive' as const },
+          })),
+        },
+      };
+    }
+
+    const composicao = query.composicao?.trim();
+    if (composicao) {
+      const textFilter = (field: string) => ({
+        [field]: { contains: composicao, mode: 'insensitive' as const },
+      });
+      const normalized = composicao.toUpperCase();
+      const tipoImplemento = Object.values(TipoImplemento).find((value) => value === normalized);
+      const tipoConjunto = Object.values(TipoConjuntoOperacional).find((value) => value === normalized);
+      const implementoOr: object[] = [textFilter('placa')];
+      if (tipoImplemento) implementoOr.push({ tipo: tipoImplemento });
+
+      const compositionOr: object[] = [
+        textFilter('nome'),
+        textFilter('placa'),
+        textFilter('dollyPlaca'),
+        textFilter('segundaCarretaPlaca'),
+        { implementos: { some: { implemento: { is: { OR: implementoOr } } } } },
+      ];
+      if (tipoConjunto) compositionOr.push({ tipo: tipoConjunto });
+
+      where.conjuntos = {
+        some: {
+          status: 'ATIVO',
+          OR: compositionOr,
+        },
+      };
+    }
+    return where;
   }
 
   async create(dto: CreateCaminhaoDto, actor?: AuditActor) {

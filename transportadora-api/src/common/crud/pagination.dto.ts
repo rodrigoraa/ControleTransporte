@@ -28,6 +28,64 @@ export class PaginationDto {
   ativo?: string;
 
   @IsOptional()
+  @IsString()
+  nome?: string;
+
+  @IsOptional()
+  @IsString()
+  documento?: string;
+
+  @IsOptional()
+  @IsString()
+  telefone?: string;
+
+  @IsOptional()
+  @IsString()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  cpf?: string;
+
+  @IsOptional()
+  @IsString()
+  cnh?: string;
+
+  @IsOptional()
+  @IsString()
+  placa?: string;
+
+  @IsOptional()
+  @IsString()
+  marca?: string;
+
+  @IsOptional()
+  @IsString()
+  modelo?: string;
+
+  @IsOptional()
+  @IsString()
+  status?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  ano?: number;
+
+  @IsOptional()
+  @IsString()
+  tipoCavalo?: string;
+
+  @IsOptional()
+  @IsString()
+  motoristaAtual?: string;
+
+  @IsOptional()
+  @IsString()
+  composicao?: string;
+
+  @IsOptional()
   @IsDateString()
   data?: string;
 

@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, BarChart3, Download, FileSpreadsheet, 
 import { api } from '../services/api';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { useAuth } from '../contexts/AuthContext';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import { apiErrorMessage } from '../utils/apiError';
 import { date, money } from '../utils/formatters';
 import { nextTableSort, sortTableRows, TableSort } from '../utils/tableSorting';
@@ -337,6 +338,7 @@ function PdfExportModal({
   const [selection, setSelection] = useState<PdfSelection>(() => loadPdfSelection(reportType, preferenceScope));
   const [localError, setLocalError] = useState('');
   const [exporting, setExporting] = useState(false);
+  useEscapeToClose(onClose, !exporting);
   const allSectionsSelected = selection.sections.length === config.sections.length;
   const allColumnsSelected = selection.columns.length === defaults.columns.length;
   const activeColumnGroups = config.columnGroups.filter((group) => selection.sections.includes(group.sectionId));

@@ -2,6 +2,7 @@ import { ArrowRight, Eye, FileText, Search, UserRound, X } from 'lucide-react';
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import { Toast } from '../components/Toast';
 import { SearchableSelect } from '../components/SearchableSelect';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import { api } from '../services/api';
 import { apiErrorMessage } from '../utils/apiError';
 
@@ -229,6 +230,7 @@ function AuditUser({ row }: { row: AuditRow }) {
 
 function AuditDetailModal({ audit, onClose }: { audit: AuditRow; onClose: () => void }) {
   const changes = audit.alteracoes || [];
+  useEscapeToClose(onClose);
   return (
     <div className="modal-backdrop">
       <div className="modal large-modal audit-modal">

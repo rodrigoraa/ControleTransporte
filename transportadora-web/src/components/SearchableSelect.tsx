@@ -100,7 +100,9 @@ export function SearchableSelect({
       event.preventDefault();
       select(filteredOptions[activeIndex]);
     }
-    if (event.key === 'Escape') {
+    if (event.key === 'Escape' && open) {
+      event.preventDefault();
+      event.stopPropagation();
       setOpen(false);
       setQuery(selectedOption?.label || emptyLabel);
     }
