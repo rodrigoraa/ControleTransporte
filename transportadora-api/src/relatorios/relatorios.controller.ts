@@ -10,8 +10,8 @@ export class RelatoriosController {
   constructor(private readonly service: RelatoriosService) {}
 
   @Get('opcoes')
-  opcoes() {
-    return this.service.opcoes();
+  opcoes(@Query() query: RelatorioFinanceiroQueryDto) {
+    return this.service.opcoes(query);
   }
 
   @Get('financeiros')

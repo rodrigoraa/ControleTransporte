@@ -223,7 +223,7 @@ describe('RelatoriosService', () => {
       saldo: 93.1,
     });
     expect(result.consumo).toBeUndefined();
-    expect(prisma.conjuntoImplemento.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { implementoId: 'imp-1' } }));
+    expect(prisma.conjuntoImplemento.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { implementoId: { in: ['imp-1'] } } }));
     const paginatedCall = prisma.lancamentoFinanceiro.findMany.mock.calls.find(([args]: any[]) => args.skip === 1);
     expect(paginatedCall?.[0]).toEqual(expect.objectContaining({
       skip: 1,
@@ -269,7 +269,7 @@ describe('RelatoriosService', () => {
     expect(result.consumo.historico.every((item: any) => item.divergente)).toBe(true);
     expect(prisma.abastecimento.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
-        cavaloMecanicoId: 'cav-1',
+        cavaloMecanicoId: { in: ['cav-1'] },
         data: {
           gte: new Date('2026-05-01T00:00:00.000Z'),
           lte: new Date('2026-05-31T23:59:59.999Z'),
@@ -293,6 +293,59 @@ describe('RelatoriosService', () => {
       { motorista: { nome: 'asc' } },
       { createdAt: 'desc' },
     ]);
+  });
+
+  it('combina múltiplos valores do mesmo filtro com os demais filtros selecionados', async () => {
+    const { service, prisma } = makeService();
+
+    await service.financeiros({
+      tipoRelatorio: 'REGISTRO_GERAL',
+      cavaloMecanicoIds: 'cav-1,cav-2',
+      motoristaIds: 'mot-1,mot-2',
+      tiposLancamento: 'DESPESA,FATURAMENTO',
+      tiposConjunto: 'BITREM,RODOTREM',
+      quantidadesEixos: '7,9',
+    });
+
+    const paginatedCall = prisma.lancamentoFinanceiro.findMany.mock.calls.find(([args]: any[]) => args.skip === 0);
+    expect(paginatedCall?.[0].where).toEqual({
+      AND: expect.arrayContaining([
+        { cavaloMecanicoId: { in: ['cav-1', 'cav-2'] } },
+        { motoristaId: { in: ['mot-1', 'mot-2'] } },
+        { tipoLancamento: { in: ['DESPESA', 'FATURAMENTO'] } },
+        { conjunto: { tipo: { in: ['BITREM', 'RODOTREM'] }, quantidadeTotalEixos: { in: [7, 9] } } },
+      ]),
+    });
+  });
+
+  it('recalcula as opções de cada campo usando os outros filtros ativos', async () => {
+    const { service, prisma } = makeService();
+    prisma.lancamentoFinanceiro.findMany.mockResolvedValue([{
+      tipoLancamento: TipoLancamento.DESPESA,
+      motorista: { id: 'mot-1', nome: 'Carlos Almeida', cpf: '123' },
+      cavaloMecanico: { id: 'cav-1', placa: 'ABC1D23', marca: 'Volvo', modelo: 'FH' },
+      implemento: null,
+      conjunto: {
+        id: 'conj-1',
+        nome: 'Bitrem graneleiro',
+        tipo: 'BITREM',
+        quantidadeTotalEixos: 7,
+        implementos: [{ implemento: { id: 'imp-1', placa: 'CAR1A01', tipo: 'SEMIRREBOQUE', carroceria: 'GRANELEIRO', quantidadeEixos: 3 } }],
+      },
+      fornecedor: { id: 'for-1', nome: 'Posto Rota Pesada', documento: '123' },
+      cliente: null,
+      categoriaFinanceira: { id: 'cat-1', nome: 'Combustível', tipoLancamento: TipoLancamento.DESPESA },
+    }]);
+
+    const result = await service.opcoes({ cavaloMecanicoIds: 'cav-1' });
+
+    expect(result.motoristas).toEqual([{ value: 'mot-1', label: 'Carlos Almeida - 123' }]);
+    expect(result.implementos[0]).toMatchObject({ value: 'imp-1' });
+    expect(result.tiposConjunto).toEqual([{ value: 'BITREM', label: 'Bitrem' }]);
+    expect(result.quantidadesEixos).toEqual([{ value: '7', label: '7 eixos' }]);
+    const facetCalls = prisma.lancamentoFinanceiro.findMany.mock.calls.filter(([args]: any[]) => args.select?.motorista);
+    expect(facetCalls.some(([args]: any[]) => JSON.stringify(args.where).includes('cavaloMecanicoId'))).toBe(true);
+    expect(facetCalls.some(([args]: any[]) => !JSON.stringify(args.where).includes('cavaloMecanicoId'))).toBe(true);
   });
 
   it('exporta CSV com comissão detalhada sem duplicar o valor na linha da despesa automática', async () => {
@@ -327,7 +380,7 @@ describe('RelatoriosService', () => {
     expect(pdf.toString('utf8', 0, 8)).toBe('%PDF-1.4');
     expect(pdf.length).toBeGreaterThan(500);
     expect(pdf.toString('latin1')).toContain('/Encoding /WinAnsiEncoding');
-    expect(pdf.toString('latin1')).toContain('Registro Geral');
+    expect(pdf.toString('latin1')).toContain('Relatório Combinado');
     expect(pdf.toString('latin1')).toContain('Lançamentos encontrados');
     expect(pdf.toString('latin1')).toContain('Resumo por composição do cavalo');
     expect(pdf.toString('latin1')).toContain('Comissões dos faturamentos');

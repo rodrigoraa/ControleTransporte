@@ -1,14 +1,14 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, ArrowUpDown, BarChart3, Download, FileSpreadsheet, FileText, Filter, Search, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, BarChart3, Download, FileSpreadsheet, Filter, Search } from 'lucide-react';
 import { api } from '../services/api';
-import { SearchableSelect } from '../components/SearchableSelect';
+import { MultiSearchableSelect, SearchableSelect } from '../components/SearchableSelect';
 import { useAuth } from '../contexts/AuthContext';
-import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import { apiErrorMessage } from '../utils/apiError';
 import { date, money } from '../utils/formatters';
 import { nextTableSort, sortTableRows, TableSort } from '../utils/tableSorting';
 import {
   defaultPdfSelection,
+  loadLastGeneratedReport,
   loadPdfSelection,
   pdfColumnId,
   pdfReportConfigs,
@@ -16,6 +16,7 @@ import {
   PdfReportType,
   PdfSelection,
   savePdfSelection,
+  saveLastGeneratedReport,
   validatePdfSelection,
 } from './pdfReportOptions';
 
@@ -29,29 +30,35 @@ type ReportOptions = {
   clientes: Option[];
   categorias: Option[];
   tipos: Option[];
+  tiposConjunto: Option[];
+  quantidadesEixos: Option[];
 };
 type ReportType = PdfReportType;
 
-const tiposConjunto = [
-  { value: 'SIMPLES', label: 'Simples' },
-  { value: 'BITREM', label: 'Bitrem' },
-  { value: 'RODOTREM', label: 'Rodotrem' },
-  { value: 'OUTRO', label: 'Outro' },
-];
 const tiposRelatorio = [
-  { value: 'REGISTRO_GERAL', label: 'Registro Geral' },
+  { value: 'REGISTRO_GERAL', label: 'Relatório combinado' },
   { value: 'MEDIA_FROTA', label: 'Média da frota' },
 ];
 
 export function Relatorios() {
   const { user } = useAuth();
-  const [reportType, setReportType] = useState<ReportType>('REGISTRO_GERAL');
-  const [filters, setFilters] = useState<Record<string, string>>({});
+  const preferenceScope = user?.id || 'anonymous';
+  const [restoredReport] = useState(() => loadLastGeneratedReport(preferenceScope));
+  const [reportType, setReportType] = useState<ReportType>(restoredReport?.reportType || 'REGISTRO_GERAL');
+  const [filters, setFilters] = useState<Record<string, string>>(restoredReport?.filters || {});
+  const [reportSelection, setReportSelection] = useState<PdfSelection>(
+    restoredReport?.selection || loadPdfSelection(restoredReport?.reportType || 'REGISTRO_GERAL', preferenceScope),
+  );
+  const [generatedReport, setGeneratedReport] = useState<{
+    reportType: ReportType;
+    filters: Record<string, string>;
+    selection: PdfSelection;
+  } | null>(null);
   const [financeiro, setFinanceiro] = useState<any>(null);
-  const [page, setPage] = useState(1);
+  const [, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [pdfOptionsOpen, setPdfOptionsOpen] = useState(false);
+  const [optionsLoading, setOptionsLoading] = useState(false);
   const [options, setOptions] = useState<ReportOptions>({
     motoristas: [],
     cavalosMecanicos: [],
@@ -61,45 +68,85 @@ export function Relatorios() {
     clientes: [],
     categorias: [],
     tipos: [],
+    tiposConjunto: [],
+    quantidadesEixos: [],
   });
   const activeFilters = Object.entries(filters)
-    .filter(([name, value]) => value && (reportType === 'REGISTRO_GERAL' || ['dataInicial', 'dataFinal', 'cavaloMecanicoId'].includes(name)))
+    .filter(([name, value]) => value && !['orderBy', 'orderDirection'].includes(name) && (reportType === 'REGISTRO_GERAL' || ['dataInicial', 'dataFinal', 'cavaloMecanicoIds'].includes(name)))
     .length;
   const reportSort: TableSort = {
-    orderBy: filters.orderBy || '',
-    orderDirection: filters.orderDirection === 'asc' ? 'asc' : 'desc',
+    orderBy: generatedReport?.filters.orderBy || '',
+    orderDirection: generatedReport?.filters.orderDirection === 'asc' ? 'asc' : 'desc',
   };
 
   useEffect(() => {
-    api.get('/relatorios/opcoes').then((response) => setOptions(response.data));
-  }, []);
+    const controller = new AbortController();
+    const timeout = window.setTimeout(async () => {
+      setOptionsLoading(true);
+      try {
+        const response = await api.get('/relatorios/opcoes', {
+          params: reportParams(filters, reportType),
+          signal: controller.signal,
+        });
+        setOptions(response.data);
+      } catch (requestError: any) {
+        if (requestError?.code !== 'ERR_CANCELED') {
+          setError(await apiErrorMessage(requestError, 'Não foi possível atualizar as opções dos filtros.'));
+        }
+      } finally {
+        if (!controller.signal.aborted) setOptionsLoading(false);
+      }
+    }, 200);
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [filters, reportType]);
 
-  function updateFilter(name: string, value: string) {
-    const next = { ...filters, [name]: value };
+  function updateFilter(name: string, value: string | string[]) {
+    const serializedValue = Array.isArray(value) ? value.join(',') : value;
+    const next = { ...filters, [name]: serializedValue };
     setPage(1);
     setFilters(next);
   }
 
-  function reportParams(sourceFilters = filters) {
-    const relevantFilters = reportType === 'MEDIA_FROTA'
-      ? Object.fromEntries(Object.entries(sourceFilters).filter(([name, value]) => value && ['dataInicial', 'dataFinal', 'cavaloMecanicoId'].includes(name)))
+  function reportParams(sourceFilters = filters, sourceType = reportType) {
+    const relevantFilters = sourceType === 'MEDIA_FROTA'
+      ? Object.fromEntries(Object.entries(sourceFilters).filter(([name, value]) => value && ['dataInicial', 'dataFinal', 'cavaloMecanicoIds'].includes(name)))
       : Object.fromEntries(Object.entries(sourceFilters).filter(([, value]) => value));
-    return { ...relevantFilters, tipoRelatorio: reportType };
+    return { ...relevantFilters, tipoRelatorio: sourceType };
   }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    const validationError = validatePdfSelection(reportType, reportSelection);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
     setPage(1);
-    await loadReport(1);
+    await loadReport(1, filters, reportSelection, reportType, true);
   }
 
-  async function loadReport(targetPage = page, sourceFilters = filters) {
+  async function loadReport(
+    targetPage: number,
+    sourceFilters: Record<string, string>,
+    sourceSelection: PdfSelection,
+    sourceType: ReportType,
+    persist = false,
+  ) {
     setLoading(true);
     setError('');
     try {
-      const { data } = await api.get('/relatorios/financeiros', { params: { ...reportParams(sourceFilters), page: targetPage, limit: 50 } });
+      const { data } = await api.get('/relatorios/financeiros', { params: { ...reportParams(sourceFilters, sourceType), page: targetPage, limit: 50 } });
       setPage(targetPage);
       setFinanceiro(data);
+      const snapshot = { reportType: sourceType, filters: sourceFilters, selection: sourceSelection };
+      setGeneratedReport(snapshot);
+      if (persist) {
+        savePdfSelection(sourceType, sourceSelection, preferenceScope);
+        saveLastGeneratedReport(snapshot, preferenceScope);
+      }
     } catch (requestError: any) {
       setError(await apiErrorMessage(requestError, 'Não foi possível gerar o relatório.'));
     } finally {
@@ -107,17 +154,21 @@ export function Relatorios() {
     }
   }
 
-  async function exportReport(format: 'csv' | 'pdf', extraParams: Record<string, string> = {}) {
+  async function exportReport(format: 'csv' | 'pdf') {
+    if (!generatedReport) return false;
     setError('');
     try {
       const { data } = await api.get(`/relatorios/financeiros/exportar.${format}`, {
-        params: { ...reportParams(), ...extraParams },
+        params: {
+          ...reportParams(generatedReport.filters, generatedReport.reportType),
+          ...(format === 'pdf' ? pdfSelectionParams(generatedReport.selection) : {}),
+        },
         responseType: 'blob',
       });
       const url = URL.createObjectURL(data);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${reportType === 'MEDIA_FROTA' ? 'relatorio-media-frota' : 'registro-geral'}.${format}`;
+      link.download = `${generatedReport.reportType === 'MEDIA_FROTA' ? 'relatorio-media-frota' : 'relatorio-combinado'}.${format}`;
       link.click();
       URL.revokeObjectURL(url);
       return true;
@@ -128,15 +179,21 @@ export function Relatorios() {
   }
 
   async function changeReportSort(orderBy: string) {
+    if (!generatedReport) return;
     const currentSort: TableSort = {
-      orderBy: filters.orderBy || '',
-      orderDirection: filters.orderDirection === 'asc' ? 'asc' : 'desc',
+      orderBy: generatedReport.filters.orderBy || '',
+      orderDirection: generatedReport.filters.orderDirection === 'asc' ? 'asc' : 'desc',
     };
     const nextSort = nextTableSort(currentSort, orderBy);
-    const nextFilters = { ...filters, ...nextSort };
+    const nextFilters = { ...generatedReport.filters, ...nextSort };
     setFilters(nextFilters);
     setPage(1);
-    await loadReport(1, nextFilters);
+    await loadReport(1, nextFilters, generatedReport.selection, generatedReport.reportType, true);
+  }
+
+  async function changePage(targetPage: number) {
+    if (!generatedReport) return;
+    await loadReport(targetPage, generatedReport.filters, generatedReport.selection, generatedReport.reportType);
   }
 
   return (
@@ -144,7 +201,7 @@ export function Relatorios() {
       <div className="page-header report-header">
         <div>
           <h1>Relatórios</h1>
-          <p>{reportType === 'MEDIA_FROTA' ? 'Média ponderada de consumo, ranking e comparação por cavalo mecânico.' : 'Registro geral de lançamentos, indicadores financeiros e comissões.'}</p>
+          <p>{reportType === 'MEDIA_FROTA' ? 'Média ponderada de consumo, ranking e comparação por cavalo mecânico.' : 'Relatório combinado de lançamentos, indicadores financeiros e comissões.'}</p>
         </div>
         {financeiro && (
           <div className="actions">
@@ -152,7 +209,7 @@ export function Relatorios() {
               <FileSpreadsheet size={18} />
               Excel
             </button>
-            <button className="button primary" type="button" onClick={() => setPdfOptionsOpen(true)}>
+            <button className="button primary" type="button" onClick={() => exportReport('pdf')}>
               <Download size={18} />
               PDF
             </button>
@@ -177,26 +234,29 @@ export function Relatorios() {
           value={reportType}
           options={tiposRelatorio}
           onChange={(_, value) => {
-            setReportType(value === 'MEDIA_FROTA' ? 'MEDIA_FROTA' : 'REGISTRO_GERAL');
+            const nextType = value === 'MEDIA_FROTA' ? 'MEDIA_FROTA' : 'REGISTRO_GERAL';
+            setReportType(nextType);
+            setReportSelection(loadPdfSelection(nextType, preferenceScope));
             setFinanceiro(null);
+            setGeneratedReport(null);
             setPage(1);
             setError('');
           }}
         />
-        <label>Data inicial<input type="date" value={filters.dataInicial || ''} onChange={(e) => setFilters({ ...filters, dataInicial: e.target.value })} /></label>
-        <label>Data final<input type="date" value={filters.dataFinal || ''} onChange={(e) => setFilters({ ...filters, dataFinal: e.target.value })} /></label>
-        <SelectFilter label="Cavalo mecânico" name="cavaloMecanicoId" value={filters.cavaloMecanicoId || ''} options={options.cavalosMecanicos} onChange={updateFilter} />
+        <label>Data inicial<input type="date" value={filters.dataInicial || ''} onChange={(e) => updateFilter('dataInicial', e.target.value)} /></label>
+        <label>Data final<input type="date" value={filters.dataFinal || ''} onChange={(e) => updateFilter('dataFinal', e.target.value)} /></label>
+        <MultiSelectFilter label="Cavalos mecânicos / placas" name="cavaloMecanicoIds" value={filterArray(filters.cavaloMecanicoIds)} options={options.cavalosMecanicos} disabled={optionsLoading} onChange={updateFilter} />
         {reportType === 'REGISTRO_GERAL' && (
           <>
-            <SelectFilter label="Motorista" name="motoristaId" value={filters.motoristaId || ''} options={options.motoristas} onChange={updateFilter} />
-            <SelectFilter label="Implemento" name="implementoId" value={filters.implementoId || ''} options={options.implementos} onChange={updateFilter} />
-            <SelectFilter label="Conjunto operacional" name="conjuntoId" value={filters.conjuntoId || ''} options={options.conjuntos} onChange={updateFilter} />
-            <SelectFilter label="Tipo de conjunto" name="tipoConjunto" value={filters.tipoConjunto || ''} options={tiposConjunto} onChange={updateFilter} />
-            <label>Quantidade de eixos<input type="number" value={filters.quantidadeEixos || ''} onChange={(e) => setFilters({ ...filters, quantidadeEixos: e.target.value })} /></label>
-            <SelectFilter label="Fornecedor" name="fornecedorId" value={filters.fornecedorId || ''} options={options.fornecedores} onChange={updateFilter} />
-            <SelectFilter label="Cliente" name="clienteId" value={filters.clienteId || ''} options={options.clientes} onChange={updateFilter} />
-            <SelectFilter label="Tipo financeiro" name="tipoLancamento" value={filters.tipoLancamento || ''} options={options.tipos} onChange={updateFilter} />
-            <SelectFilter label="Categoria" name="categoriaId" value={filters.categoriaId || ''} options={options.categorias} onChange={updateFilter} />
+            <MultiSelectFilter label="Motoristas" name="motoristaIds" value={filterArray(filters.motoristaIds)} options={options.motoristas} disabled={optionsLoading} onChange={updateFilter} />
+            <MultiSelectFilter label="Implementos" name="implementoIds" value={filterArray(filters.implementoIds)} options={options.implementos} disabled={optionsLoading} onChange={updateFilter} />
+            <MultiSelectFilter label="Conjuntos operacionais" name="conjuntoIds" value={filterArray(filters.conjuntoIds)} options={options.conjuntos} disabled={optionsLoading} onChange={updateFilter} />
+            <MultiSelectFilter label="Tipos de conjunto" name="tiposConjunto" value={filterArray(filters.tiposConjunto)} options={options.tiposConjunto} disabled={optionsLoading} onChange={updateFilter} />
+            <MultiSelectFilter label="Quantidades de eixos" name="quantidadesEixos" value={filterArray(filters.quantidadesEixos)} options={options.quantidadesEixos} disabled={optionsLoading} onChange={updateFilter} />
+            <MultiSelectFilter label="Fornecedores" name="fornecedorIds" value={filterArray(filters.fornecedorIds)} options={options.fornecedores} disabled={optionsLoading} onChange={updateFilter} />
+            <MultiSelectFilter label="Clientes" name="clienteIds" value={filterArray(filters.clienteIds)} options={options.clientes} disabled={optionsLoading} onChange={updateFilter} />
+            <MultiSelectFilter label="Tipos financeiros" name="tiposLancamento" value={filterArray(filters.tiposLancamento)} options={options.tipos} disabled={optionsLoading} onChange={updateFilter} />
+            <MultiSelectFilter label="Categorias" name="categoriaIds" value={filterArray(filters.categoriaIds)} options={options.categorias} disabled={optionsLoading} onChange={updateFilter} />
             <SelectFilter
               label="Ordenar por"
               name="orderBy"
@@ -218,24 +278,32 @@ export function Relatorios() {
             <SelectFilter label="Direção" name="orderDirection" value={filters.orderDirection || ''} options={[{ value: 'desc', label: 'Decrescente' }, { value: 'asc', label: 'Crescente' }]} onChange={updateFilter} />
           </>
         )}
+        <ReportCustomization
+          reportType={reportType}
+          selection={reportSelection}
+          onChange={(selection) => {
+            setReportSelection(selection);
+            setError('');
+          }}
+        />
       </form>
 
       {error && <div className="form-error">{error}</div>}
       {financeiro && (
-        reportType === 'MEDIA_FROTA' ? (
-          <ConsumoReport consumo={financeiro.consumo} />
+        generatedReport?.reportType === 'MEDIA_FROTA' ? (
+          <ConsumoReport consumo={financeiro.consumo} selection={generatedReport.selection} />
         ) : (
         <>
-          <div className="stats-grid">
+          {generatedReport?.selection.sections.includes('resumo_financeiro') && <div className="stats-grid">
             <article className="stat-card stat-danger"><span>Total de despesas</span><strong>{money(financeiro.totalDespesas)}</strong></article>
             <article className="stat-card stat-success"><span>Total de faturamento</span><strong>{money(financeiro.totalFaturamento)}</strong></article>
             <article className={`stat-card ${financeiro.saldoFinal >= 0 ? 'stat-info' : 'stat-danger'}`}><span>Saldo final</span><strong>{money(financeiro.saldoFinal)}</strong></article>
             <article className="stat-card stat-neutral"><span>Lançamentos</span><strong>{financeiro.total}</strong></article>
-          </div>
+          </div>}
 
-          <CommissionReport comissoes={financeiro.comissoes} />
+          {generatedReport?.selection.sections.includes('comissoes') && <CommissionReport comissoes={financeiro.comissoes} selection={generatedReport.selection} />}
 
-          <div className="panel report-table-panel">
+          {generatedReport?.selection.sections.includes('lancamentos') && <div className="panel report-table-panel">
             <div className="panel-title-row">
               <div>
                 <h2>Lançamentos encontrados</h2>
@@ -246,8 +314,8 @@ export function Relatorios() {
                   <FileSpreadsheet size={18} />
                   Exportar Excel
                 </button>
-                <button className="button" type="button" onClick={() => setPdfOptionsOpen(true)}>
-                  <FileText size={18} />
+                <button className="button" type="button" onClick={() => exportReport('pdf')}>
+                  <Download size={18} />
                   Exportar PDF
                 </button>
               </div>
@@ -256,36 +324,36 @@ export function Relatorios() {
               <table>
                 <thead>
                   <tr>
-                    <SortableHeader label="Data" sortKey="data" sort={reportSort} onSort={changeReportSort} />
-                    <SortableHeader label="Tipo" sortKey="tipoLancamento" sort={reportSort} onSort={changeReportSort} />
-                    <SortableHeader label="Cavalo" sortKey="cavalo" sort={reportSort} onSort={changeReportSort} />
-                    <SortableHeader label="Conjunto registrado" sortKey="conjunto" sort={reportSort} onSort={changeReportSort} />
-                    <th>Implementos usados no lançamento</th>
-                    <SortableHeader label="Motorista" sortKey="motorista" sort={reportSort} onSort={changeReportSort} />
-                    <SortableHeader label="Fornecedor/Cliente" sortKey="parte" sort={reportSort} onSort={changeReportSort} />
-                    <SortableHeader label="Categoria" sortKey="categoria" sort={reportSort} onSort={changeReportSort} />
-                    <SortableHeader label="Qtd." sortKey="quantidade" sort={reportSort} onSort={changeReportSort} />
-                    <SortableHeader label="Valor unitário" sortKey="valorUnitario" sort={reportSort} onSort={changeReportSort} />
-                    <SortableHeader label="Valor total" sortKey="valorTotal" sort={reportSort} onSort={changeReportSort} />
+                    {hasColumn(generatedReport?.selection, 'lancamentos', 'data') && <SortableHeader label="Data" sortKey="data" sort={reportSort} onSort={changeReportSort} />}
+                    {hasColumn(generatedReport?.selection, 'lancamentos', 'tipo') && <SortableHeader label="Tipo" sortKey="tipoLancamento" sort={reportSort} onSort={changeReportSort} />}
+                    {hasColumn(generatedReport?.selection, 'lancamentos', 'cavalo') && <SortableHeader label="Cavalo" sortKey="cavalo" sort={reportSort} onSort={changeReportSort} />}
+                    {hasColumn(generatedReport?.selection, 'lancamentos', 'conjunto') && <SortableHeader label="Conjunto registrado" sortKey="conjunto" sort={reportSort} onSort={changeReportSort} />}
+                    {hasColumn(generatedReport?.selection, 'lancamentos', 'implementos') && <th>Implementos usados no lançamento</th>}
+                    {hasColumn(generatedReport?.selection, 'lancamentos', 'motorista') && <SortableHeader label="Motorista" sortKey="motorista" sort={reportSort} onSort={changeReportSort} />}
+                    {hasColumn(generatedReport?.selection, 'lancamentos', 'parte') && <SortableHeader label="Fornecedor/Cliente" sortKey="parte" sort={reportSort} onSort={changeReportSort} />}
+                    {hasColumn(generatedReport?.selection, 'lancamentos', 'categoria') && <SortableHeader label="Categoria" sortKey="categoria" sort={reportSort} onSort={changeReportSort} />}
+                    {hasColumn(generatedReport?.selection, 'lancamentos', 'quantidade') && <SortableHeader label="Qtd." sortKey="quantidade" sort={reportSort} onSort={changeReportSort} />}
+                    {hasColumn(generatedReport?.selection, 'lancamentos', 'valorUnitario') && <SortableHeader label="Valor unitário" sortKey="valorUnitario" sort={reportSort} onSort={changeReportSort} />}
+                    {hasColumn(generatedReport?.selection, 'lancamentos', 'valorTotal') && <SortableHeader label="Valor total" sortKey="valorTotal" sort={reportSort} onSort={changeReportSort} />}
                   </tr>
                 </thead>
                 <tbody>
                   {!financeiro.historico.length && (
-                    <tr><td colSpan={11}>Nenhum lançamento encontrado para os filtros informados.</td></tr>
+                    <tr><td colSpan={selectedColumnCount(generatedReport?.selection, 'lancamentos')}>Nenhum lançamento encontrado para os filtros informados.</td></tr>
                   )}
                   {financeiro.historico.map((item: any) => (
                     <tr key={item.id}>
-                      <td>{date(item.data)}</td>
-                      <td><TipoBadge tipo={item.tipoLancamento} /></td>
-                      <td>{item.cavaloMecanico?.placa || item.placa}</td>
-                      <td>{labelConjunto(item.conjunto)}</td>
-                      <td>{labelImplementos(item.conjunto)}</td>
-                      <td>{labelPessoa(item.motorista)}</td>
-                      <td>{labelPessoa(item.fornecedor) !== '-' ? labelPessoa(item.fornecedor) : labelPessoa(item.cliente)}</td>
-                      <td>{item.categoriaFinanceira?.nome || '-'}</td>
-                      <td>{Number(item.quantidade).toLocaleString('pt-BR')} {item.unidadeQuantidade}</td>
-                      <td className="money-cell">{money(item.valorUnitario)}</td>
-                      <td className={`money-cell ${item.tipoLancamento === 'DESPESA' ? 'negative' : 'positive'}`}>{money(item.valorTotal)}</td>
+                      {hasColumn(generatedReport?.selection, 'lancamentos', 'data') && <td>{date(item.data)}</td>}
+                      {hasColumn(generatedReport?.selection, 'lancamentos', 'tipo') && <td><TipoBadge tipo={item.tipoLancamento} /></td>}
+                      {hasColumn(generatedReport?.selection, 'lancamentos', 'cavalo') && <td>{item.cavaloMecanico?.placa || item.placa}</td>}
+                      {hasColumn(generatedReport?.selection, 'lancamentos', 'conjunto') && <td>{labelConjunto(item.conjunto)}</td>}
+                      {hasColumn(generatedReport?.selection, 'lancamentos', 'implementos') && <td>{labelImplementos(item.conjunto)}</td>}
+                      {hasColumn(generatedReport?.selection, 'lancamentos', 'motorista') && <td>{labelPessoa(item.motorista)}</td>}
+                      {hasColumn(generatedReport?.selection, 'lancamentos', 'parte') && <td>{labelPessoa(item.fornecedor) !== '-' ? labelPessoa(item.fornecedor) : labelPessoa(item.cliente)}</td>}
+                      {hasColumn(generatedReport?.selection, 'lancamentos', 'categoria') && <td>{item.categoriaFinanceira?.nome || '-'}</td>}
+                      {hasColumn(generatedReport?.selection, 'lancamentos', 'quantidade') && <td>{Number(item.quantidade).toLocaleString('pt-BR')} {item.unidadeQuantidade}</td>}
+                      {hasColumn(generatedReport?.selection, 'lancamentos', 'valorUnitario') && <td className="money-cell">{money(item.valorUnitario)}</td>}
+                      {hasColumn(generatedReport?.selection, 'lancamentos', 'valorTotal') && <td className={`money-cell ${item.tipoLancamento === 'DESPESA' ? 'negative' : 'positive'}`}>{money(item.valorTotal)}</td>}
                     </tr>
                   ))}
                 </tbody>
@@ -293,122 +361,85 @@ export function Relatorios() {
             </div>
             <div className="pagination">
               <span>{financeiro.total} lançamentos</span>
-              <button className="button" type="button" disabled={financeiro.page === 1 || loading} onClick={() => loadReport(financeiro.page - 1)}>Anterior</button>
+              <button className="button" type="button" disabled={financeiro.page === 1 || loading} onClick={() => changePage(financeiro.page - 1)}>Anterior</button>
               <strong>{financeiro.page}</strong>
-              <button className="button" type="button" disabled={financeiro.page * financeiro.limit >= financeiro.total || loading} onClick={() => loadReport(financeiro.page + 1)}>Próxima</button>
+              <button className="button" type="button" disabled={financeiro.page * financeiro.limit >= financeiro.total || loading} onClick={() => changePage(financeiro.page + 1)}>Próxima</button>
             </div>
-          </div>
+          </div>}
 
-          <div className="report-grid">
+          {(generatedReport?.selection.sections.includes('grupos_cavalo') || generatedReport?.selection.sections.includes('grupos_motorista')) && <div className="report-grid">
+            {generatedReport?.selection.sections.includes('grupos_cavalo') && <>
             <Group title="Despesas por cavalo mecânico" rows={financeiro.despesasPorCavaloMecanico} />
-            <Group title="Despesas por motorista" rows={financeiro.despesasPorMotorista} />
             <Group title="Faturamento por cavalo mecânico" rows={financeiro.faturamentoPorCavaloMecanico} />
+            </>}
+            {generatedReport?.selection.sections.includes('grupos_motorista') && <>
+            <Group title="Despesas por motorista" rows={financeiro.despesasPorMotorista} />
             <Group title="Faturamento por motorista" rows={financeiro.faturamentoPorMotorista} />
-          </div>
-          <ConjuntosPorCavalo rows={financeiro.conjuntosPorCavalo || []} />
+            </>}
+          </div>}
+          {generatedReport?.selection.sections.includes('composicoes') && <ConjuntosPorCavalo rows={financeiro.conjuntosPorCavalo || []} selection={generatedReport.selection} />}
         </>
         )
-      )}
-      {pdfOptionsOpen && (
-        <PdfExportModal
-          key={reportType}
-          reportType={reportType}
-          preferenceScope={user?.id || 'anonymous'}
-          onClose={() => setPdfOptionsOpen(false)}
-          onExport={(selection) => exportReport('pdf', pdfSelectionParams(selection))}
-        />
       )}
     </section>
   );
 }
 
-function PdfExportModal({
+function ReportCustomization({
   reportType,
-  preferenceScope,
-  onClose,
-  onExport,
+  selection,
+  onChange,
 }: {
   reportType: ReportType;
-  preferenceScope: string;
-  onClose: () => void;
-  onExport: (selection: PdfSelection) => Promise<boolean>;
+  selection: PdfSelection;
+  onChange: (selection: PdfSelection) => void;
 }) {
   const config = pdfReportConfigs[reportType];
   const defaults = defaultPdfSelection(reportType);
-  const [selection, setSelection] = useState<PdfSelection>(() => loadPdfSelection(reportType, preferenceScope));
-  const [localError, setLocalError] = useState('');
-  const [exporting, setExporting] = useState(false);
-  useEscapeToClose(onClose, !exporting);
   const allSectionsSelected = selection.sections.length === config.sections.length;
   const allColumnsSelected = selection.columns.length === defaults.columns.length;
   const activeColumnGroups = config.columnGroups.filter((group) => selection.sections.includes(group.sectionId));
 
   function toggleSection(sectionId: string) {
-    setSelection((current) => ({
-      ...current,
-      sections: current.sections.includes(sectionId)
-        ? current.sections.filter((item) => item !== sectionId)
-        : [...current.sections, sectionId],
-    }));
-    setLocalError('');
+    onChange({
+      ...selection,
+      sections: selection.sections.includes(sectionId)
+        ? selection.sections.filter((item) => item !== sectionId)
+        : [...selection.sections, sectionId],
+    });
   }
 
   function toggleColumn(columnId: string) {
-    setSelection((current) => ({
-      ...current,
-      columns: current.columns.includes(columnId)
-        ? current.columns.filter((item) => item !== columnId)
-        : [...current.columns, columnId],
-    }));
-    setLocalError('');
-  }
-
-  async function generate() {
-    const validationError = validatePdfSelection(reportType, selection);
-    if (validationError) {
-      setLocalError(validationError);
-      return;
-    }
-    setExporting(true);
-    const exported = await onExport(selection);
-    setExporting(false);
-    if (exported) {
-      savePdfSelection(reportType, selection, preferenceScope);
-      onClose();
-    }
+    onChange({
+      ...selection,
+      columns: selection.columns.includes(columnId)
+        ? selection.columns.filter((item) => item !== columnId)
+        : [...selection.columns, columnId],
+    });
   }
 
   return (
-    <div className="modal-backdrop">
-      <div className="modal pdf-options-modal" role="dialog" aria-modal="true" aria-labelledby="pdf-options-title">
-        <div className="modal-header">
-          <div>
-            <h2 id="pdf-options-title">Personalizar PDF</h2>
-            <p>Escolha as seções e colunas. Suas preferências ficam salvas para os próximos relatórios.</p>
-          </div>
-          <button className="icon-button" type="button" disabled={exporting} onClick={onClose} aria-label="Fechar"><X size={18} /></button>
-        </div>
-
+    <div className="report-customization">
         <div className="pdf-option-heading">
-          <strong>Seções do relatório</strong>
+          <div>
+            <strong>Conteúdo do relatório</strong>
+            <span> Escolha as seções que serão exibidas e exportadas.</span>
+          </div>
           <div className="actions">
             <button
               className="button ghost"
               type="button"
-              onClick={() => {
-                setSelection(defaults);
-                setLocalError('');
-              }}
+              onClick={() => onChange(defaults)}
             >
               Restaurar padrão
             </button>
             <button
               className="button ghost"
               type="button"
-              onClick={() => setSelection((current) => ({
-                ...current,
+              onClick={() => onChange({
+                ...selection,
                 sections: allSectionsSelected ? [] : config.sections.map((section) => section.id),
-              }))}
+              })}
             >
               {allSectionsSelected ? 'Desmarcar tudo' : 'Selecionar tudo'}
             </button>
@@ -434,10 +465,10 @@ function PdfExportModal({
             <button
               className="button ghost"
               type="button"
-              onClick={() => setSelection((current) => ({
-                ...current,
+              onClick={() => onChange({
+                ...selection,
                 columns: allColumnsSelected ? [] : defaults.columns,
-              }))}
+              })}
             >
               {allColumnsSelected ? 'Desmarcar colunas' : 'Selecionar todas as colunas'}
             </button>
@@ -464,21 +495,11 @@ function PdfExportModal({
             </div>
           ))}
         </details>
-
-        {localError && <div className="form-error">{localError}</div>}
-        <div className="modal-actions">
-          <button className="button ghost" type="button" disabled={exporting} onClick={onClose}>Cancelar</button>
-          <button className="button primary" type="button" disabled={exporting} onClick={generate}>
-            <Download size={18} />
-            {exporting ? 'Gerando PDF...' : 'Gerar PDF'}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
 
-function CommissionReport({ comissoes }: { comissoes: any }) {
+function CommissionReport({ comissoes, selection }: { comissoes: any; selection: PdfSelection }) {
   const resumo = comissoes?.resumo || {};
   const historico = comissoes?.historico || [];
   const [sort, setSort] = useState<TableSort>({ orderBy: 'data', orderDirection: 'desc' });
@@ -522,34 +543,34 @@ function CommissionReport({ comissoes }: { comissoes: any }) {
           <table>
             <thead>
               <tr>
-                <SortableHeader label="Data" sortKey="data" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
-                <SortableHeader label="Cavalo" sortKey="cavalo" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
-                <SortableHeader label="Motorista" sortKey="motorista" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
-                <SortableHeader label="Eixos" sortKey="eixos" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
-                <SortableHeader label="Tipo" sortKey="tipo" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
-                <SortableHeader label="Regra aplicada" sortKey="regra" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
-                <SortableHeader label="Faturamento" sortKey="faturamento" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
-                <SortableHeader label="Comissão bruta" sortKey="bruta" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
-                <SortableHeader label="Impostos" sortKey="impostos" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
-                <SortableHeader label="Comissão líquida" sortKey="liquida" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
-                <SortableHeader label="Após comissão" sortKey="aposComissao" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
+                {hasColumn(selection, 'comissoes', 'data') && <SortableHeader label="Data" sortKey="data" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />}
+                {hasColumn(selection, 'comissoes', 'cavalo') && <SortableHeader label="Cavalo" sortKey="cavalo" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />}
+                {hasColumn(selection, 'comissoes', 'motorista') && <SortableHeader label="Motorista" sortKey="motorista" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />}
+                {hasColumn(selection, 'comissoes', 'eixos') && <SortableHeader label="Eixos" sortKey="eixos" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />}
+                {hasColumn(selection, 'comissoes', 'tipo') && <SortableHeader label="Tipo" sortKey="tipo" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />}
+                {hasColumn(selection, 'comissoes', 'regra') && <SortableHeader label="Regra aplicada" sortKey="regra" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />}
+                {hasColumn(selection, 'comissoes', 'faturamento') && <SortableHeader label="Faturamento" sortKey="faturamento" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />}
+                {hasColumn(selection, 'comissoes', 'bruta') && <SortableHeader label="Comissão bruta" sortKey="bruta" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />}
+                {hasColumn(selection, 'comissoes', 'impostos') && <SortableHeader label="Impostos" sortKey="impostos" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />}
+                {hasColumn(selection, 'comissoes', 'liquida') && <SortableHeader label="Comissão líquida" sortKey="liquida" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />}
+                {hasColumn(selection, 'comissoes', 'aposComissao') && <SortableHeader label="Após comissão" sortKey="aposComissao" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />}
               </tr>
             </thead>
             <tbody>
-              {!historico.length && <tr><td colSpan={11}>Nenhuma comissão encontrada para os filtros informados.</td></tr>}
+              {!historico.length && <tr><td colSpan={selectedColumnCount(selection, 'comissoes')}>Nenhuma comissão encontrada para os filtros informados.</td></tr>}
               {sortedHistorico.map((item: any) => (
                 <tr key={item.id}>
-                  <td>{date(item.data)}</td>
-                  <td>{item.cavaloMecanico?.placa || item.placa || '-'}</td>
-                  <td>{labelPessoa(item.motorista)}</td>
-                  <td>{item.quantidadeEixosComissao ?? '-'}</td>
-                  <td>{commissionTypeLabel(item.tipoComissao)}</td>
-                  <td>{commissionRuleLabel(item)}</td>
-                  <td className="money-cell positive">{money(item.valorTotal)}</td>
-                  <td className="money-cell negative">{money(item.valorComissaoBruta ?? item.valorComissao)}</td>
-                  <td className="money-cell">{item.descontoImpostos ? `- ${money(item.valorDescontoImpostos)}` : money(0)}</td>
-                  <td className="money-cell negative">{money(item.valorComissao)}</td>
-                  <td className="money-cell">{money(Number(item.valorTotal || 0) - Number(item.valorComissao || 0))}</td>
+                  {hasColumn(selection, 'comissoes', 'data') && <td>{date(item.data)}</td>}
+                  {hasColumn(selection, 'comissoes', 'cavalo') && <td>{item.cavaloMecanico?.placa || item.placa || '-'}</td>}
+                  {hasColumn(selection, 'comissoes', 'motorista') && <td>{labelPessoa(item.motorista)}</td>}
+                  {hasColumn(selection, 'comissoes', 'eixos') && <td>{item.quantidadeEixosComissao ?? '-'}</td>}
+                  {hasColumn(selection, 'comissoes', 'tipo') && <td>{commissionTypeLabel(item.tipoComissao)}</td>}
+                  {hasColumn(selection, 'comissoes', 'regra') && <td>{commissionRuleLabel(item)}</td>}
+                  {hasColumn(selection, 'comissoes', 'faturamento') && <td className="money-cell positive">{money(item.valorTotal)}</td>}
+                  {hasColumn(selection, 'comissoes', 'bruta') && <td className="money-cell negative">{money(item.valorComissaoBruta ?? item.valorComissao)}</td>}
+                  {hasColumn(selection, 'comissoes', 'impostos') && <td className="money-cell">{item.descontoImpostos ? `- ${money(item.valorDescontoImpostos)}` : money(0)}</td>}
+                  {hasColumn(selection, 'comissoes', 'liquida') && <td className="money-cell negative">{money(item.valorComissao)}</td>}
+                  {hasColumn(selection, 'comissoes', 'aposComissao') && <td className="money-cell">{money(Number(item.valorTotal || 0) - Number(item.valorComissao || 0))}</td>}
                 </tr>
               ))}
             </tbody>
@@ -560,7 +581,7 @@ function CommissionReport({ comissoes }: { comissoes: any }) {
   );
 }
 
-function ConsumoReport({ consumo }: { consumo: any }) {
+function ConsumoReport({ consumo, selection }: { consumo: any; selection: PdfSelection }) {
   const resumo = consumo?.resumo || {};
   const porCavalo = consumo?.porCavalo || [];
   const historico = consumo?.historico || [];
@@ -597,14 +618,14 @@ function ConsumoReport({ consumo }: { consumo: any }) {
           <p>Ranking calculado pela distância total dividida pelo total de litros de cada cavalo.</p>
         </div>
       </div>
-      <div className="stats-grid">
+      {selection.sections.includes('resumo_frota') && <div className="stats-grid">
         <article className="stat-card stat-info"><span>Média da frota</span><strong>{decimal(resumo.mediaGeralKmLitro, 2)} km/l</strong></article>
         <article className="stat-card stat-success"><span>Melhor placa</span><strong>{resumo.melhorPlaca ? `${resumo.melhorPlaca.placa} · ${decimal(resumo.melhorPlaca.mediaGeralKmLitro, 2)} km/l` : '-'}</strong></article>
         <article className="stat-card stat-danger"><span>Menor média</span><strong>{resumo.piorPlaca ? `${resumo.piorPlaca.placa} · ${decimal(resumo.piorPlaca.mediaGeralKmLitro, 2)} km/l` : '-'}</strong></article>
         <article className={`stat-card ${resumo.quantidadeDivergencias ? 'stat-danger' : 'stat-neutral'}`}><span>Divergências</span><strong>{resumo.quantidadeDivergencias || 0}</strong></article>
-      </div>
+      </div>}
 
-      <div className="panel report-table-panel">
+      {selection.sections.includes('ranking_frota') && <div className="panel report-table-panel">
         <div className="panel-title-row">
           <div>
             <h2>Ranking por placa</h2>
@@ -620,42 +641,46 @@ function ConsumoReport({ consumo }: { consumo: any }) {
           <table>
             <thead>
               <tr>
-                <SortableHeader label="Pos." sortKey="posicao" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />
-                <SortableHeader label="Placa / cavalo" sortKey="cavalo" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />
-                <SortableHeader label="Abastecimentos" sortKey="abastecimentos" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />
-                <SortableHeader label="Distância" sortKey="distancia" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />
-                <SortableHeader label="Litros" sortKey="litros" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />
-                <SortableHeader label="Média atual" sortKey="mediaAtual" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />
-                <SortableHeader label="Média anterior" sortKey="mediaAnterior" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />
-                <SortableHeader label="Variação" sortKey="variacao" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />
-                <SortableHeader label="Divergências" sortKey="divergencias" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />
-                <SortableHeader label="Amostra" sortKey="amostra" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />
+                {hasColumn(selection, 'ranking', 'posicao') && <SortableHeader label="Pos." sortKey="posicao" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />}
+                {hasColumn(selection, 'ranking', 'placa') && <SortableHeader label="Placa / cavalo" sortKey="cavalo" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />}
+                {hasColumn(selection, 'ranking', 'abastecimentos') && <SortableHeader label="Abastecimentos" sortKey="abastecimentos" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />}
+                {hasColumn(selection, 'ranking', 'distancia') && <SortableHeader label="Distância" sortKey="distancia" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />}
+                {hasColumn(selection, 'ranking', 'litros') && <SortableHeader label="Litros" sortKey="litros" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />}
+                {hasColumn(selection, 'ranking', 'media') && <SortableHeader label="Média atual" sortKey="mediaAtual" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />}
+                {hasColumn(selection, 'ranking', 'mediaAnterior') && <SortableHeader label="Média anterior" sortKey="mediaAnterior" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />}
+                {hasColumn(selection, 'ranking', 'variacao') && <SortableHeader label="Variação" sortKey="variacao" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />}
+                {hasColumn(selection, 'ranking', 'divergencias') && <SortableHeader label="Divergências" sortKey="divergencias" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />}
+                {hasColumn(selection, 'ranking', 'amostra') && <SortableHeader label="Amostra" sortKey="amostra" sort={rankingSort} onSort={(key) => setRankingSort((current) => nextTableSort(current, key))} />}
               </tr>
             </thead>
             <tbody>
-              {!porCavalo.length && <tr><td colSpan={10}>Nenhum abastecimento encontrado para os filtros informados.</td></tr>}
+              {!porCavalo.length && <tr><td colSpan={selectedColumnCount(selection, 'ranking')}>Nenhum abastecimento encontrado para os filtros informados.</td></tr>}
               {sortedRanking.map((item: any) => (
                 <tr key={item.cavaloMecanicoId}>
-                  <td><strong>{item.posicao == null ? '-' : `${item.posicao}º`}</strong></td>
-                  <td>{item.cavalo}</td>
-                  <td>{item.quantidadeRegistros}</td>
-                  <td>{decimal(item.distanciaTotal, 1)} km</td>
-                  <td>{decimal(item.litrosTotal, 2)} L</td>
-                  <td><strong>{decimal(item.mediaGeralKmLitro, 2)} km/l</strong></td>
-                  <td>{item.mediaPeriodoAnterior == null ? '-' : `${decimal(item.mediaPeriodoAnterior, 2)} km/l`}</td>
-                  <td className={`money-cell ${item.variacaoPercentual > 0 ? 'positive' : item.variacaoPercentual < 0 ? 'negative' : ''}`}>
+                  {hasColumn(selection, 'ranking', 'posicao') && <td><strong>{item.posicao == null ? '-' : `${item.posicao}º`}</strong></td>}
+                  {hasColumn(selection, 'ranking', 'placa') && <td>{item.cavalo}</td>}
+                  {hasColumn(selection, 'ranking', 'abastecimentos') && <td>{item.quantidadeRegistros}</td>}
+                  {hasColumn(selection, 'ranking', 'distancia') && <td>{decimal(item.distanciaTotal, 1)} km</td>}
+                  {hasColumn(selection, 'ranking', 'litros') && <td>{decimal(item.litrosTotal, 2)} L</td>}
+                  {hasColumn(selection, 'ranking', 'media') && <td><strong>{decimal(item.mediaGeralKmLitro, 2)} km/l</strong></td>}
+                  {hasColumn(selection, 'ranking', 'mediaAnterior') && <td>{item.mediaPeriodoAnterior == null ? '-' : `${decimal(item.mediaPeriodoAnterior, 2)} km/l`}</td>}
+                  {hasColumn(selection, 'ranking', 'variacao') && <td className={`money-cell ${item.variacaoPercentual > 0 ? 'positive' : item.variacaoPercentual < 0 ? 'negative' : ''}`}>
                     {item.variacaoPercentual == null ? '-' : `${item.variacaoPercentual > 0 ? '+' : ''}${decimal(item.variacaoPercentual, 2)}%`}
-                  </td>
-                  <td>{item.quantidadeDivergencias || 0}</td>
-                  <td>{item.amostraConfiavel ? 'Confiável' : 'Pequena'}</td>
+                  </td>}
+                  {hasColumn(selection, 'ranking', 'divergencias') && <td>{item.quantidadeDivergencias || 0}</td>}
+                  {hasColumn(selection, 'ranking', 'amostra') && <td>{item.amostraConfiavel ? 'Confiável' : 'Pequena'}</td>}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      </div>
+      </div>}
 
-      <div className="panel report-table-panel">
+      {selection.sections.includes('comparacao_periodo') && (
+        <ComparisonReport rows={porCavalo} periodo={periodoComparacao} selection={selection} />
+      )}
+
+      {selection.sections.includes('historico_abastecimentos') && <div className="panel report-table-panel">
         <div className="panel-title-row">
           <div>
             <h2>Histórico de abastecimentos</h2>
@@ -666,33 +691,71 @@ function ConsumoReport({ consumo }: { consumo: any }) {
           <table>
             <thead>
               <tr>
-                <SortableHeader label="Data" sortKey="data" sort={historySort} onSort={(key) => setHistorySort((current) => nextTableSort(current, key))} />
-                <SortableHeader label="Cavalo" sortKey="cavalo" sort={historySort} onSort={(key) => setHistorySort((current) => nextTableSort(current, key))} />
-                <SortableHeader label="Km anterior" sortKey="kmAnterior" sort={historySort} onSort={(key) => setHistorySort((current) => nextTableSort(current, key))} />
-                <SortableHeader label="Km atual" sortKey="kmAtual" sort={historySort} onSort={(key) => setHistorySort((current) => nextTableSort(current, key))} />
-                <SortableHeader label="Distância" sortKey="distancia" sort={historySort} onSort={(key) => setHistorySort((current) => nextTableSort(current, key))} />
-                <SortableHeader label="Litros" sortKey="litros" sort={historySort} onSort={(key) => setHistorySort((current) => nextTableSort(current, key))} />
-                <SortableHeader label="Média" sortKey="media" sort={historySort} onSort={(key) => setHistorySort((current) => nextTableSort(current, key))} />
+                {hasColumn(selection, 'historico', 'data') && <SortableHeader label="Data" sortKey="data" sort={historySort} onSort={(key) => setHistorySort((current) => nextTableSort(current, key))} />}
+                {hasColumn(selection, 'historico', 'cavalo') && <SortableHeader label="Cavalo" sortKey="cavalo" sort={historySort} onSort={(key) => setHistorySort((current) => nextTableSort(current, key))} />}
+                {hasColumn(selection, 'historico', 'kmAnterior') && <SortableHeader label="Km anterior" sortKey="kmAnterior" sort={historySort} onSort={(key) => setHistorySort((current) => nextTableSort(current, key))} />}
+                {hasColumn(selection, 'historico', 'kmAtual') && <SortableHeader label="Km atual" sortKey="kmAtual" sort={historySort} onSort={(key) => setHistorySort((current) => nextTableSort(current, key))} />}
+                {hasColumn(selection, 'historico', 'distancia') && <SortableHeader label="Distância" sortKey="distancia" sort={historySort} onSort={(key) => setHistorySort((current) => nextTableSort(current, key))} />}
+                {hasColumn(selection, 'historico', 'litros') && <SortableHeader label="Litros" sortKey="litros" sort={historySort} onSort={(key) => setHistorySort((current) => nextTableSort(current, key))} />}
+                {hasColumn(selection, 'historico', 'media') && <SortableHeader label="Média" sortKey="media" sort={historySort} onSort={(key) => setHistorySort((current) => nextTableSort(current, key))} />}
+                {hasColumn(selection, 'historico', 'status') && <th>Status</th>}
               </tr>
             </thead>
             <tbody>
-              {!historico.length && <tr><td colSpan={7}>Nenhum abastecimento encontrado para os filtros informados.</td></tr>}
+              {!historico.length && <tr><td colSpan={selectedColumnCount(selection, 'historico')}>Nenhum abastecimento encontrado para os filtros informados.</td></tr>}
               {sortedHistory.map((item: any) => (
                 <tr key={item.id} className={item.divergente ? 'consumo-divergente' : ''}>
-                  <td>{date(item.data)}{item.divergente && <small title="A sequência de quilometragens não coincide com o registro anterior ou seguinte.">Sequência divergente</small>}</td>
-                  <td>{item.cavaloMecanico?.placa || '-'}</td>
-                  <td>{decimal(item.kmAnterior, 1)}</td>
-                  <td>{decimal(item.kmAtual, 1)}</td>
-                  <td>{decimal(item.distanciaPercorrida, 1)} km</td>
-                  <td>{decimal(item.litros, 2)} L</td>
-                  <td><strong>{decimal(item.mediaKmLitro, 2)} km/l</strong></td>
+                  {hasColumn(selection, 'historico', 'data') && <td>{date(item.data)}</td>}
+                  {hasColumn(selection, 'historico', 'cavalo') && <td>{item.cavaloMecanico?.placa || '-'}</td>}
+                  {hasColumn(selection, 'historico', 'kmAnterior') && <td>{decimal(item.kmAnterior, 1)}</td>}
+                  {hasColumn(selection, 'historico', 'kmAtual') && <td>{decimal(item.kmAtual, 1)}</td>}
+                  {hasColumn(selection, 'historico', 'distancia') && <td>{decimal(item.distanciaPercorrida, 1)} km</td>}
+                  {hasColumn(selection, 'historico', 'litros') && <td>{decimal(item.litros, 2)} L</td>}
+                  {hasColumn(selection, 'historico', 'media') && <td><strong>{decimal(item.mediaKmLitro, 2)} km/l</strong></td>}
+                  {hasColumn(selection, 'historico', 'status') && <td>{item.divergente ? 'Sequência divergente' : 'OK'}</td>}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      </div>
+      </div>}
     </>
+  );
+}
+
+function ComparisonReport({ rows, periodo, selection }: { rows: any[]; periodo: any; selection: PdfSelection }) {
+  return (
+    <div className="panel report-table-panel">
+      <div className="panel-title-row">
+        <div>
+          <h2>Comparação com o período anterior</h2>
+          <p>{periodo ? `${date(periodo.dataInicial)} a ${date(periodo.dataFinal)}` : 'Informe data inicial e final para comparar períodos equivalentes.'}</p>
+        </div>
+      </div>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              {hasColumn(selection, 'comparacao', 'placa') && <th>Placa</th>}
+              {hasColumn(selection, 'comparacao', 'mediaAtual') && <th>Média atual</th>}
+              {hasColumn(selection, 'comparacao', 'mediaAnterior') && <th>Média anterior</th>}
+              {hasColumn(selection, 'comparacao', 'variacao') && <th>Variação</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {!periodo && <tr><td colSpan={selectedColumnCount(selection, 'comparacao')}>Período de comparação não informado.</td></tr>}
+            {periodo && rows.map((item) => (
+              <tr key={item.cavaloMecanicoId}>
+                {hasColumn(selection, 'comparacao', 'placa') && <td>{item.placa || item.cavalo}</td>}
+                {hasColumn(selection, 'comparacao', 'mediaAtual') && <td>{decimal(item.mediaGeralKmLitro, 2)} km/l</td>}
+                {hasColumn(selection, 'comparacao', 'mediaAnterior') && <td>{item.mediaPeriodoAnterior == null ? '-' : `${decimal(item.mediaPeriodoAnterior, 2)} km/l`}</td>}
+                {hasColumn(selection, 'comparacao', 'variacao') && <td className={`money-cell ${item.variacaoPercentual > 0 ? 'positive' : item.variacaoPercentual < 0 ? 'negative' : ''}`}>{item.variacaoPercentual == null ? '-' : `${item.variacaoPercentual > 0 ? '+' : ''}${decimal(item.variacaoPercentual, 2)}%`}</td>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 
@@ -721,7 +784,7 @@ function Group({ title, rows }: { title: string; rows: any[] }) {
   );
 }
 
-function ConjuntosPorCavalo({ rows }: { rows: any[] }) {
+function ConjuntosPorCavalo({ rows, selection }: { rows: any[]; selection: PdfSelection }) {
   const [sort, setSort] = useState<TableSort>({ orderBy: 'cavalo', orderDirection: 'asc' });
   const sortedRows = useMemo(() => sortTableRows<any>(rows, sort, {
     cavalo: (row) => row.cavalo,
@@ -747,30 +810,30 @@ function ConjuntosPorCavalo({ rows }: { rows: any[] }) {
         <table>
           <thead>
             <tr>
-              <SortableHeader label="Cavalo" sortKey="cavalo" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
-              <SortableHeader label="Conjunto" sortKey="conjunto" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
-              <SortableHeader label="Tipo" sortKey="tipo" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
-              <SortableHeader label="Eixos" sortKey="eixos" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
-              <SortableHeader label="Implementos" sortKey="implementos" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
-              <SortableHeader label="Lanc." sortKey="lancamentos" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
-              <SortableHeader label="Despesas" sortKey="despesas" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
-              <SortableHeader label="Faturamento" sortKey="faturamento" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
-              <SortableHeader label="Saldo" sortKey="saldo" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />
+              {hasColumn(selection, 'composicoes', 'cavalo') && <SortableHeader label="Cavalo" sortKey="cavalo" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />}
+              {hasColumn(selection, 'composicoes', 'conjunto') && <SortableHeader label="Conjunto" sortKey="conjunto" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />}
+              {hasColumn(selection, 'composicoes', 'tipo') && <SortableHeader label="Tipo" sortKey="tipo" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />}
+              {hasColumn(selection, 'composicoes', 'eixos') && <SortableHeader label="Eixos" sortKey="eixos" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />}
+              {hasColumn(selection, 'composicoes', 'implementos') && <SortableHeader label="Implementos" sortKey="implementos" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />}
+              {hasColumn(selection, 'composicoes', 'lancamentos') && <SortableHeader label="Lanc." sortKey="lancamentos" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />}
+              {hasColumn(selection, 'composicoes', 'despesas') && <SortableHeader label="Despesas" sortKey="despesas" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />}
+              {hasColumn(selection, 'composicoes', 'faturamento') && <SortableHeader label="Faturamento" sortKey="faturamento" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />}
+              {hasColumn(selection, 'composicoes', 'saldo') && <SortableHeader label="Saldo" sortKey="saldo" sort={sort} onSort={(key) => setSort((current) => nextTableSort(current, key))} />}
             </tr>
           </thead>
           <tbody>
-            {!rows.length && <tr><td colSpan={9}>Nenhum conjunto encontrado para os filtros informados.</td></tr>}
+            {!rows.length && <tr><td colSpan={selectedColumnCount(selection, 'composicoes')}>Nenhum conjunto encontrado para os filtros informados.</td></tr>}
             {sortedRows.map((row, index) => (
               <tr key={`${row.cavaloId}-${row.conjuntoId || index}`}>
-                <td>{row.cavalo || '-'}</td>
-                <td>{row.conjunto || '-'}</td>
-                <td>{row.tipoConjunto || '-'}</td>
-                <td>{row.quantidadeTotalEixos ?? '-'}</td>
-                <td>{row.implementos || '-'}</td>
-                <td>{row.quantidadeLancamentos}</td>
-                <td className="money-cell negative">{money(row.totalDespesas)}</td>
-                <td className="money-cell positive">{money(row.totalFaturamento)}</td>
-                <td className={`money-cell ${row.saldo >= 0 ? 'positive' : 'negative'}`}>{money(row.saldo)}</td>
+                {hasColumn(selection, 'composicoes', 'cavalo') && <td>{row.cavalo || '-'}</td>}
+                {hasColumn(selection, 'composicoes', 'conjunto') && <td>{row.conjunto || '-'}</td>}
+                {hasColumn(selection, 'composicoes', 'tipo') && <td>{row.tipoConjunto || '-'}</td>}
+                {hasColumn(selection, 'composicoes', 'eixos') && <td>{row.quantidadeTotalEixos ?? '-'}</td>}
+                {hasColumn(selection, 'composicoes', 'implementos') && <td>{row.implementos || '-'}</td>}
+                {hasColumn(selection, 'composicoes', 'lancamentos') && <td>{row.quantidadeLancamentos}</td>}
+                {hasColumn(selection, 'composicoes', 'despesas') && <td className="money-cell negative">{money(row.totalDespesas)}</td>}
+                {hasColumn(selection, 'composicoes', 'faturamento') && <td className="money-cell positive">{money(row.totalFaturamento)}</td>}
+                {hasColumn(selection, 'composicoes', 'saldo') && <td className={`money-cell ${row.saldo >= 0 ? 'positive' : 'negative'}`}>{money(row.saldo)}</td>}
               </tr>
             ))}
           </tbody>
@@ -823,6 +886,34 @@ function SelectFilter({ label, name, value, options, disabled, onChange }: { lab
       />
     </label>
   );
+}
+
+function MultiSelectFilter({ label, name, value, options, disabled, onChange }: { label: string; name: string; value: string[]; options: Option[]; disabled?: boolean; onChange: (name: string, value: string[]) => void }) {
+  return (
+    <label>
+      {label}
+      <MultiSearchableSelect
+        value={value}
+        options={options}
+        placeholder="Todos"
+        disabled={disabled}
+        ariaLabel={label}
+        onChange={(nextValue) => onChange(name, nextValue)}
+      />
+    </label>
+  );
+}
+
+function filterArray(value?: string) {
+  return value?.split(',').map((item) => item.trim()).filter(Boolean) || [];
+}
+
+function hasColumn(selection: PdfSelection | undefined, group: string, column: string) {
+  return Boolean(selection?.columns.includes(pdfColumnId(group, column)));
+}
+
+function selectedColumnCount(selection: PdfSelection | undefined, group: string) {
+  return Math.max(1, selection?.columns.filter((column) => column.startsWith(`${group}:`)).length || 0);
 }
 
 function TipoBadge({ tipo }: { tipo: string }) {

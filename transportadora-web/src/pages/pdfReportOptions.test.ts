@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   defaultPdfSelection,
   loadPdfSelection,
+  loadLastGeneratedReport,
   pdfReportConfigs,
   pdfSelectionParams,
   savePdfSelection,
+  saveLastGeneratedReport,
   validatePdfSelection,
 } from './pdfReportOptions';
 
@@ -21,7 +23,7 @@ describe('opções do PDF', () => {
 
   it('exige uma seção e ao menos uma coluna nas tabelas selecionadas', () => {
     expect(validatePdfSelection('MEDIA_FROTA', { sections: [], columns: [] }))
-      .toBe('Selecione pelo menos uma seção para gerar o PDF.');
+      .toBe('Selecione pelo menos uma seção para gerar o relatório.');
     expect(validatePdfSelection('MEDIA_FROTA', {
       sections: ['historico_abastecimentos'],
       columns: [],
@@ -73,5 +75,25 @@ describe('opções do PDF', () => {
 
     expect(loadPdfSelection('REGISTRO_GERAL', 'user-1', storage))
       .toEqual(defaultPdfSelection('REGISTRO_GERAL'));
+  });
+
+  it('guarda os filtros e o conteúdo da última geração por usuário', () => {
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) || null,
+      setItem: (key: string, value: string) => { values.set(key, value); },
+    };
+    const report = {
+      reportType: 'REGISTRO_GERAL' as const,
+      filters: { cavaloMecanicoIds: 'cav-1,cav-2', motoristaIds: 'mot-1' },
+      selection: {
+        sections: ['resumo_financeiro', 'lancamentos'],
+        columns: ['lancamentos:data', 'lancamentos:cavalo'],
+      },
+    };
+
+    expect(saveLastGeneratedReport(report, 'user-1', storage)).toBe(true);
+    expect(loadLastGeneratedReport('user-1', storage)).toEqual(report);
+    expect(loadLastGeneratedReport('user-2', storage)).toBeNull();
   });
 });

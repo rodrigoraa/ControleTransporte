@@ -5,6 +5,12 @@ export type PdfSelection = {
   columns: string[];
 };
 
+export type LastGeneratedReport = {
+  reportType: PdfReportType;
+  filters: Record<string, string>;
+  selection: PdfSelection;
+};
+
 export type PdfColumnGroup = {
   id: string;
   label: string;
@@ -41,8 +47,13 @@ export const pdfReportConfigs: Record<PdfReportType, PdfReportConfig> = {
           { key: 'data', label: 'Data' },
           { key: 'tipo', label: 'Tipo' },
           { key: 'cavalo', label: 'Cavalo/placa' },
+          { key: 'conjunto', label: 'Conjunto registrado' },
+          { key: 'implementos', label: 'Implementos utilizados' },
           { key: 'motorista', label: 'Motorista' },
+          { key: 'parte', label: 'Fornecedor/cliente' },
           { key: 'categoria', label: 'Categoria' },
+          { key: 'quantidade', label: 'Quantidade' },
+          { key: 'valorUnitario', label: 'Valor unitário' },
           { key: 'valorTotal', label: 'Valor total' },
         ],
       },
@@ -54,6 +65,8 @@ export const pdfReportConfigs: Record<PdfReportType, PdfReportConfig> = {
           { key: 'cavalo', label: 'Cavalo' },
           { key: 'conjunto', label: 'Conjunto' },
           { key: 'tipo', label: 'Tipo' },
+          { key: 'eixos', label: 'Eixos' },
+          { key: 'implementos', label: 'Implementos' },
           { key: 'lancamentos', label: 'Lançamentos' },
           { key: 'despesas', label: 'Despesas' },
           { key: 'faturamento', label: 'Faturamento' },
@@ -75,6 +88,7 @@ export const pdfReportConfigs: Record<PdfReportType, PdfReportConfig> = {
           { key: 'bruta', label: 'Comissão bruta' },
           { key: 'impostos', label: 'Impostos' },
           { key: 'liquida', label: 'Comissão líquida' },
+          { key: 'aposComissao', label: 'Após comissão' },
         ],
       },
     ],
@@ -148,7 +162,7 @@ export function defaultPdfSelection(reportType: PdfReportType): PdfSelection {
 
 export function validatePdfSelection(reportType: PdfReportType, selection: PdfSelection) {
   const config = pdfReportConfigs[reportType];
-  if (!selection.sections.length) return 'Selecione pelo menos uma seção para gerar o PDF.';
+  if (!selection.sections.length) return 'Selecione pelo menos uma seção para gerar o relatório.';
 
   for (const group of config.columnGroups) {
     if (!selection.sections.includes(group.sectionId)) continue;
@@ -157,6 +171,12 @@ export function validatePdfSelection(reportType: PdfReportType, selection: PdfSe
   }
   return '';
 }
+
+export const reportConfigs = pdfReportConfigs;
+export const defaultReportSelection = defaultPdfSelection;
+export const validateReportSelection = validatePdfSelection;
+export const reportColumnId = pdfColumnId;
+export const reportSelectionParams = pdfSelectionParams;
 
 export function pdfSelectionParams(selection: PdfSelection) {
   return {
@@ -215,6 +235,45 @@ export function savePdfSelection(
   if (!storage || validatePdfSelection(reportType, selection)) return false;
   try {
     storage.setItem(pdfSelectionStorageKey(reportType, scope), JSON.stringify(selection));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function lastReportStorageKey(scope: string) {
+  return `controle-transporte:last-generated-report:v1:${scope}`;
+}
+
+export function loadLastGeneratedReport(
+  scope = 'default',
+  storage: PdfSelectionStorage | null = browserStorage(),
+): LastGeneratedReport | null {
+  if (!storage) return null;
+  try {
+    const raw = storage.getItem(lastReportStorageKey(scope));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<LastGeneratedReport>;
+    if (parsed.reportType !== 'REGISTRO_GERAL' && parsed.reportType !== 'MEDIA_FROTA') return null;
+    if (!parsed.filters || typeof parsed.filters !== 'object' || Array.isArray(parsed.filters)) return null;
+    if (!parsed.selection || validatePdfSelection(parsed.reportType, parsed.selection)) return null;
+    const filters = Object.fromEntries(
+      Object.entries(parsed.filters).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+    );
+    return { reportType: parsed.reportType, filters, selection: parsed.selection };
+  } catch {
+    return null;
+  }
+}
+
+export function saveLastGeneratedReport(
+  report: LastGeneratedReport,
+  scope = 'default',
+  storage: PdfSelectionStorage | null = browserStorage(),
+) {
+  if (!storage || validatePdfSelection(report.reportType, report.selection)) return false;
+  try {
+    storage.setItem(lastReportStorageKey(scope), JSON.stringify(report));
     return true;
   } catch {
     return false;

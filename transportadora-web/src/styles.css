@@ -760,6 +760,74 @@ input, select, textarea {
   text-align: center;
 }
 
+.multi-searchable-select-control {
+  min-height: 42px;
+  padding: 5px 34px;
+  border: 1px solid #cbd8dd;
+  border-radius: 8px;
+  background: white;
+  cursor: text;
+}
+
+.multi-searchable-select-values {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+
+.multi-searchable-select-control input {
+  flex: 1 1 110px;
+  width: auto;
+  min-width: 90px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+}
+
+.multi-searchable-select-control input:focus {
+  box-shadow: none;
+}
+
+.multi-select-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 4px 6px 4px 8px;
+  border-radius: 6px;
+  color: #145767;
+  background: #e6f2f4;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.multi-select-tag button {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.multi-select-tag button:hover {
+  background: #cce5e9;
+}
+
+.multi-searchable-select .searchable-select-options button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .commission-section {
   display: grid;
   gap: 14px;
@@ -1396,6 +1464,16 @@ tbody tr:hover {
 .report-filter-panel {
   gap: 16px;
   padding: 18px;
+}
+
+.report-customization {
+  grid-column: 1 / -1;
+  padding-top: 4px;
+  border-top: 1px solid #e4ecef;
+}
+
+.report-customization .pdf-option-heading:first-child {
+  margin-top: 12px;
 }
 
 .filter-heading {

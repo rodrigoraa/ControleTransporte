@@ -14,48 +14,103 @@ type PdfTextOptions = {
 export class RelatoriosService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async opcoes() {
-    const [motoristas, cavalos, implementos, conjuntos, fornecedores, clientes, categorias, tipos] = await Promise.all([
-      this.prisma.motorista.findMany({ select: { id: true, nome: true, cpf: true }, orderBy: { nome: 'asc' } }),
-      this.prisma.cavaloMecanico.findMany({ select: { id: true, placa: true, modelo: true, marca: true }, orderBy: { placa: 'asc' } }),
-      this.prisma.implemento.findMany({ select: { id: true, placa: true, tipo: true, carroceria: true, quantidadeEixos: true }, orderBy: { placa: 'asc' } }),
-      this.prisma.conjunto.findMany({ select: { id: true, nome: true, tipo: true, cavaloMecanicoId: true, quantidadeTotalEixos: true }, orderBy: { nome: 'asc' } }),
-      this.prisma.fornecedor.findMany({ select: { id: true, nome: true, documento: true }, orderBy: { nome: 'asc' } }),
-      this.prisma.cliente.findMany({ select: { id: true, nome: true, documento: true }, orderBy: { nome: 'asc' } }),
-      this.prisma.categoriaFinanceira.findMany({
-        where: { ativo: true },
-        select: { id: true, nome: true, tipoLancamento: true },
-        orderBy: { nome: 'asc' },
-      }),
-      this.prisma.lancamentoFinanceiro.findMany({
-        distinct: ['tipoLancamento'],
-        select: { tipoLancamento: true },
-        orderBy: { tipoLancamento: 'asc' },
-      }),
+  async opcoes(filters: RelatorioFinanceiroQueryDto = {}) {
+    if (filters.tipoRelatorio === 'MEDIA_FROTA') {
+      const where = this.buildAbastecimentoWhere(this.withoutFilters(filters, 'cavaloMecanicoId', 'cavaloMecanicoIds'));
+      const rows = await this.prisma.abastecimento.findMany({
+        where,
+        distinct: ['cavaloMecanicoId'],
+        select: { cavaloMecanico: { select: { id: true, placa: true, marca: true, modelo: true } } },
+        orderBy: { cavaloMecanico: { placa: 'asc' } },
+      });
+      return {
+        ...this.emptyOptions(),
+        cavalosMecanicos: this.uniqueOptions(rows.map((row) => ({
+          value: row.cavaloMecanico.id,
+          label: [row.cavaloMecanico.placa, row.cavaloMecanico.marca, row.cavaloMecanico.modelo].filter(Boolean).join(' - '),
+        }))),
+      };
+    }
+
+    const facets = await Promise.all([
+      this.optionRows(filters, ['motoristaId', 'motoristaIds']),
+      this.optionRows(filters, ['cavaloMecanicoId', 'cavaloMecanicoIds']),
+      this.optionRows(filters, ['implementoId', 'implementoIds']),
+      this.optionRows(filters, ['conjuntoId', 'conjuntoIds']),
+      this.optionRows(filters, ['fornecedorId', 'fornecedorIds']),
+      this.optionRows(filters, ['clienteId', 'clienteIds']),
+      this.optionRows(filters, ['categoriaId', 'categoriaIds']),
+      this.optionRows(filters, ['tipoLancamento', 'tiposLancamento']),
+      this.optionRows(filters, ['tipoConjunto', 'tiposConjunto']),
+      this.optionRows(filters, ['quantidadeEixos', 'quantidadesEixos']),
     ]);
+    const [motoristaRows, cavaloRows, implementoRows, conjuntoRows, fornecedorRows, clienteRows, categoriaRows, tipoRows, tipoConjuntoRows, eixoRows] = facets;
+    const implementos = implementoRows.flatMap((row) => [
+      row.implemento,
+      ...(row.conjunto?.implementos || []).map((vinculo) => vinculo.implemento),
+    ]).filter((item): item is NonNullable<typeof item> => item != null);
 
     return {
-      motoristas: motoristas.map((item) => ({ value: item.id, label: [item.nome, item.cpf].filter(Boolean).join(' - ') })),
-      cavalosMecanicos: cavalos.map((item) => ({
-        value: item.id,
-        label: [item.placa, item.marca, item.modelo].filter(Boolean).join(' - '),
-      })),
-      implementos: implementos.map((item) => ({
-        value: item.id,
-        label: [item.placa, item.tipo, item.carroceria, `${item.quantidadeEixos} eixos`].filter(Boolean).join(' - '),
-      })),
-      conjuntos: conjuntos.map((item) => ({
-        value: item.id,
-        label: [item.nome, item.tipo, `${item.quantidadeTotalEixos} eixos`].filter(Boolean).join(' - '),
-        cavaloMecanicoId: item.cavaloMecanicoId,
-        tipo: item.tipo,
-        quantidadeTotalEixos: item.quantidadeTotalEixos,
-      })),
-      fornecedores: fornecedores.map((item) => ({ value: item.id, label: [item.nome, item.documento].filter(Boolean).join(' - ') })),
-      clientes: clientes.map((item) => ({ value: item.id, label: [item.nome, item.documento].filter(Boolean).join(' - ') })),
-      categorias: categorias.map((item) => ({ value: item.id, label: [item.nome, item.tipoLancamento].filter(Boolean).join(' - ') })),
-      tipos: tipos.map((item) => ({ value: item.tipoLancamento, label: item.tipoLancamento === 'DESPESA' ? 'Despesa' : 'Faturamento' })),
+      motoristas: this.uniqueOptions(motoristaRows.filter((row) => row.motorista).map((row) => ({ value: row.motorista!.id, label: [row.motorista!.nome, row.motorista!.cpf].filter(Boolean).join(' - ') }))),
+      cavalosMecanicos: this.uniqueOptions(cavaloRows.filter((row) => row.cavaloMecanico).map((row) => ({ value: row.cavaloMecanico!.id, label: [row.cavaloMecanico!.placa, row.cavaloMecanico!.marca, row.cavaloMecanico!.modelo].filter(Boolean).join(' - ') }))),
+      implementos: this.uniqueOptions(implementos.map((item) => ({ value: item.id, label: [item.placa, item.tipo, item.carroceria, `${item.quantidadeEixos} eixos`].filter(Boolean).join(' - ') }))),
+      conjuntos: this.uniqueOptions(conjuntoRows.filter((row) => row.conjunto).map((row) => ({ value: row.conjunto!.id, label: [row.conjunto!.nome, row.conjunto!.tipo, `${row.conjunto!.quantidadeTotalEixos} eixos`].filter(Boolean).join(' - ') }))),
+      fornecedores: this.uniqueOptions(fornecedorRows.filter((row) => row.fornecedor).map((row) => ({ value: row.fornecedor!.id, label: [row.fornecedor!.nome, row.fornecedor!.documento].filter(Boolean).join(' - ') }))),
+      clientes: this.uniqueOptions(clienteRows.filter((row) => row.cliente).map((row) => ({ value: row.cliente!.id, label: [row.cliente!.nome, row.cliente!.documento].filter(Boolean).join(' - ') }))),
+      categorias: this.uniqueOptions(categoriaRows.filter((row) => row.categoriaFinanceira).map((row) => ({ value: row.categoriaFinanceira!.id, label: [row.categoriaFinanceira!.nome, row.categoriaFinanceira!.tipoLancamento].filter(Boolean).join(' - ') }))),
+      tipos: this.uniqueOptions(tipoRows.map((row) => ({ value: row.tipoLancamento, label: row.tipoLancamento === TipoLancamento.DESPESA ? 'Despesa' : 'Faturamento' }))),
+      tiposConjunto: this.uniqueOptions(tipoConjuntoRows.filter((row) => row.conjunto).map((row) => ({ value: row.conjunto!.tipo, label: this.tipoConjuntoLabel(row.conjunto!.tipo) }))),
+      quantidadesEixos: this.uniqueOptions(eixoRows.filter((row) => row.conjunto).map((row) => ({ value: String(row.conjunto!.quantidadeTotalEixos), label: `${row.conjunto!.quantidadeTotalEixos} eixos` }))),
     };
+  }
+
+  private emptyOptions() {
+    return { motoristas: [], cavalosMecanicos: [], implementos: [], conjuntos: [], fornecedores: [], clientes: [], categorias: [], tipos: [], tiposConjunto: [], quantidadesEixos: [] };
+  }
+
+  private uniqueOptions<T extends { value: string; label: string }>(options: T[]) {
+    return [...new Map(options.map((option) => [option.value, option])).values()]
+      .sort((left, right) => left.label.localeCompare(right.label, 'pt-BR'));
+  }
+
+  private tipoConjuntoLabel(tipo: string) {
+    return ({ SIMPLES: 'Simples', BITREM: 'Bitrem', RODOTREM: 'Rodotrem', OUTRO: 'Outro' } as Record<string, string>)[tipo] || tipo;
+  }
+
+  private withoutFilters(filters: RelatorioFinanceiroQueryDto, ...keys: Array<keyof RelatorioFinanceiroQueryDto>) {
+    const result = { ...filters } as Record<string, unknown>;
+    keys.forEach((key) => delete result[key]);
+    return result as RelatorioFinanceiroQueryDto;
+  }
+
+  private async optionRows(filters: RelatorioFinanceiroQueryDto, omittedKeys: Array<keyof RelatorioFinanceiroQueryDto>) {
+    const where = await this.buildWhere(this.withoutFilters(filters, ...omittedKeys));
+    return this.prisma.lancamentoFinanceiro.findMany({
+      where,
+      select: {
+        tipoLancamento: true,
+        motorista: { select: { id: true, nome: true, cpf: true } },
+        cavaloMecanico: { select: { id: true, placa: true, marca: true, modelo: true } },
+        implemento: { select: { id: true, placa: true, tipo: true, carroceria: true, quantidadeEixos: true } },
+        conjunto: {
+          select: {
+            id: true,
+            nome: true,
+            tipo: true,
+            quantidadeTotalEixos: true,
+            implementos: { select: { implemento: { select: { id: true, placa: true, tipo: true, carroceria: true, quantidadeEixos: true } } } },
+          },
+        },
+        fornecedor: { select: { id: true, nome: true, documento: true } },
+        cliente: { select: { id: true, nome: true, documento: true } },
+        categoriaFinanceira: { select: { id: true, nome: true, tipoLancamento: true } },
+      },
+    });
+  }
+
+  private filterValues(value?: string | number | null) {
+    if (value === undefined || value === null || value === '') return [];
+    return String(value).split(',').map((item) => item.trim()).filter(Boolean);
   }
 
   private async buildWhere(filters: RelatorioFinanceiroQueryDto) {
@@ -66,27 +121,39 @@ export class RelatoriosService {
       if (filters.dataFinal) data.lte = new Date(`${filters.dataFinal}T23:59:59.999Z`);
       and.push({ data });
     }
-    for (const field of ['motoristaId', 'cavaloMecanicoId', 'conjuntoId', 'fornecedorId', 'clienteId', 'categoriaId'] as const) {
-      if (filters[field]) and.push({ [field]: filters[field] });
+    for (const [field, pluralField] of [
+      ['motoristaId', 'motoristaIds'],
+      ['cavaloMecanicoId', 'cavaloMecanicoIds'],
+      ['conjuntoId', 'conjuntoIds'],
+      ['fornecedorId', 'fornecedorIds'],
+      ['clienteId', 'clienteIds'],
+      ['categoriaId', 'categoriaIds'],
+    ] as const) {
+      const values = this.filterValues(filters[pluralField] || filters[field]);
+      if (values.length) and.push({ [field]: { in: values } });
     }
-    if (filters.implementoId) {
+    const implementoIds = this.filterValues(filters.implementoIds || filters.implementoId);
+    if (implementoIds.length) {
       const vinculos = await this.prisma.conjuntoImplemento.findMany({
-        where: { implementoId: filters.implementoId },
+        where: { implementoId: { in: implementoIds } },
         select: { conjuntoId: true },
       });
       const conjuntoIds = vinculos.map((item) => item.conjuntoId);
       and.push({
         OR: [
-          { implementoId: filters.implementoId },
+          { implementoId: { in: implementoIds } },
           ...(conjuntoIds.length ? [{ conjuntoId: { in: conjuntoIds } }] : []),
         ],
       });
     }
     const conjunto: any = {};
-    if (filters.tipoConjunto) conjunto.tipo = filters.tipoConjunto;
-    if (filters.quantidadeEixos !== undefined) conjunto.quantidadeTotalEixos = filters.quantidadeEixos;
+    const tiposConjunto = this.filterValues(filters.tiposConjunto || filters.tipoConjunto);
+    const quantidadesEixos = this.filterValues(filters.quantidadesEixos || filters.quantidadeEixos).map(Number).filter(Number.isFinite);
+    if (tiposConjunto.length) conjunto.tipo = { in: tiposConjunto };
+    if (quantidadesEixos.length) conjunto.quantidadeTotalEixos = { in: quantidadesEixos };
     if (Object.keys(conjunto).length) and.push({ conjunto });
-    if (filters.tipoLancamento) and.push({ tipoLancamento: filters.tipoLancamento });
+    const tiposLancamento = this.filterValues(filters.tiposLancamento || filters.tipoLancamento);
+    if (tiposLancamento.length) and.push({ tipoLancamento: { in: tiposLancamento } });
     if (filters.placa) and.push({ placa: { contains: filters.placa, mode: 'insensitive' } });
     return and.length ? { AND: and } : {};
   }
@@ -98,7 +165,8 @@ export class RelatoriosService {
       if (filters.dataInicial) where.data.gte = new Date(`${filters.dataInicial}T00:00:00.000Z`);
       if (filters.dataFinal) where.data.lte = new Date(`${filters.dataFinal}T23:59:59.999Z`);
     }
-    if (filters.cavaloMecanicoId) where.cavaloMecanicoId = filters.cavaloMecanicoId;
+    const cavaloIds = this.filterValues(filters.cavaloMecanicoIds || filters.cavaloMecanicoId);
+    if (cavaloIds.length) where.cavaloMecanicoId = { in: cavaloIds };
     if (filters.placa) where.cavaloMecanico = { placa: { contains: filters.placa, mode: 'insensitive' } };
     return where;
   }
@@ -374,11 +442,6 @@ export class RelatoriosService {
     somenteConsumo = false,
     filters: RelatorioFinanceiroQueryDto = {},
   ) {
-    const pages: string[][] = [[]];
-    const pageWidth = 595;
-    const pageHeight = 842;
-    const margin = 36;
-    let y = pageHeight - margin;
     const defaultSections = somenteConsumo
       ? ['resumo_frota', 'ranking_frota', 'comparacao_periodo', 'historico_abastecimentos']
       : ['resumo_financeiro', 'lancamentos', 'grupos_cavalo', 'grupos_motorista', 'composicoes', 'comissoes'];
@@ -390,6 +453,20 @@ export class RelatoriosService {
     const selectedColumns = filters.colunasPdf === undefined
       ? null
       : new Set(filters.colunasPdf.split(',').map((item) => item.trim()).filter(Boolean));
+    const columnsByTable = new Map<string, number>();
+    selectedColumns?.forEach((column) => {
+      const tableName = column.split(':')[0];
+      columnsByTable.set(tableName, (columnsByTable.get(tableName) || 0) + 1);
+    });
+    const largestTable = selectedColumns === null
+      ? (somenteConsumo ? 10 : 11)
+      : Math.max(0, ...columnsByTable.values());
+    const landscape = largestTable > 8;
+    const pages: string[][] = [[]];
+    const pageWidth = landscape ? 842 : 595;
+    const pageHeight = landscape ? 595 : 842;
+    const margin = 36;
+    let y = pageHeight - margin;
     const hasSection = (section: string) => selectedSections.has(section);
     const hasColumn = (tableName: string, column: string) => selectedColumns === null || selectedColumns.has(`${tableName}:${column}`);
 
@@ -440,7 +517,7 @@ export class RelatoriosService {
         rect(margin, y, tableWidth, rowHeight, [31, 122, 140]);
         let headerX = margin;
         headers.forEach((header, index) => {
-          const clipped = this.truncatePdfText(header, Math.max(8, Math.floor(widths[index] / 5.2)));
+          const clipped = this.truncatePdfText(header, Math.max(8, Math.floor(widths[index] / 4.6)));
           text(clipped, headerX + 7, y - 15, { size: 8.5, font: 'bold', color: [255, 255, 255] });
           headerX += widths[index];
         });
@@ -458,7 +535,7 @@ export class RelatoriosService {
         if (rowIndex % 2 === 0) rect(margin, y, tableWidth, rowHeight, [248, 250, 252]);
         let x = margin;
         row.forEach((value, index) => {
-          const clipped = this.truncatePdfText(value, Math.max(8, Math.floor(widths[index] / 5.2)));
+          const clipped = this.truncatePdfText(value, Math.max(8, Math.floor(widths[index] / 4.6)));
           const align = aligns[index] || 'left';
           const tx = align === 'right' ? x + widths[index] - 7 : x + 7;
           text(clipped, tx, y - 15, { size: 8.5, align, color: [51, 65, 85] });
@@ -500,7 +577,7 @@ export class RelatoriosService {
     rect(0, pageHeight, pageWidth, 92, [15, 48, 63]);
     rect(0, pageHeight - 92, pageWidth, 5, [31, 122, 140]);
     text('Controle Transporte', margin, pageHeight - 43, { size: 11, font: 'bold', color: [148, 213, 220] });
-    text(somenteConsumo ? 'Relatório de média da frota' : 'Registro Geral', margin, pageHeight - 67, { size: 17, font: 'bold', color: [255, 255, 255] });
+    text(somenteConsumo ? 'Relatório de média da frota' : 'Relatório Combinado', margin, pageHeight - 67, { size: 17, font: 'bold', color: [255, 255, 255] });
     text(`Gerado em ${new Date().toLocaleString('pt-BR')}`, pageWidth - margin, pageHeight - 47, { size: 9, align: 'right', color: [203, 213, 225] });
     text(
       somenteConsumo ? `${relatorio.total} abastecimentos` : `${relatorio.total} lançamentos`,
@@ -536,8 +613,13 @@ export class RelatoriosService {
             { key: 'data', header: 'Data', width: 58, value: (item) => this.formatDate(item.data) },
             { key: 'tipo', header: 'Tipo', width: 78, value: (item) => item.tipoLancamento === TipoLancamento.DESPESA ? 'Despesa' : 'Faturamento' },
             { key: 'cavalo', header: 'Placa', width: 62, value: (item) => item.cavaloMecanico?.placa || item.placa || '-' },
+            { key: 'conjunto', header: 'Conjunto', width: 96, value: (item) => item.conjunto?.nome || '-' },
+            { key: 'implementos', header: 'Implementos', width: 118, value: (item) => this.formatImplementosConjunto(item.conjunto) || item.implemento?.placa || '-' },
             { key: 'motorista', header: 'Motorista', width: 116, value: (item) => item.motorista?.nome || '-' },
+            { key: 'parte', header: 'Fornecedor/cliente', width: 116, value: (item) => item.fornecedor?.nome || item.cliente?.nome || '-' },
             { key: 'categoria', header: 'Categoria', width: 104, value: (item) => item.categoriaFinanceira?.nome || '-' },
+            { key: 'quantidade', header: 'Quantidade', width: 70, align: 'right', value: (item) => `${this.formatDecimal(item.quantidade, 3)} ${item.unidadeQuantidade}` },
+            { key: 'valorUnitario', header: 'Valor unit.', width: 90, align: 'right', value: (item) => this.formatCurrency(item.valorUnitario) },
             { key: 'valorTotal', header: 'Valor total', width: 105, align: 'right', value: (item) => this.formatCurrency(item.valorTotal) },
           ], rows);
         } else {
@@ -564,6 +646,8 @@ export class RelatoriosService {
             { key: 'cavalo', header: 'Cavalo', width: 90, value: (item) => item.cavalo || '-' },
             { key: 'conjunto', header: 'Conjunto', width: 96, value: (item) => item.conjunto || '-' },
             { key: 'tipo', header: 'Tipo', width: 56, value: (item) => item.tipoConjunto || '-' },
+            { key: 'eixos', header: 'Eixos', width: 42, align: 'right', value: (item) => String(item.quantidadeTotalEixos ?? '-') },
+            { key: 'implementos', header: 'Implementos', width: 110, value: (item) => item.implementos || '-' },
             { key: 'lancamentos', header: 'Lanc.', width: 42, align: 'right', value: (item) => String(item.quantidadeLancamentos) },
             { key: 'despesas', header: 'Despesas', width: 78, align: 'right', value: (item) => this.formatCurrency(item.totalDespesas) },
             { key: 'faturamento', header: 'Faturamento', width: 88, align: 'right', value: (item) => this.formatCurrency(item.totalFaturamento) },
@@ -600,6 +684,7 @@ export class RelatoriosService {
             { key: 'bruta', header: 'Bruta', width: 48, align: 'right', value: (item) => this.formatCurrency(item.valorComissaoBruta ?? item.valorComissao) },
             { key: 'impostos', header: 'Impostos', width: 48, align: 'right', value: (item) => this.formatCurrency(item.valorDescontoImpostos || 0) },
             { key: 'liquida', header: 'Líquida', width: 47, align: 'right', value: (item) => this.formatCurrency(item.valorComissao) },
+            { key: 'aposComissao', header: 'Após comissão', width: 65, align: 'right', value: (item) => this.formatCurrency(Number(item.valorTotal || 0) - Number(item.valorComissao || 0)) },
           ], relatorio.comissoes.historico);
         } else {
           emptyMessage('Nenhuma comissão encontrada para os filtros informados.');
@@ -816,21 +901,26 @@ export class RelatoriosService {
     const commissionFilters = {
       ...filters,
       tipoLancamento: undefined,
+      tiposLancamento: undefined,
       categoriaId: undefined,
+      categoriaIds: undefined,
       quantidadeEixos: undefined,
+      quantidadesEixos: undefined,
     };
     const baseWhere: any = await this.buildWhere(commissionFilters);
     const and = [...(baseWhere.AND || [])];
-    if (filters.categoriaId) {
+    const categoriaIds = this.filterValues(filters.categoriaIds || filters.categoriaId);
+    if (categoriaIds.length) {
       and.push({
         OR: [
-          { categoriaId: filters.categoriaId },
-          { despesaComissao: { is: { categoriaId: filters.categoriaId } } },
+          { categoriaId: { in: categoriaIds } },
+          { despesaComissao: { is: { categoriaId: { in: categoriaIds } } } },
         ],
       });
     }
-    if (filters.quantidadeEixos !== undefined) {
-      and.push({ quantidadeEixosComissao: filters.quantidadeEixos });
+    const quantidadesEixos = this.filterValues(filters.quantidadesEixos || filters.quantidadeEixos).map(Number).filter(Number.isFinite);
+    if (quantidadesEixos.length) {
+      and.push({ quantidadeEixosComissao: { in: quantidadesEixos } });
     }
     and.push(
       { tipoLancamento: TipoLancamento.FATURAMENTO },
