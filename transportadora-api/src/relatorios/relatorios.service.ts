@@ -15,6 +15,9 @@ export class RelatoriosService {
   constructor(private readonly prisma: PrismaService) {}
 
   async opcoes(filters: RelatorioFinanceiroQueryDto = {}) {
+    if (filters.tipoRelatorio !== 'RELATORIO_COMBINADO' && filters.tipoRelatorio !== 'MEDIA_FROTA') {
+      return this.opcoesRegistroGeral();
+    }
     if (filters.tipoRelatorio === 'MEDIA_FROTA') {
       const where = this.buildAbastecimentoWhere(this.withoutFilters(filters, 'cavaloMecanicoId', 'cavaloMecanicoIds'));
       const rows = await this.prisma.abastecimento.findMany({
@@ -61,6 +64,32 @@ export class RelatoriosService {
       tipos: this.uniqueOptions(tipoRows.map((row) => ({ value: row.tipoLancamento, label: row.tipoLancamento === TipoLancamento.DESPESA ? 'Despesa' : 'Faturamento' }))),
       tiposConjunto: this.uniqueOptions(tipoConjuntoRows.filter((row) => row.conjunto).map((row) => ({ value: row.conjunto!.tipo, label: this.tipoConjuntoLabel(row.conjunto!.tipo) }))),
       quantidadesEixos: this.uniqueOptions(eixoRows.filter((row) => row.conjunto).map((row) => ({ value: String(row.conjunto!.quantidadeTotalEixos), label: `${row.conjunto!.quantidadeTotalEixos} eixos` }))),
+    };
+  }
+
+  private async opcoesRegistroGeral() {
+    const [motoristas, cavalos, implementos, conjuntos, fornecedores, clientes, categorias, tipos] = await Promise.all([
+      this.prisma.motorista.findMany({ select: { id: true, nome: true, cpf: true }, orderBy: { nome: 'asc' } }),
+      this.prisma.cavaloMecanico.findMany({ select: { id: true, placa: true, modelo: true, marca: true }, orderBy: { placa: 'asc' } }),
+      this.prisma.implemento.findMany({ select: { id: true, placa: true, tipo: true, carroceria: true, quantidadeEixos: true }, orderBy: { placa: 'asc' } }),
+      this.prisma.conjunto.findMany({ select: { id: true, nome: true, tipo: true, quantidadeTotalEixos: true }, orderBy: { nome: 'asc' } }),
+      this.prisma.fornecedor.findMany({ select: { id: true, nome: true, documento: true }, orderBy: { nome: 'asc' } }),
+      this.prisma.cliente.findMany({ select: { id: true, nome: true, documento: true }, orderBy: { nome: 'asc' } }),
+      this.prisma.categoriaFinanceira.findMany({ where: { ativo: true }, select: { id: true, nome: true, tipoLancamento: true }, orderBy: { nome: 'asc' } }),
+      this.prisma.lancamentoFinanceiro.findMany({ distinct: ['tipoLancamento'], select: { tipoLancamento: true }, orderBy: { tipoLancamento: 'asc' } }),
+    ]);
+
+    return {
+      motoristas: motoristas.map((item) => ({ value: item.id, label: [item.nome, item.cpf].filter(Boolean).join(' - ') })),
+      cavalosMecanicos: cavalos.map((item) => ({ value: item.id, label: [item.placa, item.marca, item.modelo].filter(Boolean).join(' - ') })),
+      implementos: implementos.map((item) => ({ value: item.id, label: [item.placa, item.tipo, item.carroceria, `${item.quantidadeEixos} eixos`].filter(Boolean).join(' - ') })),
+      conjuntos: conjuntos.map((item) => ({ value: item.id, label: [item.nome, item.tipo, `${item.quantidadeTotalEixos} eixos`].filter(Boolean).join(' - ') })),
+      fornecedores: fornecedores.map((item) => ({ value: item.id, label: [item.nome, item.documento].filter(Boolean).join(' - ') })),
+      clientes: clientes.map((item) => ({ value: item.id, label: [item.nome, item.documento].filter(Boolean).join(' - ') })),
+      categorias: categorias.map((item) => ({ value: item.id, label: [item.nome, item.tipoLancamento].filter(Boolean).join(' - ') })),
+      tipos: tipos.map((item) => ({ value: item.tipoLancamento, label: item.tipoLancamento === TipoLancamento.DESPESA ? 'Despesa' : 'Faturamento' })),
+      tiposConjunto: this.uniqueOptions(conjuntos.map((item) => ({ value: item.tipo, label: this.tipoConjuntoLabel(item.tipo) }))),
+      quantidadesEixos: this.uniqueOptions(conjuntos.map((item) => ({ value: String(item.quantidadeTotalEixos), label: `${item.quantidadeTotalEixos} eixos` }))),
     };
   }
 
@@ -577,7 +606,12 @@ export class RelatoriosService {
     rect(0, pageHeight, pageWidth, 92, [15, 48, 63]);
     rect(0, pageHeight - 92, pageWidth, 5, [31, 122, 140]);
     text('Controle Transporte', margin, pageHeight - 43, { size: 11, font: 'bold', color: [148, 213, 220] });
-    text(somenteConsumo ? 'Relatório de média da frota' : 'Relatório Combinado', margin, pageHeight - 67, { size: 17, font: 'bold', color: [255, 255, 255] });
+    text(
+      somenteConsumo ? 'Relatório de média da frota' : filters.tipoRelatorio === 'RELATORIO_COMBINADO' ? 'Relatório Combinado' : 'Registro Geral',
+      margin,
+      pageHeight - 67,
+      { size: 17, font: 'bold', color: [255, 255, 255] },
+    );
     text(`Gerado em ${new Date().toLocaleString('pt-BR')}`, pageWidth - margin, pageHeight - 47, { size: 9, align: 'right', color: [203, 213, 225] });
     text(
       somenteConsumo ? `${relatorio.total} abastecimentos` : `${relatorio.total} lançamentos`,

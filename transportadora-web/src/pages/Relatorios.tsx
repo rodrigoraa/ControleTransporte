@@ -35,8 +35,15 @@ type ReportOptions = {
 };
 type ReportType = PdfReportType;
 
+const tiposConjunto = [
+  { value: 'SIMPLES', label: 'Simples' },
+  { value: 'BITREM', label: 'Bitrem' },
+  { value: 'RODOTREM', label: 'Rodotrem' },
+  { value: 'OUTRO', label: 'Outro' },
+];
 const tiposRelatorio = [
-  { value: 'REGISTRO_GERAL', label: 'Relatório combinado' },
+  { value: 'REGISTRO_GERAL', label: 'Registro Geral' },
+  { value: 'RELATORIO_COMBINADO', label: 'Relatório Combinado' },
   { value: 'MEDIA_FROTA', label: 'Média da frota' },
 ];
 
@@ -72,7 +79,7 @@ export function Relatorios() {
     quantidadesEixos: [],
   });
   const activeFilters = Object.entries(filters)
-    .filter(([name, value]) => value && !['orderBy', 'orderDirection'].includes(name) && (reportType === 'REGISTRO_GERAL' || ['dataInicial', 'dataFinal', 'cavaloMecanicoIds'].includes(name)))
+    .filter(([name, value]) => value && !['orderBy', 'orderDirection'].includes(name) && (reportType !== 'MEDIA_FROTA' || ['dataInicial', 'dataFinal', 'cavaloMecanicoId'].includes(name)))
     .length;
   const reportSort: TableSort = {
     orderBy: generatedReport?.filters.orderBy || '',
@@ -112,7 +119,7 @@ export function Relatorios() {
 
   function reportParams(sourceFilters = filters, sourceType = reportType) {
     const relevantFilters = sourceType === 'MEDIA_FROTA'
-      ? Object.fromEntries(Object.entries(sourceFilters).filter(([name, value]) => value && ['dataInicial', 'dataFinal', 'cavaloMecanicoIds'].includes(name)))
+      ? Object.fromEntries(Object.entries(sourceFilters).filter(([name, value]) => value && ['dataInicial', 'dataFinal', 'cavaloMecanicoId'].includes(name)))
       : Object.fromEntries(Object.entries(sourceFilters).filter(([, value]) => value));
     return { ...relevantFilters, tipoRelatorio: sourceType };
   }
@@ -168,7 +175,10 @@ export function Relatorios() {
       const url = URL.createObjectURL(data);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${generatedReport.reportType === 'MEDIA_FROTA' ? 'relatorio-media-frota' : 'relatorio-combinado'}.${format}`;
+      const reportName = generatedReport.reportType === 'MEDIA_FROTA'
+        ? 'relatorio-media-frota'
+        : generatedReport.reportType === 'RELATORIO_COMBINADO' ? 'relatorio-combinado' : 'registro-geral';
+      link.download = `${reportName}.${format}`;
       link.click();
       URL.revokeObjectURL(url);
       return true;
@@ -201,7 +211,11 @@ export function Relatorios() {
       <div className="page-header report-header">
         <div>
           <h1>Relatórios</h1>
-          <p>{reportType === 'MEDIA_FROTA' ? 'Média ponderada de consumo, ranking e comparação por cavalo mecânico.' : 'Relatório combinado de lançamentos, indicadores financeiros e comissões.'}</p>
+          <p>{reportType === 'MEDIA_FROTA'
+            ? 'Média ponderada de consumo, ranking e comparação por cavalo mecânico.'
+            : reportType === 'RELATORIO_COMBINADO'
+              ? 'Combine várias placas e outros dados relacionados no mesmo relatório.'
+              : 'Registro geral de lançamentos, indicadores financeiros e comissões.'}</p>
         </div>
         {financeiro && (
           <div className="actions">
@@ -234,9 +248,12 @@ export function Relatorios() {
           value={reportType}
           options={tiposRelatorio}
           onChange={(_, value) => {
-            const nextType = value === 'MEDIA_FROTA' ? 'MEDIA_FROTA' : 'REGISTRO_GERAL';
+            const nextType: ReportType = value === 'MEDIA_FROTA'
+              ? 'MEDIA_FROTA'
+              : value === 'RELATORIO_COMBINADO' ? 'RELATORIO_COMBINADO' : 'REGISTRO_GERAL';
             setReportType(nextType);
             setReportSelection(loadPdfSelection(nextType, preferenceScope));
+            setFilters({});
             setFinanceiro(null);
             setGeneratedReport(null);
             setPage(1);
@@ -245,9 +262,12 @@ export function Relatorios() {
         />
         <label>Data inicial<input type="date" value={filters.dataInicial || ''} onChange={(e) => updateFilter('dataInicial', e.target.value)} /></label>
         <label>Data final<input type="date" value={filters.dataFinal || ''} onChange={(e) => updateFilter('dataFinal', e.target.value)} /></label>
-        <MultiSelectFilter label="Cavalos mecânicos / placas" name="cavaloMecanicoIds" value={filterArray(filters.cavaloMecanicoIds)} options={options.cavalosMecanicos} disabled={optionsLoading} onChange={updateFilter} />
-        {reportType === 'REGISTRO_GERAL' && (
+        {reportType === 'RELATORIO_COMBINADO'
+          ? <MultiSelectFilter label="Cavalos mecânicos / placas" name="cavaloMecanicoIds" value={filterArray(filters.cavaloMecanicoIds)} options={options.cavalosMecanicos} disabled={optionsLoading} onChange={updateFilter} />
+          : <SelectFilter label="Cavalo mecânico" name="cavaloMecanicoId" value={filters.cavaloMecanicoId || ''} options={options.cavalosMecanicos} disabled={optionsLoading} onChange={updateFilter} />}
+        {reportType !== 'MEDIA_FROTA' && (
           <>
+            {reportType === 'RELATORIO_COMBINADO' ? <>
             <MultiSelectFilter label="Motoristas" name="motoristaIds" value={filterArray(filters.motoristaIds)} options={options.motoristas} disabled={optionsLoading} onChange={updateFilter} />
             <MultiSelectFilter label="Implementos" name="implementoIds" value={filterArray(filters.implementoIds)} options={options.implementos} disabled={optionsLoading} onChange={updateFilter} />
             <MultiSelectFilter label="Conjuntos operacionais" name="conjuntoIds" value={filterArray(filters.conjuntoIds)} options={options.conjuntos} disabled={optionsLoading} onChange={updateFilter} />
@@ -257,6 +277,17 @@ export function Relatorios() {
             <MultiSelectFilter label="Clientes" name="clienteIds" value={filterArray(filters.clienteIds)} options={options.clientes} disabled={optionsLoading} onChange={updateFilter} />
             <MultiSelectFilter label="Tipos financeiros" name="tiposLancamento" value={filterArray(filters.tiposLancamento)} options={options.tipos} disabled={optionsLoading} onChange={updateFilter} />
             <MultiSelectFilter label="Categorias" name="categoriaIds" value={filterArray(filters.categoriaIds)} options={options.categorias} disabled={optionsLoading} onChange={updateFilter} />
+            </> : <>
+              <SelectFilter label="Motorista" name="motoristaId" value={filters.motoristaId || ''} options={options.motoristas} disabled={optionsLoading} onChange={updateFilter} />
+              <SelectFilter label="Implemento" name="implementoId" value={filters.implementoId || ''} options={options.implementos} disabled={optionsLoading} onChange={updateFilter} />
+              <SelectFilter label="Conjunto operacional" name="conjuntoId" value={filters.conjuntoId || ''} options={options.conjuntos} disabled={optionsLoading} onChange={updateFilter} />
+              <SelectFilter label="Tipo de conjunto" name="tipoConjunto" value={filters.tipoConjunto || ''} options={tiposConjunto} onChange={updateFilter} />
+              <label>Quantidade de eixos<input type="number" min="0" max="20" value={filters.quantidadeEixos || ''} onChange={(event) => updateFilter('quantidadeEixos', event.target.value)} /></label>
+              <SelectFilter label="Fornecedor" name="fornecedorId" value={filters.fornecedorId || ''} options={options.fornecedores} disabled={optionsLoading} onChange={updateFilter} />
+              <SelectFilter label="Cliente" name="clienteId" value={filters.clienteId || ''} options={options.clientes} disabled={optionsLoading} onChange={updateFilter} />
+              <SelectFilter label="Tipo financeiro" name="tipoLancamento" value={filters.tipoLancamento || ''} options={options.tipos} disabled={optionsLoading} onChange={updateFilter} />
+              <SelectFilter label="Categoria" name="categoriaId" value={filters.categoriaId || ''} options={options.categorias} disabled={optionsLoading} onChange={updateFilter} />
+            </>}
             <SelectFilter
               label="Ordenar por"
               name="orderBy"

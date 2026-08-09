@@ -84,7 +84,7 @@ describe('opções do PDF', () => {
       setItem: (key: string, value: string) => { values.set(key, value); },
     };
     const report = {
-      reportType: 'REGISTRO_GERAL' as const,
+      reportType: 'RELATORIO_COMBINADO' as const,
       filters: { cavaloMecanicoIds: 'cav-1,cav-2', motoristaIds: 'mot-1' },
       selection: {
         sections: ['resumo_financeiro', 'lancamentos'],

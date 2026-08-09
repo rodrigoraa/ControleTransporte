@@ -28,7 +28,9 @@ export class RelatoriosController {
   @Get('financeiros/exportar.pdf')
   async exportarPdf(@Query() query: RelatorioFinanceiroQueryDto, @Res() response: FastifyReply) {
     const pdf = await this.service.exportarPdf(query);
-    const filename = query.tipoRelatorio === 'MEDIA_FROTA' ? 'relatorio-media-frota.pdf' : 'registro-geral.pdf';
+    const filename = query.tipoRelatorio === 'MEDIA_FROTA'
+      ? 'relatorio-media-frota.pdf'
+      : query.tipoRelatorio === 'RELATORIO_COMBINADO' ? 'relatorio-combinado.pdf' : 'registro-geral.pdf';
     return response
       .header('Content-Type', 'application/pdf')
       .header('Content-Disposition', `attachment; filename="${filename}"`)

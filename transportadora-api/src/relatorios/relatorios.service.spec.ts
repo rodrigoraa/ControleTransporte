@@ -299,7 +299,7 @@ describe('RelatoriosService', () => {
     const { service, prisma } = makeService();
 
     await service.financeiros({
-      tipoRelatorio: 'REGISTRO_GERAL',
+      tipoRelatorio: 'RELATORIO_COMBINADO',
       cavaloMecanicoIds: 'cav-1,cav-2',
       motoristaIds: 'mot-1,mot-2',
       tiposLancamento: 'DESPESA,FATURAMENTO',
@@ -337,7 +337,7 @@ describe('RelatoriosService', () => {
       categoriaFinanceira: { id: 'cat-1', nome: 'Combustível', tipoLancamento: TipoLancamento.DESPESA },
     }]);
 
-    const result = await service.opcoes({ cavaloMecanicoIds: 'cav-1' });
+    const result = await service.opcoes({ tipoRelatorio: 'RELATORIO_COMBINADO', cavaloMecanicoIds: 'cav-1' });
 
     expect(result.motoristas).toEqual([{ value: 'mot-1', label: 'Carlos Almeida - 123' }]);
     expect(result.implementos[0]).toMatchObject({ value: 'imp-1' });
@@ -380,7 +380,7 @@ describe('RelatoriosService', () => {
     expect(pdf.toString('utf8', 0, 8)).toBe('%PDF-1.4');
     expect(pdf.length).toBeGreaterThan(500);
     expect(pdf.toString('latin1')).toContain('/Encoding /WinAnsiEncoding');
-    expect(pdf.toString('latin1')).toContain('Relatório Combinado');
+    expect(pdf.toString('latin1')).toContain('Registro Geral');
     expect(pdf.toString('latin1')).toContain('Lançamentos encontrados');
     expect(pdf.toString('latin1')).toContain('Resumo por composição do cavalo');
     expect(pdf.toString('latin1')).toContain('Comissões dos faturamentos');
@@ -404,6 +404,15 @@ describe('RelatoriosService', () => {
     expect(content).not.toContain('(Motorista) Tj');
     expect(content).not.toContain('Resumo por composição do cavalo');
     expect(content).not.toContain('Comissões dos faturamentos');
+  });
+
+  it('mantém o relatório combinado separado do Registro Geral', async () => {
+    const { service } = makeService();
+
+    const pdf = await service.exportarPdf({ tipoRelatorio: 'RELATORIO_COMBINADO' });
+
+    expect(pdf.toString('latin1')).toContain('Relatório Combinado');
+    expect(pdf.toString('latin1')).not.toContain('(Registro Geral) Tj');
   });
 
   it('exporta CSV e PDF específicos da média da frota', async () => {

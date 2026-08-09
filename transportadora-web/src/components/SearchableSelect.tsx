@@ -200,7 +200,7 @@ export function MultiSearchableSelect({
       ? value.filter((item) => item !== option.value)
       : [...value, option.value]);
     setQuery('');
-    inputRef.current?.focus();
+    setOpen(false);
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -237,7 +237,18 @@ export function MultiSearchableSelect({
 
   return (
     <div className={`searchable-select multi-searchable-select ${open ? 'open' : ''} ${disabled ? 'disabled' : ''}`}>
-      <div className="searchable-select-control multi-searchable-select-control" onClick={() => inputRef.current?.focus()}>
+      <div
+        className="searchable-select-control multi-searchable-select-control"
+        onClick={(event) => {
+          if (disabled) return;
+          if (open && event.target !== inputRef.current) {
+            setOpen(false);
+            inputRef.current?.blur();
+            return;
+          }
+          inputRef.current?.focus();
+        }}
+      >
         <Search size={16} aria-hidden="true" />
         <div className="multi-searchable-select-values">
           {selectedOptions.map((option) => (

@@ -1,4 +1,4 @@
-export type PdfReportType = 'REGISTRO_GERAL' | 'MEDIA_FROTA';
+export type PdfReportType = 'REGISTRO_GERAL' | 'RELATORIO_COMBINADO' | 'MEDIA_FROTA';
 
 export type PdfSelection = {
   sections: string[];
@@ -28,7 +28,7 @@ type PdfSelectionStorage = {
   setItem: (key: string, value: string) => void;
 };
 
-export const pdfReportConfigs: Record<PdfReportType, PdfReportConfig> = {
+const basePdfReportConfigs: Record<Exclude<PdfReportType, 'RELATORIO_COMBINADO'>, PdfReportConfig> = {
   REGISTRO_GERAL: {
     sections: [
       { id: 'resumo_financeiro', label: 'Resumo financeiro' },
@@ -148,6 +148,11 @@ export const pdfReportConfigs: Record<PdfReportType, PdfReportConfig> = {
   },
 };
 
+export const pdfReportConfigs: Record<PdfReportType, PdfReportConfig> = {
+  ...basePdfReportConfigs,
+  RELATORIO_COMBINADO: basePdfReportConfigs.REGISTRO_GERAL,
+};
+
 export function pdfColumnId(groupId: string, columnKey: string) {
   return `${groupId}:${columnKey}`;
 }
@@ -254,7 +259,7 @@ export function loadLastGeneratedReport(
     const raw = storage.getItem(lastReportStorageKey(scope));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<LastGeneratedReport>;
-    if (parsed.reportType !== 'REGISTRO_GERAL' && parsed.reportType !== 'MEDIA_FROTA') return null;
+    if (parsed.reportType !== 'REGISTRO_GERAL' && parsed.reportType !== 'RELATORIO_COMBINADO' && parsed.reportType !== 'MEDIA_FROTA') return null;
     if (!parsed.filters || typeof parsed.filters !== 'object' || Array.isArray(parsed.filters)) return null;
     if (!parsed.selection || validatePdfSelection(parsed.reportType, parsed.selection)) return null;
     const filters = Object.fromEntries(
