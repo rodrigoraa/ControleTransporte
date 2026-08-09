@@ -1510,6 +1510,12 @@ tbody tr:hover {
   font-size: 18px;
 }
 
+.filter-heading .filter-heading-actions {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
 .report-table-panel {
   padding: 0;
   overflow: hidden;
@@ -1712,6 +1718,7 @@ tbody tr:hover {
 
   .report-header .actions,
   .panel-title-row .actions,
+  .filter-heading .filter-heading-actions,
   .filter-heading .button {
     width: 100%;
   }

@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, ArrowUpDown, BarChart3, Download, FileSpreadsheet, Filter, Search } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, BarChart3, Download, FileSpreadsheet, Filter, RotateCcw, Search } from 'lucide-react';
 import { api } from '../services/api';
 import { MultiSearchableSelect, SearchableSelect } from '../components/SearchableSelect';
 import { useAuth } from '../contexts/AuthContext';
@@ -46,6 +46,11 @@ const tiposRelatorio = [
   { value: 'RELATORIO_COMBINADO', label: 'Relatório Combinado' },
   { value: 'MEDIA_FROTA', label: 'Média da frota' },
 ];
+const filterFieldsByReport: Record<ReportType, string[]> = {
+  REGISTRO_GERAL: ['dataInicial', 'dataFinal', 'cavaloMecanicoId', 'motoristaId', 'implementoId', 'conjuntoId', 'tipoConjunto', 'quantidadeEixos', 'fornecedorId', 'clienteId', 'tipoLancamento', 'categoriaId'],
+  RELATORIO_COMBINADO: ['dataInicial', 'dataFinal', 'cavaloMecanicoIds', 'motoristaIds', 'implementoIds', 'conjuntoIds', 'tiposConjunto', 'quantidadesEixos', 'fornecedorIds', 'clienteIds', 'tiposLancamento', 'categoriaIds'],
+  MEDIA_FROTA: ['dataInicial', 'dataFinal', 'cavaloMecanicoId'],
+};
 
 export function Relatorios() {
   const { user } = useAuth();
@@ -78,9 +83,8 @@ export function Relatorios() {
     tiposConjunto: [],
     quantidadesEixos: [],
   });
-  const activeFilters = Object.entries(filters)
-    .filter(([name, value]) => value && !['orderBy', 'orderDirection'].includes(name) && (reportType !== 'MEDIA_FROTA' || ['dataInicial', 'dataFinal', 'cavaloMecanicoId'].includes(name)))
-    .length;
+  const activeFilters = filterFieldsByReport[reportType].filter((name) => Boolean(filters[name])).length;
+  const hasFiltersToClear = Object.entries(filters).some(([name, value]) => value && !['orderBy', 'orderDirection'].includes(name));
   const reportSort: TableSort = {
     orderBy: generatedReport?.filters.orderBy || '',
     orderDirection: generatedReport?.filters.orderDirection === 'asc' ? 'asc' : 'desc',
@@ -115,6 +119,14 @@ export function Relatorios() {
     const next = { ...filters, [name]: serializedValue };
     setPage(1);
     setFilters(next);
+  }
+
+  function clearFilters() {
+    setFilters(Object.fromEntries(
+      Object.entries(filters).filter(([name, value]) => value && ['orderBy', 'orderDirection'].includes(name)),
+    ));
+    setPage(1);
+    setError('');
   }
 
   function reportParams(sourceFilters = filters, sourceType = reportType) {
@@ -235,12 +247,18 @@ export function Relatorios() {
         <div className="filter-heading wide">
           <div>
             <span><Filter size={16} /> Filtros</span>
-            <strong>{activeFilters ? `${activeFilters} filtros ativos` : 'Visão geral'}</strong>
+            <strong>{activeFilters ? `${activeFilters} ${activeFilters === 1 ? 'filtro ativo' : 'filtros ativos'}` : 'Visão geral'}</strong>
           </div>
-          <button className="button primary" disabled={loading}>
-            <Search size={18} />
-            {loading ? 'Gerando...' : 'Gerar relatório'}
-          </button>
+          <div className="filter-heading-actions">
+            <button className="button ghost" type="button" disabled={loading || !hasFiltersToClear} onClick={clearFilters}>
+              <RotateCcw size={17} />
+              Limpar filtros
+            </button>
+            <button className="button primary" disabled={loading}>
+              <Search size={18} />
+              {loading ? 'Gerando...' : 'Gerar relatório'}
+            </button>
+          </div>
         </div>
         <SelectFilter
           label="Tipo de relatório"
