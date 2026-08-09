@@ -416,16 +416,94 @@ export function Relatorios() {
             </div>
           </div>}
 
-          {(generatedReport?.selection.sections.includes('grupos_cavalo') || generatedReport?.selection.sections.includes('grupos_motorista')) && <div className="report-grid">
-            {generatedReport?.selection.sections.includes('grupos_cavalo') && <>
-            <Group title="Despesas por cavalo mecânico" rows={financeiro.despesasPorCavaloMecanico} />
-            <Group title="Faturamento por cavalo mecânico" rows={financeiro.faturamentoPorCavaloMecanico} />
-            </>}
-            {generatedReport?.selection.sections.includes('grupos_motorista') && <>
-            <Group title="Despesas por motorista" rows={financeiro.despesasPorMotorista} />
-            <Group title="Faturamento por motorista" rows={financeiro.faturamentoPorMotorista} />
-            </>}
-          </div>}
+          {generatedReport?.selection.sections.includes('grupos_cavalo') && <TotalsByDimension
+            title="Totais por placa / cavalo mecânico"
+            description="Despesas e faturamentos separados para cada placa encontrada."
+            expenseTitle="Despesas por placa"
+            revenueTitle="Faturamento por placa"
+            expenses={financeiro.despesasPorCavaloMecanico}
+            revenues={financeiro.faturamentoPorCavaloMecanico}
+          />}
+          {generatedReport?.selection.sections.includes('grupos_placas') && <TotalsByDimension
+            title="Totais por placa registrada"
+            description="Valores agrupados pelo texto da placa gravado em cada lançamento."
+            expenseTitle="Despesas por placa registrada"
+            revenueTitle="Faturamento por placa registrada"
+            expenses={financeiro.despesasPorPlaca}
+            revenues={financeiro.faturamentoPorPlaca}
+          />}
+          {generatedReport?.selection.sections.includes('grupos_clientes') && <TotalsByDimension
+            title="Totais por cliente"
+            description="Valores financeiros consolidados individualmente por cliente."
+            expenseTitle="Despesas por cliente"
+            revenueTitle="Faturamento por cliente"
+            expenses={financeiro.despesasPorCliente}
+            revenues={financeiro.faturamentoPorCliente}
+          />}
+          {generatedReport?.selection.sections.includes('grupos_fornecedores') && <TotalsByDimension
+            title="Totais por fornecedor"
+            description="Valores financeiros consolidados individualmente por fornecedor."
+            expenseTitle="Despesas por fornecedor"
+            revenueTitle="Faturamento por fornecedor"
+            expenses={financeiro.despesasPorFornecedor}
+            revenues={financeiro.faturamentoPorFornecedor}
+          />}
+          {generatedReport?.selection.sections.includes('grupos_categorias') && <TotalsByDimension
+            title="Totais por categoria financeira"
+            description="Despesas e faturamentos separados conforme a categoria financeira."
+            expenseTitle="Despesas por categoria"
+            revenueTitle="Faturamento por categoria"
+            expenses={financeiro.despesasPorCategoria}
+            revenues={financeiro.faturamentoPorCategoria}
+          />}
+          {generatedReport?.selection.sections.includes('grupos_implementos') && <TotalsByDimension
+            title="Totais por implemento"
+            description="Valores associados diretamente ao implemento ou ao conjunto operacional do qual ele participa."
+            expenseTitle="Despesas por implemento"
+            revenueTitle="Faturamento por implemento"
+            expenses={financeiro.despesasPorImplemento}
+            revenues={financeiro.faturamentoPorImplemento}
+          />}
+          {generatedReport?.selection.sections.includes('grupos_conjuntos') && <TotalsByDimension
+            title="Totais por conjunto operacional"
+            description="Despesas e faturamentos consolidados para cada conjunto utilizado."
+            expenseTitle="Despesas por conjunto"
+            revenueTitle="Faturamento por conjunto"
+            expenses={financeiro.despesasPorConjunto}
+            revenues={financeiro.faturamentoPorConjunto}
+          />}
+          {generatedReport?.selection.sections.includes('grupos_tipos_conjunto') && <TotalsByDimension
+            title="Totais por tipo de conjunto"
+            description="Valores consolidados por Simples, Bitrem, Rodotrem ou Outro."
+            expenseTitle="Despesas por tipo de conjunto"
+            revenueTitle="Faturamento por tipo de conjunto"
+            expenses={financeiro.despesasPorTipoConjunto}
+            revenues={financeiro.faturamentoPorTipoConjunto}
+          />}
+          {generatedReport?.selection.sections.includes('grupos_eixos') && <TotalsByDimension
+            title="Totais por quantidade de eixos"
+            description="Valores consolidados conforme a quantidade total de eixos do conjunto."
+            expenseTitle="Despesas por quantidade de eixos"
+            revenueTitle="Faturamento por quantidade de eixos"
+            expenses={financeiro.despesasPorQuantidadeEixos}
+            revenues={financeiro.faturamentoPorQuantidadeEixos}
+          />}
+          {generatedReport?.selection.sections.includes('grupos_tipos_financeiros') && <TotalsByDimension
+            title="Totais por tipo financeiro"
+            description="Separação direta entre o valor total das despesas e dos faturamentos."
+            expenseTitle="Total de despesas"
+            revenueTitle="Total de faturamento"
+            expenses={[{ id: 'DESPESA', label: 'Despesas', total: financeiro.totalDespesas }]}
+            revenues={[{ id: 'FATURAMENTO', label: 'Faturamento', total: financeiro.totalFaturamento }]}
+          />}
+          {generatedReport?.selection.sections.includes('grupos_motorista') && <TotalsByDimension
+            title="Totais por motorista"
+            description="Despesas e faturamentos consolidados individualmente por motorista."
+            expenseTitle="Despesas por motorista"
+            revenueTitle="Faturamento por motorista"
+            expenses={financeiro.despesasPorMotorista}
+            revenues={financeiro.faturamentoPorMotorista}
+          />}
           {generatedReport?.selection.sections.includes('composicoes') && <ConjuntosPorCavalo rows={financeiro.conjuntosPorCavalo || []} selection={generatedReport.selection} />}
         </>
         )
@@ -805,6 +883,37 @@ function ComparisonReport({ rows, periodo, selection }: { rows: any[]; periodo: 
         </table>
       </div>
     </div>
+  );
+}
+
+function TotalsByDimension({
+  title,
+  description,
+  expenseTitle,
+  revenueTitle,
+  expenses,
+  revenues,
+}: {
+  title: string;
+  description: string;
+  expenseTitle: string;
+  revenueTitle: string;
+  expenses: any[];
+  revenues: any[];
+}) {
+  return (
+    <section className="report-summary-section">
+      <div className="panel-title-row report-section-heading">
+        <div>
+          <h2>{title}</h2>
+          <p>{description}</p>
+        </div>
+      </div>
+      <div className="report-grid">
+        <Group title={expenseTitle} rows={expenses || []} />
+        <Group title={revenueTitle} rows={revenues || []} />
+      </div>
+    </section>
   );
 }
 

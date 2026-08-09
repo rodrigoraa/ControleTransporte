@@ -152,7 +152,16 @@ function makeService() {
         JSON.stringify(where || {}).includes('tipoComissao') ? [faturamento] : lancamentos
       )),
       groupBy: jest.fn(async ({ by, where }: any) => [{
-        [by[0]]: by[0] === 'motoristaId' ? 'mot-1' : 'cav-1',
+        [by[0]]: ({
+          motoristaId: 'mot-1',
+          cavaloMecanicoId: 'cav-1',
+          clienteId: 'cli-1',
+          fornecedorId: 'for-1',
+          categoriaId: 'cat-1',
+          implementoId: 'imp-1',
+          conjuntoId: 'conj-1',
+          placa: 'ABC1D23',
+        } as Record<string, string>)[by[0]],
         _sum: { valorTotal: where.tipoLancamento === TipoLancamento.DESPESA ? 66.9 : 160 },
       }]),
     },
@@ -178,6 +187,21 @@ function makeService() {
     },
     motorista: {
       findMany: jest.fn(async () => [{ id: 'mot-1', nome: 'Carlos Almeida', cpf: '123' }]),
+    },
+    cliente: {
+      findMany: jest.fn(async () => [{ id: 'cli-1', nome: 'Cliente Teste', documento: '456' }]),
+    },
+    fornecedor: {
+      findMany: jest.fn(async () => [{ id: 'for-1', nome: 'Posto Rota Pesada', documento: '789' }]),
+    },
+    categoriaFinanceira: {
+      findMany: jest.fn(async () => [{ id: 'cat-1', nome: 'Combustível' }]),
+    },
+    implemento: {
+      findMany: jest.fn(async () => [{ id: 'imp-1', placa: 'CAR1A01', tipo: 'SEMIRREBOQUE', carroceria: 'GRANELEIRO' }]),
+    },
+    conjunto: {
+      findMany: jest.fn(async () => [{ id: 'conj-1', nome: 'Bitrem graneleiro', tipo: 'BITREM', quantidadeTotalEixos: 7 }]),
     },
   } as any;
 
@@ -222,6 +246,14 @@ describe('RelatoriosService', () => {
       totalFaturamento: 160,
       saldo: 93.1,
     });
+    expect(result.despesasPorCliente).toEqual([{ id: 'cli-1', label: 'Cliente Teste - 456', total: 66.9 }]);
+    expect(result.faturamentoPorFornecedor).toEqual([{ id: 'for-1', label: 'Posto Rota Pesada - 789', total: 160 }]);
+    expect(result.despesasPorCategoria).toEqual([{ id: 'cat-1', label: 'Combustível', total: 66.9 }]);
+    expect(result.despesasPorPlaca).toEqual([{ id: 'ABC1D23', label: 'ABC1D23', total: 66.9 }]);
+    expect(result.despesasPorImplemento).toEqual([{ id: 'imp-1', label: 'CAR1A01 - SEMIRREBOQUE - GRANELEIRO', total: 66.9 }]);
+    expect(result.faturamentoPorConjunto[0]).toMatchObject({ id: 'conj-1', label: 'Bitrem graneleiro - BITREM - 7 eixos', total: 160 });
+    expect(result.despesasPorTipoConjunto).toEqual([{ id: 'Bitrem', label: 'Bitrem', total: 66.9 }]);
+    expect(result.faturamentoPorQuantidadeEixos).toEqual([{ id: '7 eixos', label: '7 eixos', total: 160 }]);
     expect(result.consumo).toBeUndefined();
     expect(prisma.conjuntoImplemento.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { implementoId: { in: ['imp-1'] } } }));
     const paginatedCall = prisma.lancamentoFinanceiro.findMany.mock.calls.find(([args]: any[]) => args.skip === 1);
@@ -384,6 +416,13 @@ describe('RelatoriosService', () => {
     expect(pdf.toString('latin1')).toContain('Lançamentos encontrados');
     expect(pdf.toString('latin1')).toContain('Resumo por composição do cavalo');
     expect(pdf.toString('latin1')).toContain('Comissões dos faturamentos');
+    expect(pdf.toString('latin1')).toContain('Despesas por cliente');
+    expect(pdf.toString('latin1')).toContain('Faturamento por fornecedor');
+    expect(pdf.toString('latin1')).toContain('Despesas por categoria financeira');
+    expect(pdf.toString('latin1')).toContain('Despesas por placa registrada');
+    expect(pdf.toString('latin1')).toContain('Faturamento por conjunto operacional');
+    expect(pdf.toString('latin1')).toContain('Despesas por quantidade de eixos');
+    expect(pdf.toString('latin1')).toContain('Tipo financeiro');
     expect(pdf.toString('latin1')).toContain('Percentual');
     expect(pdf.toString('latin1')).not.toContain('Média da frota');
     expect(pdf.toString('latin1')).not.toContain('Histórico de abastecimentos');

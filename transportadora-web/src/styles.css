@@ -1476,6 +1476,15 @@ tbody tr:hover {
   margin-top: 12px;
 }
 
+.report-summary-section {
+  display: grid;
+  gap: 12px;
+}
+
+.report-summary-section .report-section-heading {
+  margin-bottom: 0;
+}
+
 .filter-heading {
   display: flex;
   align-items: center;

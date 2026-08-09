@@ -77,6 +77,30 @@ describe('opções do PDF', () => {
       .toEqual(defaultPdfSelection('REGISTRO_GERAL'));
   });
 
+  it('inclui os novos resumos financeiros nas preferências salvas anteriormente', () => {
+    const storage = {
+      getItem: () => JSON.stringify({
+        sections: ['resumo_financeiro', 'lancamentos'],
+        columns: ['lancamentos:data'],
+      }),
+      setItem: () => undefined,
+    };
+
+    const selection = loadPdfSelection('REGISTRO_GERAL', 'user-1', storage);
+
+    expect(selection.sections).toEqual(expect.arrayContaining([
+      'grupos_clientes',
+      'grupos_fornecedores',
+      'grupos_categorias',
+      'grupos_placas',
+      'grupos_implementos',
+      'grupos_conjuntos',
+      'grupos_tipos_conjunto',
+      'grupos_eixos',
+      'grupos_tipos_financeiros',
+    ]));
+  });
+
   it('guarda os filtros e o conteúdo da última geração por usuário', () => {
     const values = new Map<string, string>();
     const storage = {

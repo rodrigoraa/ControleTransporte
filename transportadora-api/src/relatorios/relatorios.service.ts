@@ -10,6 +10,8 @@ type PdfTextOptions = {
   align?: 'left' | 'right' | 'center';
 };
 
+type FinancialGroupField = 'placa' | 'cavaloMecanicoId' | 'motoristaId' | 'clienteId' | 'fornecedorId' | 'categoriaId' | 'implementoId' | 'conjuntoId';
+
 @Injectable()
 export class RelatoriosService {
   constructor(private readonly prisma: PrismaService) {}
@@ -229,7 +231,26 @@ export class RelatoriosService {
     const page = filters.page || 1;
     const limit = filters.limit || 50;
     const orderBy = this.lancamentoOrderBy(filters);
-    const [despesas, faturamento, total, historico, despesasPorCavaloMecanico, despesasPorMotorista, faturamentoPorCavaloMecanico, faturamentoPorMotorista, conjuntosPorCavalo, comissoes] =
+    const [
+      despesas,
+      faturamento,
+      total,
+      historico,
+      despesasPorCavaloMecanico,
+      despesasPorMotorista,
+      despesasPorCliente,
+      despesasPorFornecedor,
+      despesasPorCategoria,
+      faturamentoPorCavaloMecanico,
+      faturamentoPorMotorista,
+      faturamentoPorCliente,
+      faturamentoPorFornecedor,
+      faturamentoPorCategoria,
+      despesasOperacionais,
+      faturamentoOperacionais,
+      conjuntosPorCavalo,
+      comissoes,
+    ] =
       await Promise.all([
         this.sum({ ...where, tipoLancamento: TipoLancamento.DESPESA }),
         this.sum({ ...where, tipoLancamento: TipoLancamento.FATURAMENTO }),
@@ -243,8 +264,16 @@ export class RelatoriosService {
         }),
         this.groupWithLabels('cavaloMecanicoId', { ...where, tipoLancamento: TipoLancamento.DESPESA }),
         this.groupWithLabels('motoristaId', { ...where, tipoLancamento: TipoLancamento.DESPESA }),
+        this.groupWithLabels('clienteId', { ...where, tipoLancamento: TipoLancamento.DESPESA }),
+        this.groupWithLabels('fornecedorId', { ...where, tipoLancamento: TipoLancamento.DESPESA }),
+        this.groupWithLabels('categoriaId', { ...where, tipoLancamento: TipoLancamento.DESPESA }),
         this.groupWithLabels('cavaloMecanicoId', { ...where, tipoLancamento: TipoLancamento.FATURAMENTO }),
         this.groupWithLabels('motoristaId', { ...where, tipoLancamento: TipoLancamento.FATURAMENTO }),
+        this.groupWithLabels('clienteId', { ...where, tipoLancamento: TipoLancamento.FATURAMENTO }),
+        this.groupWithLabels('fornecedorId', { ...where, tipoLancamento: TipoLancamento.FATURAMENTO }),
+        this.groupWithLabels('categoriaId', { ...where, tipoLancamento: TipoLancamento.FATURAMENTO }),
+        this.operationalDimensionGroups({ ...where, tipoLancamento: TipoLancamento.DESPESA }),
+        this.operationalDimensionGroups({ ...where, tipoLancamento: TipoLancamento.FATURAMENTO }),
         this.conjuntosPorCavalo(where),
         this.comissoes(filters),
       ]);
@@ -255,8 +284,24 @@ export class RelatoriosService {
       saldoFinal: faturamento - despesas,
       despesasPorCavaloMecanico,
       despesasPorMotorista,
+      despesasPorCliente,
+      despesasPorFornecedor,
+      despesasPorCategoria,
       faturamentoPorCavaloMecanico,
       faturamentoPorMotorista,
+      faturamentoPorCliente,
+      faturamentoPorFornecedor,
+      faturamentoPorCategoria,
+      despesasPorPlaca: despesasOperacionais.porPlaca,
+      faturamentoPorPlaca: faturamentoOperacionais.porPlaca,
+      despesasPorImplemento: despesasOperacionais.porImplemento,
+      faturamentoPorImplemento: faturamentoOperacionais.porImplemento,
+      despesasPorConjunto: despesasOperacionais.porConjunto,
+      faturamentoPorConjunto: faturamentoOperacionais.porConjunto,
+      despesasPorTipoConjunto: despesasOperacionais.porTipoConjunto,
+      faturamentoPorTipoConjunto: faturamentoOperacionais.porTipoConjunto,
+      despesasPorQuantidadeEixos: despesasOperacionais.porQuantidadeEixos,
+      faturamentoPorQuantidadeEixos: faturamentoOperacionais.porQuantidadeEixos,
       conjuntosPorCavalo,
       comissoes,
       historico,
@@ -473,7 +518,7 @@ export class RelatoriosService {
   ) {
     const defaultSections = somenteConsumo
       ? ['resumo_frota', 'ranking_frota', 'comparacao_periodo', 'historico_abastecimentos']
-      : ['resumo_financeiro', 'lancamentos', 'grupos_cavalo', 'grupos_motorista', 'composicoes', 'comissoes'];
+      : ['resumo_financeiro', 'lancamentos', 'grupos_cavalo', 'grupos_placas', 'grupos_motorista', 'grupos_clientes', 'grupos_fornecedores', 'grupos_categorias', 'grupos_implementos', 'grupos_conjuntos', 'grupos_tipos_conjunto', 'grupos_eixos', 'grupos_tipos_financeiros', 'composicoes', 'comissoes'];
     const selectedSections = new Set(
       filters.secoesPdf === undefined
         ? defaultSections
@@ -661,15 +706,55 @@ export class RelatoriosService {
         }
       }
 
-      if (hasSection('grupos_cavalo') || hasSection('grupos_motorista')) {
-        sectionTitle('Resumo por grupo');
+      if (['grupos_cavalo', 'grupos_placas', 'grupos_motorista', 'grupos_clientes', 'grupos_fornecedores', 'grupos_categorias', 'grupos_implementos', 'grupos_conjuntos', 'grupos_tipos_conjunto', 'grupos_eixos', 'grupos_tipos_financeiros'].some(hasSection)) {
+        sectionTitle('Totais separados por grupo');
         if (hasSection('grupos_cavalo')) {
           table(['Despesas por cavalo mecânico', 'Total'], this.pdfGroupRows(relatorio.despesasPorCavaloMecanico), [390, 133], ['left', 'right']);
           table(['Faturamento por cavalo mecânico', 'Total'], this.pdfGroupRows(relatorio.faturamentoPorCavaloMecanico), [390, 133], ['left', 'right']);
         }
+        if (hasSection('grupos_placas')) {
+          table(['Despesas por placa registrada', 'Total'], this.pdfGroupRows(relatorio.despesasPorPlaca), [390, 133], ['left', 'right']);
+          table(['Faturamento por placa registrada', 'Total'], this.pdfGroupRows(relatorio.faturamentoPorPlaca), [390, 133], ['left', 'right']);
+        }
         if (hasSection('grupos_motorista')) {
           table(['Despesas por motorista', 'Total'], this.pdfGroupRows(relatorio.despesasPorMotorista), [390, 133], ['left', 'right']);
           table(['Faturamento por motorista', 'Total'], this.pdfGroupRows(relatorio.faturamentoPorMotorista), [390, 133], ['left', 'right']);
+        }
+        if (hasSection('grupos_clientes')) {
+          table(['Despesas por cliente', 'Total'], this.pdfGroupRows(relatorio.despesasPorCliente), [390, 133], ['left', 'right']);
+          table(['Faturamento por cliente', 'Total'], this.pdfGroupRows(relatorio.faturamentoPorCliente), [390, 133], ['left', 'right']);
+        }
+        if (hasSection('grupos_fornecedores')) {
+          table(['Despesas por fornecedor', 'Total'], this.pdfGroupRows(relatorio.despesasPorFornecedor), [390, 133], ['left', 'right']);
+          table(['Faturamento por fornecedor', 'Total'], this.pdfGroupRows(relatorio.faturamentoPorFornecedor), [390, 133], ['left', 'right']);
+        }
+        if (hasSection('grupos_categorias')) {
+          table(['Despesas por categoria financeira', 'Total'], this.pdfGroupRows(relatorio.despesasPorCategoria), [390, 133], ['left', 'right']);
+          table(['Faturamento por categoria financeira', 'Total'], this.pdfGroupRows(relatorio.faturamentoPorCategoria), [390, 133], ['left', 'right']);
+        }
+        if (hasSection('grupos_implementos')) {
+          table(['Despesas por implemento', 'Total'], this.pdfGroupRows(relatorio.despesasPorImplemento), [390, 133], ['left', 'right']);
+          table(['Faturamento por implemento', 'Total'], this.pdfGroupRows(relatorio.faturamentoPorImplemento), [390, 133], ['left', 'right']);
+        }
+        if (hasSection('grupos_conjuntos')) {
+          table(['Despesas por conjunto operacional', 'Total'], this.pdfGroupRows(relatorio.despesasPorConjunto), [390, 133], ['left', 'right']);
+          table(['Faturamento por conjunto operacional', 'Total'], this.pdfGroupRows(relatorio.faturamentoPorConjunto), [390, 133], ['left', 'right']);
+        }
+        if (hasSection('grupos_tipos_conjunto')) {
+          table(['Despesas por tipo de conjunto', 'Total'], this.pdfGroupRows(relatorio.despesasPorTipoConjunto), [390, 133], ['left', 'right']);
+          table(['Faturamento por tipo de conjunto', 'Total'], this.pdfGroupRows(relatorio.faturamentoPorTipoConjunto), [390, 133], ['left', 'right']);
+        }
+        if (hasSection('grupos_eixos')) {
+          table(['Despesas por quantidade de eixos', 'Total'], this.pdfGroupRows(relatorio.despesasPorQuantidadeEixos), [390, 133], ['left', 'right']);
+          table(['Faturamento por quantidade de eixos', 'Total'], this.pdfGroupRows(relatorio.faturamentoPorQuantidadeEixos), [390, 133], ['left', 'right']);
+        }
+        if (hasSection('grupos_tipos_financeiros')) {
+          table(
+            ['Tipo financeiro', 'Valor total'],
+            [['Despesas', this.formatCurrency(relatorio.totalDespesas)], ['Faturamento', this.formatCurrency(relatorio.totalFaturamento)]],
+            [390, 133],
+            ['left', 'right'],
+          );
         }
       }
 
@@ -896,8 +981,9 @@ export class RelatoriosService {
     return Number(result._sum.valorTotal || 0);
   }
 
-  private async group(by: 'cavaloMecanicoId' | 'motoristaId', where: any) {
-    const groupWhere = by === 'cavaloMecanicoId' ? { ...where, [by]: { not: null } } : where;
+  private async group(by: FinancialGroupField, where: any) {
+    const excludeNull = by !== 'motoristaId';
+    const groupWhere = excludeNull ? { ...where, [by]: { not: null } } : where;
     return this.prisma.lancamentoFinanceiro.groupBy({
       by: [by],
       where: groupWhere,
@@ -905,30 +991,117 @@ export class RelatoriosService {
     });
   }
 
-  private async groupWithLabels(by: 'cavaloMecanicoId' | 'motoristaId', where: any) {
+  private async groupWithLabels(by: Exclude<FinancialGroupField, 'conjuntoId'>, where: any) {
     const rows = await this.group(by, where);
     const ids = rows.map((row) => row[by]).filter(Boolean) as string[];
 
     const labels = new Map<string, string>();
-    if (by === 'cavaloMecanicoId') {
+    if (by === 'placa') {
+      ids.forEach((id) => labels.set(id, id));
+    } else if (by === 'cavaloMecanicoId') {
       const cavalos = await this.prisma.cavaloMecanico.findMany({
         where: { id: { in: ids } },
         select: { id: true, placa: true, marca: true, modelo: true },
       });
       cavalos.forEach((item) => labels.set(item.id, [item.placa, item.marca, item.modelo].filter(Boolean).join(' - ')));
-    } else {
+    } else if (by === 'motoristaId') {
       const motoristas = await this.prisma.motorista.findMany({
         where: { id: { in: ids } },
         select: { id: true, nome: true, cpf: true },
       });
       motoristas.forEach((item) => labels.set(item.id, [item.nome, item.cpf].filter(Boolean).join(' - ')));
+    } else if (by === 'clienteId') {
+      const clientes = await this.prisma.cliente.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, nome: true, documento: true },
+      });
+      clientes.forEach((item) => labels.set(item.id, [item.nome, item.documento].filter(Boolean).join(' - ')));
+    } else if (by === 'fornecedorId') {
+      const fornecedores = await this.prisma.fornecedor.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, nome: true, documento: true },
+      });
+      fornecedores.forEach((item) => labels.set(item.id, [item.nome, item.documento].filter(Boolean).join(' - ')));
+    } else if (by === 'categoriaId') {
+      const categorias = await this.prisma.categoriaFinanceira.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, nome: true },
+      });
+      categorias.forEach((item) => labels.set(item.id, item.nome));
+    } else {
+      const implementos = await this.prisma.implemento.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, placa: true, tipo: true, carroceria: true },
+      });
+      implementos.forEach((item) => labels.set(item.id, [item.placa, item.tipo, item.carroceria].filter(Boolean).join(' - ')));
     }
 
     return rows.map((row) => ({
       id: row[by],
       label: labels.get(row[by] || '') || 'Sem cadastro',
       total: Number(row._sum.valorTotal || 0),
-    }));
+    })).sort((left, right) => right.total - left.total || left.label.localeCompare(right.label, 'pt-BR'));
+  }
+
+  private async operationalDimensionGroups(where: any) {
+    const [porPlaca, porImplemento, conjuntoRows] = await Promise.all([
+      this.groupWithLabels('placa', where),
+      this.groupWithLabels('implementoId', where),
+      this.group('conjuntoId', where),
+    ]);
+    const conjuntoIds = conjuntoRows.map((row) => row.conjuntoId).filter(Boolean) as string[];
+    const conjuntos = await this.prisma.conjunto.findMany({
+      where: { id: { in: conjuntoIds } },
+      select: {
+        id: true,
+        nome: true,
+        tipo: true,
+        quantidadeTotalEixos: true,
+        implementos: { select: { implemento: { select: { id: true, placa: true, tipo: true, carroceria: true } } } },
+      },
+    });
+    const conjuntosById = new Map(conjuntos.map((item) => [item.id, item]));
+    const porConjunto = conjuntoRows.map((row) => {
+      const conjunto = conjuntosById.get(row.conjuntoId || '');
+      return {
+        id: row.conjuntoId,
+        label: conjunto ? [conjunto.nome, conjunto.tipo, `${conjunto.quantidadeTotalEixos} eixos`].join(' - ') : 'Sem cadastro',
+        total: Number(row._sum.valorTotal || 0),
+      };
+    });
+    const consolidate = (labelFor: (item: typeof conjuntos[number]) => string) => {
+      const totals = new Map<string, number>();
+      conjuntoRows.forEach((row) => {
+        const conjunto = conjuntosById.get(row.conjuntoId || '');
+        if (!conjunto) return;
+        const label = labelFor(conjunto);
+        totals.set(label, (totals.get(label) || 0) + Number(row._sum.valorTotal || 0));
+      });
+      return [...totals.entries()].map(([label, total]) => ({ id: label, label, total }));
+    };
+    const sortRows = (rows: Array<{ id: string | null; label: string; total: number }>) => rows
+      .sort((left, right) => right.total - left.total || left.label.localeCompare(right.label, 'pt-BR'));
+    const implementoTotals = new Map(porImplemento.map((item) => [item.id, { ...item }]));
+    conjuntoRows.forEach((row) => {
+      const conjunto = conjuntosById.get(row.conjuntoId || '');
+      conjunto?.implementos?.forEach(({ implemento }) => {
+        const current = implementoTotals.get(implemento.id);
+        const total = Number(row._sum.valorTotal || 0);
+        implementoTotals.set(implemento.id, {
+          id: implemento.id,
+          label: [implemento.placa, implemento.tipo, implemento.carroceria].filter(Boolean).join(' - '),
+          total: (current?.total || 0) + total,
+        });
+      });
+    });
+
+    return {
+      porPlaca,
+      porImplemento: sortRows([...implementoTotals.values()]),
+      porConjunto: sortRows(porConjunto),
+      porTipoConjunto: sortRows(consolidate((item) => this.tipoConjuntoLabel(item.tipo))),
+      porQuantidadeEixos: sortRows(consolidate((item) => `${item.quantidadeTotalEixos} eixos`)),
+    };
   }
 
   private async comissoes(filters: RelatorioFinanceiroQueryDto, take = 50) {
