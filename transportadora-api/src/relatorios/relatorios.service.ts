@@ -982,7 +982,7 @@ export class RelatoriosService {
   }
 
   private async group(by: FinancialGroupField, where: any) {
-    const excludeNull = by !== 'motoristaId';
+    const excludeNull = by !== 'motoristaId' && by !== 'placa';
     const groupWhere = excludeNull ? { ...where, [by]: { not: null } } : where;
     return this.prisma.lancamentoFinanceiro.groupBy({
       by: [by],

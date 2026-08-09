@@ -348,6 +348,8 @@ describe('RelatoriosService', () => {
         { conjunto: { tipo: { in: ['BITREM', 'RODOTREM'] }, quantidadeTotalEixos: { in: [7, 9] } } },
       ]),
     });
+    const plateGroupCall = prisma.lancamentoFinanceiro.groupBy.mock.calls.find(([args]: any[]) => args.by?.[0] === 'placa');
+    expect(plateGroupCall?.[0].where.placa).toBeUndefined();
   });
 
   it('recalcula as opções de cada campo usando os outros filtros ativos', async () => {
