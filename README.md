@@ -28,7 +28,7 @@ O sistema centraliza a operação da transportadora em uma aplicação com backe
 - Calcular automaticamente valores financeiros.
 - Consultar dashboard com indicadores financeiros e operacionais.
 - Gerar relatórios com filtros por período, cavalo, implemento, conjunto, tipo de conjunto, quantidade de eixos, motorista, fornecedor, cliente, categoria e tipo financeiro.
-- Exportar relatórios em CSV/Excel e PDF.
+- Exportar relatórios em CSV e PDF.
 - Registrar auditoria de operações importantes.
 - Controlar permissões por perfil `ADMIN` e `USUARIO`.
 
@@ -765,7 +765,7 @@ Resultados exibidos:
 
 Exportações:
 
-- CSV/Excel.
+- CSV.
 - PDF.
 
 Relatórios vazios mostram mensagem informando que nenhum lançamento foi encontrado para os filtros aplicados.
@@ -1167,6 +1167,41 @@ Parametros aceitos:
 - `limit`
 - `orderBy`
 - `orderDirection`
+- `secoes`
+- `colunas`
+
+Os aliases legados `secoesPdf` e `colunasPdf` continuam aceitos para não quebrar URLs e preferências antigas.
+
+### Tipos de relatório
+
+- **Relatório Financeiro**: reúne lançamentos, totais, agrupamentos e comissões. Os filtros aceitam um ou vários valores, enviados como listas separadas por vírgula.
+- **Média da Frota**: usa abastecimentos para calcular consumo, ranking, comparação e divergências.
+
+O antigo **Registro Geral** foi removido do seletor porque era apenas uma versão de seleção única do mesmo relatório. O identificador `REGISTRO_GERAL`, seus parâmetros singulares e as preferências já salvas continuam aceitos como compatibilidade legada; ao restaurá-los, o frontend abre o Relatório Financeiro e converte os filtros para o formato múltiplo.
+
+Os filtros financeiros abrangem período, cavalo mecânico, motorista, implemento, conjunto, tipo de conjunto, quantidade de eixos, fornecedor, cliente, categoria e tipo financeiro. O filtro avançado `placa` consulta o texto gravado no lançamento, que funciona como snapshot histórico e pode divergir do cavalo atualmente relacionado.
+
+### Seções financeiras e comissões
+
+As principais seções são resumo financeiro, lançamentos, agrupamentos operacionais, composição por cavalo e comissões. Despesas são agrupadas por fornecedor e faturamentos por cliente; os agrupamentos incompatíveis “despesas por cliente” e “faturamento por fornecedor” não são exibidos.
+
+Os valores relacionados a implementos são associações: quando um conjunto possui mais de um implemento, o valor integral é relacionado a cada um. Esses valores **não devem ser somados entre implementos**, pois não existe regra de rateio definida no domínio.
+
+A comissão nasce de um faturamento elegível. Ao salvar o faturamento, a API cria uma despesa automática de comissão. Essa despesa já integra o total de despesas e, portanto, o saldo final já considera a comissão uma única vez. Se o filtro financeiro contiver somente `DESPESA`, faturamentos com comissão não são buscados para a seção de comissões.
+
+### Média da Frota
+
+- Média geral: distância total dividida pelos litros totais.
+- Média por cavalo: distância total do cavalo dividida pelos litros totais do cavalo.
+- Comparação: período imediatamente anterior, com a mesma duração, somente quando data inicial e final são informadas.
+- Divergência: o `kmAtual` de um abastecimento deve coincidir com o `kmAnterior` do próximo abastecimento do mesmo cavalo.
+- Ranking: somente cavalos com pelo menos dois abastecimentos recebem posição de amostra confiável; amostras menores aparecem separadas, sem competir no ranking principal.
+
+### Exportação e seleção de conteúdo
+
+PDF e CSV respeitam as seções e colunas escolhidas. O PDF alterna automaticamente entre portrait e landscape conforme a tabela selecionada. As exportações processam os lançamentos em lotes internos de 1.000 registros e não aplicam limite silencioso de 5.000. A Média da Frota agrega todos os abastecimentos correspondentes e também não trunca silenciosamente seu histórico exportado.
+
+O backend recebe a seleção já na consulta do relatório e deixa de executar agrupamentos, composição e comissões que não foram solicitados. Totais financeiros principais permanecem exatos e a resposta mantém coleções vazias para campos opcionais não calculados, preservando compatibilidade do frontend.
 
 O backend valida os parâmetros com DTO. Parâmetros inválidos retornam erro `400`.
 
@@ -1593,5 +1628,5 @@ GET /api/relatorios/financeiros?dataInicial=2026-05-01&dataFinal=2026-05-31&cava
 - A rota `/caminhoes` foi mantida por compatibilidade com o frontend e com partes existentes do sistema, mas hoje representa o cadastro de cavalos mecânicos.
 - A tabela legada `caminhoes` permanece no banco para preservar histórico e permitir migração segura.
 - O sistema evita apagar dados automaticamente quando a conversão não é totalmente confiável.
-- O CSV usa separador `;`, adequado para abertura em Excel configurado em pt-BR.
+- O CSV usa separador `;`, adequado para abertura em aplicativos de planilha configurados em pt-BR.
 - O PDF é gerado no backend de forma simples, suficiente para exportação operacional.

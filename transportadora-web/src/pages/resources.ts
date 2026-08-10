@@ -68,6 +68,13 @@ export const carrocerias = [
   { label: 'Outro', value: 'OUTRO' },
 ];
 
+const tiposConjuntoOperacional = [
+  { label: 'Simples', value: 'SIMPLES' },
+  { label: 'Bitrem', value: 'BITREM' },
+  { label: 'Rodotrem', value: 'RODOTREM' },
+  { label: 'Outro', value: 'OUTRO' },
+];
+
 const lancamentoFields: Field[] = [
   { name: 'data', label: 'Data', type: 'date', required: true, table: true, sortable: true, filterKey: 'data', filterType: 'date' },
   { name: 'cavaloMecanicoId', label: 'Cavalo mecânico', type: 'select', required: true, table: true, sortable: true, filterKey: 'cavalo', filterType: 'text', relation: { endpoint: '/caminhoes', labelKey: 'placa', fallbackKey: 'modelo', objectKey: 'cavaloMecanico' } },
@@ -132,6 +139,51 @@ export const crudResources: Resource[] = [
       { name: 'chassi', label: 'Chassi' },
       { name: 'renavam', label: 'Renavam' },
       { name: 'status', label: 'Status', type: 'select', options: statusGeral, table: true, filterKey: 'status', filterType: 'select' },
+      { name: 'observacoes', label: 'Observações', type: 'textarea' },
+    ],
+  },
+  {
+    title: 'Implementos',
+    path: 'implementos',
+    endpoint: '/implementos',
+    fields: [
+      { name: 'placa', label: 'Placa', table: true, mask: maskPlate, maxLength: 128, filterKey: 'placa', filterType: 'text' },
+      { name: 'tipo', label: 'Tipo', type: 'select', required: true, table: true, options: tiposImplemento },
+      { name: 'carroceria', label: 'Carroceria', type: 'select', required: true, table: true, options: carrocerias },
+      { name: 'quantidadeEixos', label: 'Quantidade de eixos', type: 'number', table: true, required: true },
+      { name: 'capacidadeCarga', label: 'Capacidade de carga', type: 'number', table: true },
+      { name: 'status', label: 'Status', type: 'select', table: true, options: statusGeral, filterKey: 'status', filterType: 'select' },
+      { name: 'observacoes', label: 'Observações', type: 'textarea' },
+    ],
+  },
+  {
+    title: 'Conjuntos operacionais',
+    path: 'conjuntos',
+    endpoint: '/conjuntos',
+    fields: [
+      { name: 'nome', label: 'Nome calculado', table: true, hidden: true, filterKey: 'nome', filterType: 'text' },
+      { name: 'cavaloMecanicoId', label: 'Cavalo mecânico', type: 'select', required: true, table: true, relation: { endpoint: '/caminhoes', labelKey: 'placa', fallbackKey: 'modelo', objectKey: 'cavaloMecanico' } },
+      { name: 'implementoIds', label: 'Implementos (na ordem operacional)', type: 'multiselect', required: true, relation: { endpoint: '/implementos', labelKey: 'placa', fallbackKey: 'tipo' } },
+      { name: 'tipo', label: 'Tipo do conjunto', table: true, hidden: true, options: tiposConjuntoOperacional },
+      { name: 'quantidadeTotalEixos', label: 'Quantidade de eixos', type: 'number', table: true, hidden: true },
+      { name: 'capacidadeTotal', label: 'Capacidade total', type: 'number', table: true, hidden: true },
+      { name: 'status', label: 'Status', type: 'select', table: true, options: statusGeral, filterKey: 'status', filterType: 'select' },
+      { name: 'justificativaSemImplemento', label: 'Justificativa para conjunto sem implemento', type: 'textarea' },
+      { name: 'observacoes', label: 'Observações', type: 'textarea' },
+    ],
+  },
+  {
+    title: 'Abastecimentos',
+    path: 'abastecimentos',
+    endpoint: '/abastecimentos',
+    fields: [
+      { name: 'data', label: 'Data', type: 'date', required: true, table: true, filterKey: 'data', filterType: 'date' },
+      { name: 'cavaloMecanicoId', label: 'Cavalo mecânico', type: 'select', required: true, table: true, relation: { endpoint: '/caminhoes', labelKey: 'placa', fallbackKey: 'modelo', objectKey: 'cavaloMecanico' } },
+      { name: 'kmAnterior', label: 'Km anterior', type: 'number', required: true, table: true },
+      { name: 'kmAtual', label: 'Km atual', type: 'number', required: true, table: true },
+      { name: 'distanciaPercorrida', label: 'Distância percorrida', type: 'number', table: true, hidden: true },
+      { name: 'litros', label: 'Litros', type: 'number', required: true, table: true },
+      { name: 'mediaKmLitro', label: 'Média km/l', type: 'number', table: true, hidden: true },
       { name: 'observacoes', label: 'Observações', type: 'textarea' },
     ],
   },

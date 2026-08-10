@@ -3,6 +3,7 @@
   Building2,
   ChevronDown,
   FileText,
+  Fuel,
   LogOut,
   Menu,
   Receipt,
@@ -26,7 +27,17 @@ const navGroups = [
       { to: '/fornecedores', label: 'Fornecedores', icon: Building2 },
       { to: '/motoristas', label: 'Motoristas', icon: UserRound },
       { to: '/caminhoes', label: 'Cavalos mecânicos', icon: Truck },
+      { to: '/implementos', label: 'Implementos', icon: Truck },
+      { to: '/conjuntos', label: 'Conjuntos operacionais', icon: Truck },
       { to: '/categorias-financeiras', label: 'Categorias financeiras', icon: FileText },
+    ],
+  },
+  {
+    id: 'operacao',
+    label: 'Operação',
+    icon: Truck,
+    items: [
+      { to: '/abastecimentos', label: 'Abastecimentos', icon: Fuel },
     ],
   },
   {

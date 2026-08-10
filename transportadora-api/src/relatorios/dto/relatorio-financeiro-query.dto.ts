@@ -35,6 +35,9 @@ export class RelatorioFinanceiroQueryDto {
   @IsIn(['data', 'tipoLancamento', 'cavalo', 'conjunto', 'motorista', 'parte', 'categoria', 'quantidade', 'valorUnitario', 'valorTotal'])
   orderBy?: 'data' | 'tipoLancamento' | 'cavalo' | 'conjunto' | 'motorista' | 'parte' | 'categoria' | 'quantidade' | 'valorUnitario' | 'valorTotal';
   @IsOptional() @IsIn(['asc', 'desc']) orderDirection?: 'asc' | 'desc';
+  @IsOptional() @IsString() secoes?: string;
+  @IsOptional() @IsString() colunas?: string;
+  // Compatibilidade com URLs e preferências anteriores à seleção genérica de relatório.
   @IsOptional() @IsString() secoesPdf?: string;
   @IsOptional() @IsString() colunasPdf?: string;
 }

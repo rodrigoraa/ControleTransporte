@@ -30,7 +30,7 @@ export class RelatoriosController {
     const pdf = await this.service.exportarPdf(query);
     const filename = query.tipoRelatorio === 'MEDIA_FROTA'
       ? 'relatorio-media-frota.pdf'
-      : query.tipoRelatorio === 'RELATORIO_COMBINADO' ? 'relatorio-combinado.pdf' : 'registro-geral.pdf';
+      : query.tipoRelatorio === 'RELATORIO_COMBINADO' ? 'relatorio-financeiro.pdf' : 'registro-geral.pdf';
     return response
       .header('Content-Type', 'application/pdf')
       .header('Content-Disposition', `attachment; filename="${filename}"`)

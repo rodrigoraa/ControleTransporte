@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 import { AuditActor } from '../common/audit/audit-context';
 import { CrudService } from '../common/crud/crud.service';
+import { PaginationDto } from '../common/crud/pagination.dto';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateAbastecimentoDto } from './dto/create-abastecimento.dto';
 import { UpdateAbastecimentoDto } from './dto/update-abastecimento.dto';
@@ -10,6 +11,21 @@ import { UpdateAbastecimentoDto } from './dto/update-abastecimento.dto';
 export class AbastecimentosService extends CrudService<CreateAbastecimentoDto, UpdateAbastecimentoDto> {
   constructor(prisma: PrismaService) {
     super(prisma, 'abastecimento', [], { cavaloMecanico: true });
+  }
+
+  protected buildWhere(query: PaginationDto & Record<string, unknown>) {
+    const where: Prisma.AbastecimentoWhereInput = {};
+    if (typeof query.data === 'string' && query.data) {
+      where.data = {
+        gte: new Date(`${query.data}T00:00:00.000Z`),
+        lte: new Date(`${query.data}T23:59:59.999Z`),
+      };
+    }
+    return where;
+  }
+
+  protected buildOrderBy() {
+    return [{ data: 'desc' as const }, { createdAt: 'desc' as const }];
   }
 
   async findByCavalo(cavaloMecanicoId: string) {

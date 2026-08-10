@@ -1472,7 +1472,7 @@ tbody tr:hover {
   border-top: 1px solid #e4ecef;
 }
 
-.report-customization .pdf-option-heading:first-child {
+.report-customization .report-option-heading:first-child {
   margin-top: 12px;
 }
 
@@ -1637,15 +1637,7 @@ tbody tr:hover {
   background: linear-gradient(90deg, #1f7a8c, #6b7a35);
 }
 
-.pdf-options-modal {
-  width: min(760px, 100%);
-}
-
-.pdf-options-modal .modal-header p {
-  margin: 4px 0 0;
-}
-
-.pdf-option-heading {
+.report-option-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1653,18 +1645,18 @@ tbody tr:hover {
   margin: 18px 0 12px;
 }
 
-.pdf-option-heading > span {
+.report-option-heading > span {
   color: var(--muted);
   font-size: 13px;
 }
 
-.pdf-option-grid {
+.report-option-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
-.pdf-option-item {
+.report-option-item {
   min-height: 42px;
   margin: 0;
   padding: 10px 12px;
@@ -1673,12 +1665,12 @@ tbody tr:hover {
   background: #f9fbfc;
 }
 
-.pdf-option-item:has(input:checked) {
+.report-option-item:has(input:checked) {
   border-color: #79acb7;
   background: #edf7f8;
 }
 
-.pdf-advanced-options {
+.report-advanced-options {
   margin-top: 18px;
   padding: 14px;
   border: 1px solid #dce6ea;
@@ -1686,13 +1678,13 @@ tbody tr:hover {
   background: #fbfcfd;
 }
 
-.pdf-advanced-options summary {
+.report-advanced-options summary {
   color: #145767;
   cursor: pointer;
   font-weight: 800;
 }
 
-.pdf-column-group {
+.report-column-group {
   display: grid;
   gap: 10px;
   margin-top: 16px;
@@ -1700,7 +1692,7 @@ tbody tr:hover {
   border-top: 1px solid #e4ecef;
 }
 
-.pdf-column-group > strong {
+.report-column-group > strong {
   color: #10242c;
 }
 
@@ -1738,12 +1730,12 @@ tbody tr:hover {
     flex: 1;
   }
 
-  .pdf-option-heading {
+  .report-option-heading {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .pdf-option-grid {
+  .report-option-grid {
     grid-template-columns: 1fr;
   }
 }

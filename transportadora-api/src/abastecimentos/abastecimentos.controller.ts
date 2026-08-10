@@ -5,6 +5,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { PaginationDto } from '../common/crud/pagination.dto';
 import { AbastecimentosService } from './abastecimentos.service';
 import { CreateAbastecimentoDto } from './dto/create-abastecimento.dto';
 import { UpdateAbastecimentoDto } from './dto/update-abastecimento.dto';
@@ -15,8 +16,8 @@ export class AbastecimentosController {
   constructor(private readonly service: AbastecimentosService) {}
 
   @Get()
-  findByCavalo(@Query('cavaloMecanicoId') cavaloMecanicoId: string) {
-    return this.service.findByCavalo(cavaloMecanicoId);
+  findAll(@Query() query: PaginationDto, @Query('cavaloMecanicoId') cavaloMecanicoId?: string) {
+    return cavaloMecanicoId ? this.service.findByCavalo(cavaloMecanicoId) : this.service.findAll(query);
   }
 
   @Post()

@@ -151,7 +151,22 @@ function makeService() {
       findMany: jest.fn(async ({ where }: any = {}) => (
         JSON.stringify(where || {}).includes('tipoComissao') ? [faturamento] : lancamentos
       )),
-      groupBy: jest.fn(async ({ by, where }: any) => [{
+      groupBy: jest.fn(async ({ by, where }: any) => by.length > 1 ? [
+        {
+          cavaloMecanicoId: 'cav-1',
+          conjuntoId: 'conj-1',
+          tipoLancamento: TipoLancamento.DESPESA,
+          _count: { _all: 2 },
+          _sum: { valorTotal: 66.9 },
+        },
+        {
+          cavaloMecanicoId: 'cav-1',
+          conjuntoId: 'conj-1',
+          tipoLancamento: TipoLancamento.FATURAMENTO,
+          _count: { _all: 1 },
+          _sum: { valorTotal: 160 },
+        },
+      ] : [{
         [by[0]]: ({
           motoristaId: 'mot-1',
           cavaloMecanicoId: 'cav-1',
@@ -246,8 +261,10 @@ describe('RelatoriosService', () => {
       totalFaturamento: 160,
       saldo: 93.1,
     });
-    expect(result.despesasPorCliente).toEqual([{ id: 'cli-1', label: 'Cliente Teste - 456', total: 66.9 }]);
-    expect(result.faturamentoPorFornecedor).toEqual([{ id: 'for-1', label: 'Posto Rota Pesada - 789', total: 160 }]);
+    expect(result.despesasPorCliente).toEqual([]);
+    expect(result.faturamentoPorFornecedor).toEqual([]);
+    expect(result.faturamentoPorCliente).toEqual([{ id: 'cli-1', label: 'Cliente Teste - 456', total: 160 }]);
+    expect(result.despesasPorFornecedor).toEqual([{ id: 'for-1', label: 'Posto Rota Pesada - 789', total: 66.9 }]);
     expect(result.despesasPorCategoria).toEqual([{ id: 'cat-1', label: 'Combustível', total: 66.9 }]);
     expect(result.despesasPorPlaca).toEqual([{ id: 'ABC1D23', label: 'ABC1D23', total: 66.9 }]);
     expect(result.despesasPorImplemento).toEqual([{ id: 'imp-1', label: 'CAR1A01 - SEMIRREBOQUE - GRANELEIRO', total: 66.9 }]);
@@ -260,7 +277,7 @@ describe('RelatoriosService', () => {
     expect(paginatedCall?.[0]).toEqual(expect.objectContaining({
       skip: 1,
       take: 1,
-      orderBy: [{ valorTotal: 'asc' }, { createdAt: 'desc' }],
+      orderBy: [{ valorTotal: 'asc' }, { createdAt: 'desc' }, { id: 'desc' }],
     }));
     const commissionCall = prisma.lancamentoFinanceiro.findMany.mock.calls.find(([args]: any[]) => JSON.stringify(args.where).includes('tipoComissao'));
     expect(JSON.stringify(commissionCall?.[0].where)).toContain('quantidadeEixosComissao');
@@ -324,6 +341,7 @@ describe('RelatoriosService', () => {
     expect(paginatedCall?.[0].orderBy).toEqual([
       { motorista: { nome: 'asc' } },
       { createdAt: 'desc' },
+      { id: 'desc' },
     ]);
   });
 
@@ -377,25 +395,26 @@ describe('RelatoriosService', () => {
     expect(result.implementos[0]).toMatchObject({ value: 'imp-1' });
     expect(result.tiposConjunto).toEqual([{ value: 'BITREM', label: 'Bitrem' }]);
     expect(result.quantidadesEixos).toEqual([{ value: '7', label: '7 eixos' }]);
-    const facetCalls = prisma.lancamentoFinanceiro.findMany.mock.calls.filter(([args]: any[]) => args.select?.motorista);
-    expect(facetCalls.some(([args]: any[]) => JSON.stringify(args.where).includes('cavaloMecanicoId'))).toBe(true);
-    expect(facetCalls.some(([args]: any[]) => !JSON.stringify(args.where).includes('cavaloMecanicoId'))).toBe(true);
+    const motoristaFacet = prisma.lancamentoFinanceiro.findMany.mock.calls.find(([args]: any[]) => args.select?.motorista);
+    const cavaloFacet = prisma.lancamentoFinanceiro.findMany.mock.calls.find(([args]: any[]) => args.select?.cavaloMecanico);
+    expect(JSON.stringify(motoristaFacet?.[0].where)).toContain('cavaloMecanicoId');
+    expect(JSON.stringify(cavaloFacet?.[0].where)).not.toContain('cavaloMecanicoId');
+    expect(cavaloFacet?.[0].distinct).toEqual(['cavaloMecanicoId']);
   });
 
-  it('exporta CSV com comissão detalhada sem duplicar o valor na linha da despesa automática', async () => {
+  it('exporta CSV de faturamento com comissão detalhada sem duplicar o valor na linha da despesa automática', async () => {
     const { service, prisma } = makeService();
 
-    const csv = await service.exportarCsv({ tipoLancamento: TipoLancamento.DESPESA });
+    const csv = await service.exportarCsv({ tipoLancamento: TipoLancamento.FATURAMENTO });
 
-    expect(csv).toContain('"Cavalo mecânico"');
+    expect(csv).toContain('"Cavalo mecânico / placa registrada"');
     expect(csv).toContain('"Conjunto operacional"');
-    expect(csv).toContain('"Implementos do conjunto"');
-    expect(csv).toContain('"Resumo de comissões dos faturamentos"');
-    expect(csv).toContain('"Histórico de comissões"');
+    expect(csv).toContain('"Implementos utilizados"');
+    expect(csv).toContain('"Comissões dos faturamentos"');
     expect(csv).toContain('"Percentual"');
     expect(csv).toContain('"12,00%"');
     expect(csv).toContain('"Comissão bruta"');
-    expect(csv).toContain('"Valor do desconto de impostos"');
+    expect(csv).toContain('"Impostos"');
     expect(csv).toContain('"2.30"');
     expect(csv).toContain('"16.90"');
     expect(csv).not.toContain('"Média da frota"');
@@ -418,13 +437,18 @@ describe('RelatoriosService', () => {
     expect(pdf.toString('latin1')).toContain('Lançamentos encontrados');
     expect(pdf.toString('latin1')).toContain('Resumo por composição do cavalo');
     expect(pdf.toString('latin1')).toContain('Comissões dos faturamentos');
-    expect(pdf.toString('latin1')).toContain('Despesas por cliente');
-    expect(pdf.toString('latin1')).toContain('Faturamento por fornecedor');
-    expect(pdf.toString('latin1')).toContain('Despesas por categoria financeira');
-    expect(pdf.toString('latin1')).toContain('Despesas por placa registrada');
-    expect(pdf.toString('latin1')).toContain('Faturamento por conjunto operacional');
-    expect(pdf.toString('latin1')).toContain('Despesas por quantidade de eixos');
-    expect(pdf.toString('latin1')).toContain('Tipo financeiro');
+    expect(pdf.toString('latin1')).toContain('Faturamento por cliente');
+    expect(pdf.toString('latin1')).toContain('Despesas por fornecedor');
+    expect(pdf.toString('latin1')).toContain('Totais por categoria financeira');
+    expect(pdf.toString('latin1')).toContain('Placa registrada no lançamento');
+    expect(pdf.toString('latin1')).toContain('Totais por conjunto operacional');
+    expect(pdf.toString('latin1')).toContain('Totais por quantidade de eixos');
+    expect(pdf.toString('latin1')).toContain('Totais por tipo financeiro');
+    expect(pdf.toString('latin1')).toContain('(Despesas) Tj');
+    expect(pdf.toString('latin1')).toContain('(Faturamento) Tj');
+    expect(pdf.toString('latin1')).toContain('(Saldo) Tj');
+    expect(pdf.toString('latin1')).toContain('/MediaBox [0 0 842 595]');
+    expect(pdf.toString('latin1')).not.toContain('/MediaBox [0 0 595 842]');
     expect(pdf.toString('latin1')).toContain('Percentual');
     expect(pdf.toString('latin1')).not.toContain('Média da frota');
     expect(pdf.toString('latin1')).not.toContain('Histórico de abastecimentos');
@@ -445,14 +469,16 @@ describe('RelatoriosService', () => {
     expect(content).not.toContain('(Motorista) Tj');
     expect(content).not.toContain('Resumo por composição do cavalo');
     expect(content).not.toContain('Comissões dos faturamentos');
+    expect(content).toContain('/MediaBox [0 0 595 842]');
+    expect(content).not.toContain('/MediaBox [0 0 842 595]');
   });
 
-  it('mantém o relatório combinado separado do Registro Geral', async () => {
+  it('apresenta o relatório combinado como Relatório Financeiro', async () => {
     const { service } = makeService();
 
     const pdf = await service.exportarPdf({ tipoRelatorio: 'RELATORIO_COMBINADO' });
 
-    expect(pdf.toString('latin1')).toContain('Relatório Combinado');
+    expect(pdf.toString('latin1')).toContain('Relatório Financeiro');
     expect(pdf.toString('latin1')).not.toContain('(Registro Geral) Tj');
   });
 
@@ -481,6 +507,8 @@ describe('RelatoriosService', () => {
     expect(pdf.toString('latin1')).toContain('Média da frota');
     expect(pdf.toString('latin1')).toContain('Histórico de abastecimentos');
     expect(pdf.toString('latin1')).not.toContain('Lançamentos encontrados');
+    expect(pdf.toString('latin1')).toContain('/MediaBox [0 0 842 595]');
+    expect(pdf.toString('latin1')).not.toContain('/MediaBox [0 0 595 842]');
   });
 
   it('exporta somente o histórico e as colunas escolhidas no PDF da média da frota', async () => {
@@ -499,6 +527,8 @@ describe('RelatoriosService', () => {
     expect(content).not.toContain('Ranking da frota');
     expect(content).not.toContain('Comparação com período anterior');
     expect(content).not.toContain('(Km anterior) Tj');
+    expect(content).toContain('/MediaBox [0 0 595 842]');
+    expect(content).not.toContain('/MediaBox [0 0 842 595]');
   });
 
   it('mantém os dados nas colunas e repete o cabeçalho do histórico em novas páginas', async () => {
@@ -537,5 +567,121 @@ describe('RelatoriosService', () => {
     expect(content).toContain('10.000.000,0');
     expect(content).not.toContain('25/07/...');
     expect(content.match(/\(Data\) Tj/g)?.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('não consulta nem exibe comissões quando o filtro financeiro contém somente DESPESA', async () => {
+    const { service, prisma } = makeService();
+
+    const result = await service.financeiros({
+      tipoLancamento: TipoLancamento.DESPESA,
+      secoes: 'comissoes',
+    });
+
+    expect(result.comissoes).toEqual({
+      resumo: { quantidade: 0, totalFaturado: 0, totalComissoes: 0, faturamentoAposComissoes: 0 },
+      historico: [],
+      historicoTotal: 0,
+      historicoLimitado: false,
+    });
+    expect(prisma.lancamentoFinanceiro.aggregate.mock.calls.some(([args]: any[]) => args._sum?.valorComissao)).toBe(false);
+    expect(prisma.lancamentoFinanceiro.findMany.mock.calls.some(([args]: any[]) => JSON.stringify(args.where).includes('tipoComissao'))).toBe(false);
+  });
+
+  it('mantém comissões quando FATURAMENTO está no filtro financeiro', async () => {
+    const { service } = makeService();
+
+    const result = await service.financeiros({
+      tiposLancamento: 'DESPESA,FATURAMENTO',
+      secoes: 'comissoes',
+    });
+
+    expect(result.comissoes.resumo).toMatchObject({ quantidade: 1, totalComissoes: 16.9 });
+    expect(result.comissoes.historico).toHaveLength(1);
+  });
+
+  it('não executa agrupamentos, composição ou comissões para seções não solicitadas', async () => {
+    const { service, prisma } = makeService();
+
+    await service.financeiros({
+      secoes: 'resumo_financeiro,lancamentos',
+      colunas: 'lancamentos:data,lancamentos:valorTotal',
+    });
+
+    expect(prisma.lancamentoFinanceiro.groupBy).not.toHaveBeenCalled();
+    expect(prisma.conjunto.findMany).not.toHaveBeenCalled();
+    expect(prisma.lancamentoFinanceiro.aggregate.mock.calls.some(([args]: any[]) => args._sum?.valorComissao)).toBe(false);
+  });
+
+  it('faz o CSV respeitar exatamente as seções e colunas selecionadas', async () => {
+    const { service } = makeService();
+
+    const csv = await service.exportarCsv({
+      secoes: 'lancamentos',
+      colunas: 'lancamentos:data,lancamentos:valorTotal',
+    });
+
+    expect(csv).toContain('"Lançamentos encontrados"');
+    expect(csv).toContain('"Data";"Valor total"');
+    expect(csv).not.toContain('"Motorista"');
+    expect(csv).not.toContain('"Resumo financeiro"');
+    expect(csv).not.toContain('"Comissões dos faturamentos"');
+  });
+
+  it('exporta mais de 5.000 lançamentos em lotes sem truncagem silenciosa', async () => {
+    const { service, prisma, lancamentos } = makeService();
+    prisma.lancamentoFinanceiro.findMany.mockImplementation(async (args: any = {}) => {
+      if (args.take === 1000 && args.include) {
+        const skip = Number(args.skip || 0);
+        const size = skip < 5000 ? 1000 : 1;
+        return Array.from({ length: size }, (_, index) => ({
+          ...lancamentos[0],
+          id: `batch-${skip + index}`,
+        }));
+      }
+      return lancamentos;
+    });
+
+    const csv = await service.exportarCsv({
+      secoes: 'lancamentos',
+      colunas: 'lancamentos:data,lancamentos:valorTotal',
+    });
+
+    expect(csv.match(/^"2026-05-10"/gm)).toHaveLength(5001);
+    const exportCalls = prisma.lancamentoFinanceiro.findMany.mock.calls
+      .filter(([args]: any[]) => args.take === 1000 && args.include);
+    expect(exportCalls.map(([args]: any[]) => args.skip)).toEqual([0, 1000, 2000, 3000, 4000, 5000]);
+  });
+
+  it('trata valores por implemento como associações integrais e não como total somável', async () => {
+    const { service, prisma } = makeService();
+    prisma.implemento.findMany.mockResolvedValue([]);
+    prisma.conjunto.findMany.mockResolvedValue([{
+      id: 'conj-1',
+      nome: 'Bitrem graneleiro',
+      tipo: 'BITREM',
+      quantidadeTotalEixos: 7,
+      implementos: [
+        { implemento: { id: 'imp-1', placa: 'CAR1A01', tipo: 'SEMIRREBOQUE', carroceria: 'GRANELEIRO' } },
+        { implemento: { id: 'imp-2', placa: 'CAR2A02', tipo: 'SEMIRREBOQUE', carroceria: 'GRANELEIRO' } },
+      ],
+    }]);
+    prisma.lancamentoFinanceiro.groupBy.mockImplementation(async ({ by, where }: any) => {
+      if (by[0] === 'implementoId') return [];
+      if (by[0] === 'conjuntoId') {
+        return [{ conjuntoId: 'conj-1', _sum: { valorTotal: where.tipoLancamento === TipoLancamento.DESPESA ? 66.9 : 160 } }];
+      }
+      return [];
+    });
+
+    const result = await service.financeiros({ secoes: 'grupos_implementos' });
+
+    expect(result.despesasPorImplemento).toEqual([
+      { id: 'imp-1', label: 'CAR1A01 - SEMIRREBOQUE - GRANELEIRO', total: 66.9 },
+      { id: 'imp-2', label: 'CAR2A02 - SEMIRREBOQUE - GRANELEIRO', total: 66.9 },
+    ]);
+    expect(result.faturamentoPorImplemento.every((item: any) => item.total === 160)).toBe(true);
+    const directAssociationCalls = prisma.lancamentoFinanceiro.groupBy.mock.calls
+      .filter(([args]: any[]) => args.by[0] === 'implementoId');
+    expect(directAssociationCalls.every(([args]: any[]) => args.where.conjuntoId === null)).toBe(true);
   });
 });

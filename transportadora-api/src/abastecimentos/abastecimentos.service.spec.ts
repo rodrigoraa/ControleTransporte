@@ -6,7 +6,7 @@ describe('AbastecimentosService', () => {
   const cavalo = { id: 'cav-1', placa: 'ABC1D23' };
   const prisma: any = {
     cavaloMecanico: { count: jest.fn(async () => 1), findUnique: jest.fn(async () => cavalo) },
-    abastecimento: { create: jest.fn(), findMany: jest.fn() },
+    abastecimento: { create: jest.fn(), findMany: jest.fn(), count: jest.fn() },
     auditoria: { create: jest.fn() },
   };
   const service = new AbastecimentosService(prisma);
@@ -33,5 +33,18 @@ describe('AbastecimentosService', () => {
     expect(Number(result.resumo.mediaGeralKmLitro)).toBeCloseTo(3.333, 3);
     expect(Number(result.resumo.kmAnteriorSugerido)).toBe(1500);
     expect(result.divergencias).toEqual([]);
+  });
+
+  it('lista abastecimentos de forma paginada para a interface de gerenciamento', async () => {
+    prisma.abastecimento.findMany.mockResolvedValue([{ id: 'ab-1', cavaloMecanico: cavalo }]);
+    prisma.abastecimento.count.mockResolvedValue(1);
+
+    const result = await service.findAll({ page: 1, limit: 10 });
+
+    expect(result).toMatchObject({ total: 1, page: 1, limit: 10 });
+    expect(prisma.abastecimento.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      include: { cavaloMecanico: true },
+      orderBy: [{ data: 'desc' }, { createdAt: 'desc' }],
+    }));
   });
 });

@@ -7,18 +7,20 @@ import { apiErrorMessage } from '../utils/apiError';
 import { date, money } from '../utils/formatters';
 import { nextTableSort, sortTableRows, TableSort } from '../utils/tableSorting';
 import {
-  defaultPdfSelection,
+  defaultReportSelection,
   loadLastGeneratedReport,
-  loadPdfSelection,
-  pdfColumnId,
-  pdfReportConfigs,
-  pdfSelectionParams,
-  PdfReportType,
-  PdfSelection,
-  savePdfSelection,
+  loadReportSelection,
+  reportColumnId,
+  reportConfigs,
+  reportSelectionParams,
+  ReportSelection,
+  VisibleReportType,
+  saveReportSelection,
   saveLastGeneratedReport,
-  validatePdfSelection,
-} from './pdfReportOptions';
+  serializeReportFilterValue,
+  validateReportSelection,
+  visibleReportTypes,
+} from './reportOptions';
 
 type Option = { value: string; label: string; cavaloMecanicoId?: string | null; tipo?: string; quantidadeTotalEixos?: number };
 type ReportOptions = {
@@ -33,38 +35,24 @@ type ReportOptions = {
   tiposConjunto: Option[];
   quantidadesEixos: Option[];
 };
-type ReportType = PdfReportType;
-
-const tiposConjunto = [
-  { value: 'SIMPLES', label: 'Simples' },
-  { value: 'BITREM', label: 'Bitrem' },
-  { value: 'RODOTREM', label: 'Rodotrem' },
-  { value: 'OUTRO', label: 'Outro' },
-];
-const tiposRelatorio = [
-  { value: 'REGISTRO_GERAL', label: 'Registro Geral' },
-  { value: 'RELATORIO_COMBINADO', label: 'Relatório Combinado' },
-  { value: 'MEDIA_FROTA', label: 'Média da frota' },
-];
-const filterFieldsByReport: Record<ReportType, string[]> = {
-  REGISTRO_GERAL: ['dataInicial', 'dataFinal', 'cavaloMecanicoId', 'motoristaId', 'implementoId', 'conjuntoId', 'tipoConjunto', 'quantidadeEixos', 'fornecedorId', 'clienteId', 'tipoLancamento', 'categoriaId'],
-  RELATORIO_COMBINADO: ['dataInicial', 'dataFinal', 'cavaloMecanicoIds', 'motoristaIds', 'implementoIds', 'conjuntoIds', 'tiposConjunto', 'quantidadesEixos', 'fornecedorIds', 'clienteIds', 'tiposLancamento', 'categoriaIds'],
-  MEDIA_FROTA: ['dataInicial', 'dataFinal', 'cavaloMecanicoId'],
+const filterFieldsByReport: Record<VisibleReportType, string[]> = {
+  RELATORIO_COMBINADO: ['dataInicial', 'dataFinal', 'cavaloMecanicoIds', 'placa', 'motoristaIds', 'implementoIds', 'conjuntoIds', 'tiposConjunto', 'quantidadesEixos', 'fornecedorIds', 'clienteIds', 'tiposLancamento', 'categoriaIds'],
+  MEDIA_FROTA: ['dataInicial', 'dataFinal', 'cavaloMecanicoId', 'placa'],
 };
 
 export function Relatorios() {
   const { user } = useAuth();
   const preferenceScope = user?.id || 'anonymous';
   const [restoredReport] = useState(() => loadLastGeneratedReport(preferenceScope));
-  const [reportType, setReportType] = useState<ReportType>(restoredReport?.reportType || 'REGISTRO_GERAL');
+  const [reportType, setReportType] = useState<VisibleReportType>(restoredReport?.reportType || 'RELATORIO_COMBINADO');
   const [filters, setFilters] = useState<Record<string, string>>(restoredReport?.filters || {});
-  const [reportSelection, setReportSelection] = useState<PdfSelection>(
-    restoredReport?.selection || loadPdfSelection(restoredReport?.reportType || 'REGISTRO_GERAL', preferenceScope),
+  const [reportSelection, setReportSelection] = useState<ReportSelection>(
+    restoredReport?.selection || loadReportSelection(restoredReport?.reportType || 'RELATORIO_COMBINADO', preferenceScope),
   );
   const [generatedReport, setGeneratedReport] = useState<{
-    reportType: ReportType;
+    reportType: VisibleReportType;
     filters: Record<string, string>;
-    selection: PdfSelection;
+    selection: ReportSelection;
   } | null>(null);
   const [financeiro, setFinanceiro] = useState<any>(null);
   const [, setPage] = useState(1);
@@ -115,7 +103,7 @@ export function Relatorios() {
   }, [filters, reportType]);
 
   function updateFilter(name: string, value: string | string[]) {
-    const serializedValue = Array.isArray(value) ? value.join(',') : value;
+    const serializedValue = serializeReportFilterValue(value);
     const next = { ...filters, [name]: serializedValue };
     setPage(1);
     setFilters(next);
@@ -131,14 +119,14 @@ export function Relatorios() {
 
   function reportParams(sourceFilters = filters, sourceType = reportType) {
     const relevantFilters = sourceType === 'MEDIA_FROTA'
-      ? Object.fromEntries(Object.entries(sourceFilters).filter(([name, value]) => value && ['dataInicial', 'dataFinal', 'cavaloMecanicoId'].includes(name)))
+      ? Object.fromEntries(Object.entries(sourceFilters).filter(([name, value]) => value && ['dataInicial', 'dataFinal', 'cavaloMecanicoId', 'placa'].includes(name)))
       : Object.fromEntries(Object.entries(sourceFilters).filter(([, value]) => value));
     return { ...relevantFilters, tipoRelatorio: sourceType };
   }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const validationError = validatePdfSelection(reportType, reportSelection);
+    const validationError = validateReportSelection(reportType, reportSelection);
     if (validationError) {
       setError(validationError);
       return;
@@ -150,20 +138,22 @@ export function Relatorios() {
   async function loadReport(
     targetPage: number,
     sourceFilters: Record<string, string>,
-    sourceSelection: PdfSelection,
-    sourceType: ReportType,
+    sourceSelection: ReportSelection,
+    sourceType: VisibleReportType,
     persist = false,
   ) {
     setLoading(true);
     setError('');
     try {
-      const { data } = await api.get('/relatorios/financeiros', { params: { ...reportParams(sourceFilters, sourceType), page: targetPage, limit: 50 } });
+      const { data } = await api.get('/relatorios/financeiros', {
+        params: { ...reportParams(sourceFilters, sourceType), ...reportSelectionParams(sourceSelection), page: targetPage, limit: 50 },
+      });
       setPage(targetPage);
       setFinanceiro(data);
       const snapshot = { reportType: sourceType, filters: sourceFilters, selection: sourceSelection };
       setGeneratedReport(snapshot);
       if (persist) {
-        savePdfSelection(sourceType, sourceSelection, preferenceScope);
+        saveReportSelection(sourceType, sourceSelection, preferenceScope);
         saveLastGeneratedReport(snapshot, preferenceScope);
       }
     } catch (requestError: any) {
@@ -180,7 +170,7 @@ export function Relatorios() {
       const { data } = await api.get(`/relatorios/financeiros/exportar.${format}`, {
         params: {
           ...reportParams(generatedReport.filters, generatedReport.reportType),
-          ...(format === 'pdf' ? pdfSelectionParams(generatedReport.selection) : {}),
+          ...reportSelectionParams(generatedReport.selection),
         },
         responseType: 'blob',
       });
@@ -189,7 +179,7 @@ export function Relatorios() {
       link.href = url;
       const reportName = generatedReport.reportType === 'MEDIA_FROTA'
         ? 'relatorio-media-frota'
-        : generatedReport.reportType === 'RELATORIO_COMBINADO' ? 'relatorio-combinado' : 'registro-geral';
+        : 'relatorio-financeiro';
       link.download = `${reportName}.${format}`;
       link.click();
       URL.revokeObjectURL(url);
@@ -225,15 +215,13 @@ export function Relatorios() {
           <h1>Relatórios</h1>
           <p>{reportType === 'MEDIA_FROTA'
             ? 'Média ponderada de consumo, ranking e comparação por cavalo mecânico.'
-            : reportType === 'RELATORIO_COMBINADO'
-              ? 'Combine várias placas e outros dados relacionados no mesmo relatório.'
-              : 'Registro geral de lançamentos, indicadores financeiros e comissões.'}</p>
+            : 'Lançamentos, indicadores financeiros e comissões com filtros simples ou múltiplos.'}</p>
         </div>
         {financeiro && (
           <div className="actions">
             <button className="button" type="button" onClick={() => exportReport('csv')}>
               <FileSpreadsheet size={18} />
-              Excel
+              CSV
             </button>
             <button className="button primary" type="button" onClick={() => exportReport('pdf')}>
               <Download size={18} />
@@ -264,13 +252,11 @@ export function Relatorios() {
           label="Tipo de relatório"
           name="tipoRelatorio"
           value={reportType}
-          options={tiposRelatorio}
+          options={visibleReportTypes}
           onChange={(_, value) => {
-            const nextType: ReportType = value === 'MEDIA_FROTA'
-              ? 'MEDIA_FROTA'
-              : value === 'RELATORIO_COMBINADO' ? 'RELATORIO_COMBINADO' : 'REGISTRO_GERAL';
+            const nextType: VisibleReportType = value === 'MEDIA_FROTA' ? 'MEDIA_FROTA' : 'RELATORIO_COMBINADO';
             setReportType(nextType);
-            setReportSelection(loadPdfSelection(nextType, preferenceScope));
+            setReportSelection(loadReportSelection(nextType, preferenceScope));
             setFilters({});
             setFinanceiro(null);
             setGeneratedReport(null);
@@ -280,12 +266,21 @@ export function Relatorios() {
         />
         <label>Data inicial<input type="date" value={filters.dataInicial || ''} onChange={(e) => updateFilter('dataInicial', e.target.value)} /></label>
         <label>Data final<input type="date" value={filters.dataFinal || ''} onChange={(e) => updateFilter('dataFinal', e.target.value)} /></label>
-        {reportType === 'RELATORIO_COMBINADO'
-          ? <MultiSelectFilter label="Cavalos mecânicos / placas" name="cavaloMecanicoIds" value={filterArray(filters.cavaloMecanicoIds)} options={options.cavalosMecanicos} disabled={optionsLoading} onChange={updateFilter} />
-          : <SelectFilter label="Cavalo mecânico" name="cavaloMecanicoId" value={filters.cavaloMecanicoId || ''} options={options.cavalosMecanicos} disabled={optionsLoading} onChange={updateFilter} />}
+        {reportType === 'MEDIA_FROTA'
+          ? <SelectFilter label="Cavalo mecânico" name="cavaloMecanicoId" value={filters.cavaloMecanicoId || ''} options={options.cavalosMecanicos} disabled={optionsLoading} onChange={updateFilter} />
+          : <MultiSelectFilter label="Cavalos mecânicos / placas" name="cavaloMecanicoIds" value={filterArray(filters.cavaloMecanicoIds)} options={options.cavalosMecanicos} disabled={optionsLoading} onChange={updateFilter} />}
+        <label>
+          Placa gravada no registro
+          <input
+            type="text"
+            maxLength={128}
+            placeholder="Filtro avançado do snapshot histórico"
+            value={filters.placa || ''}
+            onChange={(event) => updateFilter('placa', event.target.value.toUpperCase())}
+          />
+        </label>
         {reportType !== 'MEDIA_FROTA' && (
           <>
-            {reportType === 'RELATORIO_COMBINADO' ? <>
             <MultiSelectFilter label="Motoristas" name="motoristaIds" value={filterArray(filters.motoristaIds)} options={options.motoristas} disabled={optionsLoading} onChange={updateFilter} />
             <MultiSelectFilter label="Implementos" name="implementoIds" value={filterArray(filters.implementoIds)} options={options.implementos} disabled={optionsLoading} onChange={updateFilter} />
             <MultiSelectFilter label="Conjuntos operacionais" name="conjuntoIds" value={filterArray(filters.conjuntoIds)} options={options.conjuntos} disabled={optionsLoading} onChange={updateFilter} />
@@ -295,17 +290,6 @@ export function Relatorios() {
             <MultiSelectFilter label="Clientes" name="clienteIds" value={filterArray(filters.clienteIds)} options={options.clientes} disabled={optionsLoading} onChange={updateFilter} />
             <MultiSelectFilter label="Tipos financeiros" name="tiposLancamento" value={filterArray(filters.tiposLancamento)} options={options.tipos} disabled={optionsLoading} onChange={updateFilter} />
             <MultiSelectFilter label="Categorias" name="categoriaIds" value={filterArray(filters.categoriaIds)} options={options.categorias} disabled={optionsLoading} onChange={updateFilter} />
-            </> : <>
-              <SelectFilter label="Motorista" name="motoristaId" value={filters.motoristaId || ''} options={options.motoristas} disabled={optionsLoading} onChange={updateFilter} />
-              <SelectFilter label="Implemento" name="implementoId" value={filters.implementoId || ''} options={options.implementos} disabled={optionsLoading} onChange={updateFilter} />
-              <SelectFilter label="Conjunto operacional" name="conjuntoId" value={filters.conjuntoId || ''} options={options.conjuntos} disabled={optionsLoading} onChange={updateFilter} />
-              <SelectFilter label="Tipo de conjunto" name="tipoConjunto" value={filters.tipoConjunto || ''} options={tiposConjunto} onChange={updateFilter} />
-              <label>Quantidade de eixos<input type="number" min="0" max="20" value={filters.quantidadeEixos || ''} onChange={(event) => updateFilter('quantidadeEixos', event.target.value)} /></label>
-              <SelectFilter label="Fornecedor" name="fornecedorId" value={filters.fornecedorId || ''} options={options.fornecedores} disabled={optionsLoading} onChange={updateFilter} />
-              <SelectFilter label="Cliente" name="clienteId" value={filters.clienteId || ''} options={options.clientes} disabled={optionsLoading} onChange={updateFilter} />
-              <SelectFilter label="Tipo financeiro" name="tipoLancamento" value={filters.tipoLancamento || ''} options={options.tipos} disabled={optionsLoading} onChange={updateFilter} />
-              <SelectFilter label="Categoria" name="categoriaId" value={filters.categoriaId || ''} options={options.categorias} disabled={optionsLoading} onChange={updateFilter} />
-            </>}
             <SelectFilter
               label="Ordenar por"
               name="orderBy"
@@ -361,7 +345,7 @@ export function Relatorios() {
               <div className="actions">
                 <button className="button" type="button" onClick={() => exportReport('csv')}>
                   <FileSpreadsheet size={18} />
-                  Exportar Excel
+                  Exportar CSV
                 </button>
                 <button className="button" type="button" onClick={() => exportReport('pdf')}>
                   <Download size={18} />
@@ -417,7 +401,7 @@ export function Relatorios() {
           </div>}
 
           {generatedReport?.selection.sections.includes('grupos_cavalo') && <TotalsByDimension
-            title="Totais por placa / cavalo mecânico"
+            title="Totais por cavalo mecânico atualmente relacionado"
             description="Despesas e faturamentos separados para cada placa encontrada."
             expenseTitle="Despesas por placa"
             revenueTitle="Faturamento por placa"
@@ -425,7 +409,7 @@ export function Relatorios() {
             revenues={financeiro.faturamentoPorCavaloMecanico}
           />}
           {generatedReport?.selection.sections.includes('grupos_placas') && <TotalsByDimension
-            title="Totais por placa registrada"
+            title="Placa registrada no lançamento (snapshot histórico)"
             description="Valores agrupados pelo texto da placa gravado em cada lançamento."
             expenseTitle="Despesas por placa registrada"
             revenueTitle="Faturamento por placa registrada"
@@ -433,20 +417,16 @@ export function Relatorios() {
             revenues={financeiro.faturamentoPorPlaca}
           />}
           {generatedReport?.selection.sections.includes('grupos_clientes') && <TotalsByDimension
-            title="Totais por cliente"
+            title="Faturamento por cliente"
             description="Valores financeiros consolidados individualmente por cliente."
-            expenseTitle="Despesas por cliente"
             revenueTitle="Faturamento por cliente"
-            expenses={financeiro.despesasPorCliente}
             revenues={financeiro.faturamentoPorCliente}
           />}
           {generatedReport?.selection.sections.includes('grupos_fornecedores') && <TotalsByDimension
-            title="Totais por fornecedor"
+            title="Despesas por fornecedor"
             description="Valores financeiros consolidados individualmente por fornecedor."
             expenseTitle="Despesas por fornecedor"
-            revenueTitle="Faturamento por fornecedor"
             expenses={financeiro.despesasPorFornecedor}
-            revenues={financeiro.faturamentoPorFornecedor}
           />}
           {generatedReport?.selection.sections.includes('grupos_categorias') && <TotalsByDimension
             title="Totais por categoria financeira"
@@ -457,10 +437,10 @@ export function Relatorios() {
             revenues={financeiro.faturamentoPorCategoria}
           />}
           {generatedReport?.selection.sections.includes('grupos_implementos') && <TotalsByDimension
-            title="Totais por implemento"
+            title="Valores relacionados a implementos (não somáveis)"
             description="Valores associados diretamente ao implemento ou ao conjunto operacional do qual ele participa."
-            expenseTitle="Despesas por implemento"
-            revenueTitle="Faturamento por implemento"
+            expenseTitle="Despesas relacionadas"
+            revenueTitle="Faturamentos relacionados"
             expenses={financeiro.despesasPorImplemento}
             revenues={financeiro.faturamentoPorImplemento}
           />}
@@ -517,12 +497,12 @@ function ReportCustomization({
   selection,
   onChange,
 }: {
-  reportType: ReportType;
-  selection: PdfSelection;
-  onChange: (selection: PdfSelection) => void;
+  reportType: VisibleReportType;
+  selection: ReportSelection;
+  onChange: (selection: ReportSelection) => void;
 }) {
-  const config = pdfReportConfigs[reportType];
-  const defaults = defaultPdfSelection(reportType);
+  const config = reportConfigs[reportType];
+  const defaults = defaultReportSelection(reportType);
   const allSectionsSelected = selection.sections.length === config.sections.length;
   const allColumnsSelected = selection.columns.length === defaults.columns.length;
   const activeColumnGroups = config.columnGroups.filter((group) => selection.sections.includes(group.sectionId));
@@ -547,7 +527,7 @@ function ReportCustomization({
 
   return (
     <div className="report-customization">
-        <div className="pdf-option-heading">
+        <div className="report-option-heading">
           <div>
             <strong>Conteúdo do relatório</strong>
             <span> Escolha as seções que serão exibidas e exportadas.</span>
@@ -572,9 +552,9 @@ function ReportCustomization({
             </button>
           </div>
         </div>
-        <div className="pdf-option-grid">
+        <div className="report-option-grid">
           {config.sections.map((section) => (
-            <label className="check-row pdf-option-item" key={section.id}>
+            <label className="check-row report-option-item" key={section.id}>
               <input
                 type="checkbox"
                 checked={selection.sections.includes(section.id)}
@@ -585,9 +565,9 @@ function ReportCustomization({
           ))}
         </div>
 
-        <details className="pdf-advanced-options">
+        <details className="report-advanced-options">
           <summary>Opções avançadas — escolher colunas</summary>
-          <div className="pdf-option-heading">
+          <div className="report-option-heading">
             <span>Somente as tabelas selecionadas acima são exibidas.</span>
             <button
               className="button ghost"
@@ -602,13 +582,13 @@ function ReportCustomization({
           </div>
           {!activeColumnGroups.length && <div className="empty-inline">Selecione uma seção com tabela para configurar suas colunas.</div>}
           {activeColumnGroups.map((group) => (
-            <div className="pdf-column-group" key={group.id}>
+            <div className="report-column-group" key={group.id}>
               <strong>{group.label}</strong>
-              <div className="pdf-option-grid">
+              <div className="report-option-grid">
                 {group.columns.map((column) => {
-                  const columnId = pdfColumnId(group.id, column.key);
+                  const columnId = reportColumnId(group.id, column.key);
                   return (
-                    <label className="check-row pdf-option-item" key={columnId}>
+                    <label className="check-row report-option-item" key={columnId}>
                       <input
                         type="checkbox"
                         checked={selection.columns.includes(columnId)}
@@ -626,7 +606,7 @@ function ReportCustomization({
   );
 }
 
-function CommissionReport({ comissoes, selection }: { comissoes: any; selection: PdfSelection }) {
+function CommissionReport({ comissoes, selection }: { comissoes: any; selection: ReportSelection }) {
   const resumo = comissoes?.resumo || {};
   const historico = comissoes?.historico || [];
   const [sort, setSort] = useState<TableSort>({ orderBy: 'data', orderDirection: 'desc' });
@@ -664,6 +644,9 @@ function CommissionReport({ comissoes, selection }: { comissoes: any; selection:
           <div>
             <h2>Histórico de comissões</h2>
             <p>Regra, base de cálculo e despesa automática vinculada a cada faturamento.</p>
+            {comissoes?.historicoLimitado && (
+              <p>Exibindo {historico.length} de {comissoes.historicoTotal} registros nesta consulta. A exportação inclui todos os registros.</p>
+            )}
           </div>
         </div>
         <div className="table-wrap">
@@ -708,7 +691,7 @@ function CommissionReport({ comissoes, selection }: { comissoes: any; selection:
   );
 }
 
-function ConsumoReport({ consumo, selection }: { consumo: any; selection: PdfSelection }) {
+function ConsumoReport({ consumo, selection }: { consumo: any; selection: ReportSelection }) {
   const resumo = consumo?.resumo || {};
   const porCavalo = consumo?.porCavalo || [];
   const historico = consumo?.historico || [];
@@ -812,6 +795,9 @@ function ConsumoReport({ consumo, selection }: { consumo: any; selection: PdfSel
           <div>
             <h2>Histórico de abastecimentos</h2>
             <p>Últimos registros encontrados para o período e o cavalo selecionado.</p>
+            {consumo?.historicoLimitado && (
+              <p>Exibindo {historico.length} de {consumo.historicoTotal} registros nesta consulta. A exportação inclui todos os registros.</p>
+            )}
           </div>
         </div>
         <div className="table-wrap">
@@ -850,7 +836,7 @@ function ConsumoReport({ consumo, selection }: { consumo: any; selection: PdfSel
   );
 }
 
-function ComparisonReport({ rows, periodo, selection }: { rows: any[]; periodo: any; selection: PdfSelection }) {
+function ComparisonReport({ rows, periodo, selection }: { rows: any[]; periodo: any; selection: ReportSelection }) {
   return (
     <div className="panel report-table-panel">
       <div className="panel-title-row">
@@ -896,10 +882,10 @@ function TotalsByDimension({
 }: {
   title: string;
   description: string;
-  expenseTitle: string;
-  revenueTitle: string;
-  expenses: any[];
-  revenues: any[];
+  expenseTitle?: string;
+  revenueTitle?: string;
+  expenses?: any[];
+  revenues?: any[];
 }) {
   return (
     <section className="report-summary-section">
@@ -907,11 +893,17 @@ function TotalsByDimension({
         <div>
           <h2>{title}</h2>
           <p>{description}</p>
+          {title.startsWith('Valores relacionados a implementos') && (
+            <p><strong>Importante:</strong> o valor integral é associado a cada implemento do conjunto; não some os implementos entre si.</p>
+          )}
+          {title.startsWith('Placa registrada') && (
+            <p>Este é o texto gravado no lançamento e pode divergir do cavalo mecânico atualmente relacionado.</p>
+          )}
         </div>
       </div>
       <div className="report-grid">
-        <Group title={expenseTitle} rows={expenses || []} />
-        <Group title={revenueTitle} rows={revenues || []} />
+        {expenseTitle && <Group title={expenseTitle} rows={expenses || []} />}
+        {revenueTitle && <Group title={revenueTitle} rows={revenues || []} />}
       </div>
     </section>
   );
@@ -942,7 +934,7 @@ function Group({ title, rows }: { title: string; rows: any[] }) {
   );
 }
 
-function ConjuntosPorCavalo({ rows, selection }: { rows: any[]; selection: PdfSelection }) {
+function ConjuntosPorCavalo({ rows, selection }: { rows: any[]; selection: ReportSelection }) {
   const [sort, setSort] = useState<TableSort>({ orderBy: 'cavalo', orderDirection: 'asc' });
   const sortedRows = useMemo(() => sortTableRows<any>(rows, sort, {
     cavalo: (row) => row.cavalo,
@@ -1066,11 +1058,11 @@ function filterArray(value?: string) {
   return value?.split(',').map((item) => item.trim()).filter(Boolean) || [];
 }
 
-function hasColumn(selection: PdfSelection | undefined, group: string, column: string) {
-  return Boolean(selection?.columns.includes(pdfColumnId(group, column)));
+function hasColumn(selection: ReportSelection | undefined, group: string, column: string) {
+  return Boolean(selection?.columns.includes(reportColumnId(group, column)));
 }
 
-function selectedColumnCount(selection: PdfSelection | undefined, group: string) {
+function selectedColumnCount(selection: ReportSelection | undefined, group: string) {
   return Math.max(1, selection?.columns.filter((column) => column.startsWith(`${group}:`)).length || 0);
 }
 

@@ -55,11 +55,20 @@ describe('crudResources', () => {
     expect(byPath('lancamentos-financeiros')).toBeUndefined();
   });
 
-  it('centraliza a composição no cadastro de cavalos mecânicos', () => {
-    expect(byPath('implementos')).toBeUndefined();
-    expect(byPath('conjuntos')).toBeUndefined();
+  it('mantém a composição no cavalo e também disponibiliza os cadastros operacionais', () => {
+    expect(byPath('implementos').endpoint).toBe('/implementos');
+    expect(byPath('conjuntos').endpoint).toBe('/conjuntos');
+    expect(field('conjuntos', 'implementoIds')?.type).toBe('multiselect');
+    expect(field('conjuntos', 'cavaloMecanicoId')?.required).toBe(true);
     expect(field('caminhoes', 'composicaoAtual')?.table).toBe(true);
     expect(field('caminhoes', 'composicaoAtual')?.hidden).toBe(true);
+  });
+
+  it('disponibiliza abastecimentos sem permitir edição dos cálculos da API', () => {
+    expect(byPath('abastecimentos').endpoint).toBe('/abastecimentos');
+    expect(field('abastecimentos', 'cavaloMecanicoId')?.required).toBe(true);
+    expect(field('abastecimentos', 'distanciaPercorrida')).toMatchObject({ table: true, hidden: true });
+    expect(field('abastecimentos', 'mediaKmLitro')).toMatchObject({ table: true, hidden: true });
   });
 
   it('marca senha como obrigatória na criação de usuários e limita a placa do cavalo a 128 caracteres', () => {
@@ -84,6 +93,3 @@ describe('crudResources', () => {
     }
   });
 });
-//teste
-
-//

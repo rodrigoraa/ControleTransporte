@@ -1,5 +1,5 @@
 ﻿import { Injectable } from '@nestjs/common';
-import { TipoLancamento } from '@prisma/client';
+import { Prisma, TipoLancamento } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { RelatorioFinanceiroQueryDto } from './dto/relatorio-financeiro-query.dto';
 
@@ -11,6 +11,89 @@ type PdfTextOptions = {
 };
 
 type FinancialGroupField = 'placa' | 'cavaloMecanicoId' | 'motoristaId' | 'clienteId' | 'fornecedorId' | 'categoriaId' | 'implementoId' | 'conjuntoId';
+
+const FINANCIAL_REPORT_SECTIONS = [
+  'resumo_financeiro',
+  'lancamentos',
+  'grupos_cavalo',
+  'grupos_placas',
+  'grupos_motorista',
+  'grupos_clientes',
+  'grupos_fornecedores',
+  'grupos_categorias',
+  'grupos_implementos',
+  'grupos_conjuntos',
+  'grupos_tipos_conjunto',
+  'grupos_eixos',
+  'grupos_tipos_financeiros',
+  'composicoes',
+  'comissoes',
+] as const;
+
+const FLEET_REPORT_SECTIONS = [
+  'resumo_frota',
+  'ranking_frota',
+  'comparacao_periodo',
+  'historico_abastecimentos',
+] as const;
+
+const EXPORT_BATCH_SIZE = 1000;
+
+const LANCAMENTO_REPORT_INCLUDE = Prisma.validator<Prisma.LancamentoFinanceiroInclude>()({
+  motorista: true,
+  fornecedor: true,
+  cliente: true,
+  categoriaFinanceira: true,
+  cavaloMecanico: true,
+  implemento: true,
+  faturamentoOrigem: true,
+  despesaComissao: true,
+  conjunto: {
+    include: {
+      implementos: {
+        include: { implemento: true },
+        orderBy: { ordem: 'asc' },
+      },
+    },
+  },
+});
+
+type LancamentoReportRow = Prisma.LancamentoFinanceiroGetPayload<{ include: typeof LANCAMENTO_REPORT_INCLUDE }>;
+
+const ABASTECIMENTO_REPORT_INCLUDE = Prisma.validator<Prisma.AbastecimentoInclude>()({ cavaloMecanico: true });
+type AbastecimentoReportRow = Prisma.AbastecimentoGetPayload<{ include: typeof ABASTECIMENTO_REPORT_INCLUDE }>;
+
+type FinancialGroupRow = { id: string | null; label: string; total: number };
+type CompositionSummaryRow = {
+  cavalo: string;
+  conjunto: string;
+  tipoConjunto: string | null;
+  quantidadeTotalEixos: number | null;
+  implementos: string;
+  quantidadeLancamentos: number;
+  totalDespesas: number;
+  totalFaturamento: number;
+  saldo: number;
+};
+type FleetSummaryRow = {
+  posicao: number | null;
+  placa: string;
+  cavalo: string;
+  quantidadeRegistros: number;
+  distanciaTotal: number;
+  litrosTotal: number;
+  mediaGeralKmLitro: number;
+  mediaPeriodoAnterior: number | null;
+  variacaoPercentual: number | null;
+  quantidadeDivergencias: number;
+  amostraConfiavel: boolean;
+};
+type FleetConsumptionResult = {
+  resumo: Record<string, unknown>;
+  periodoComparacao: { dataInicial: string; dataFinal: string } | null;
+  porCavalo: FleetSummaryRow[];
+  historico: Array<AbastecimentoReportRow & { divergente: boolean }>;
+};
 
 @Injectable()
 export class RelatoriosService {
@@ -38,16 +121,19 @@ export class RelatoriosService {
     }
 
     const facets = await Promise.all([
-      this.optionRows(filters, ['motoristaId', 'motoristaIds']),
-      this.optionRows(filters, ['cavaloMecanicoId', 'cavaloMecanicoIds']),
-      this.optionRows(filters, ['implementoId', 'implementoIds']),
-      this.optionRows(filters, ['conjuntoId', 'conjuntoIds']),
-      this.optionRows(filters, ['fornecedorId', 'fornecedorIds']),
-      this.optionRows(filters, ['clienteId', 'clienteIds']),
-      this.optionRows(filters, ['categoriaId', 'categoriaIds']),
-      this.optionRows(filters, ['tipoLancamento', 'tiposLancamento']),
-      this.optionRows(filters, ['tipoConjunto', 'tiposConjunto']),
-      this.optionRows(filters, ['quantidadeEixos', 'quantidadesEixos']),
+      this.optionRows(filters, ['motoristaId', 'motoristaIds'], { motorista: { select: { id: true, nome: true, cpf: true } } }, ['motoristaId']),
+      this.optionRows(filters, ['cavaloMecanicoId', 'cavaloMecanicoIds'], { cavaloMecanico: { select: { id: true, placa: true, marca: true, modelo: true } } }, ['cavaloMecanicoId']),
+      this.optionRows(filters, ['implementoId', 'implementoIds'], {
+        implemento: { select: { id: true, placa: true, tipo: true, carroceria: true, quantidadeEixos: true } },
+        conjunto: { select: { implementos: { select: { implemento: { select: { id: true, placa: true, tipo: true, carroceria: true, quantidadeEixos: true } } } } } },
+      }, ['implementoId', 'conjuntoId']),
+      this.optionRows(filters, ['conjuntoId', 'conjuntoIds'], { conjunto: { select: { id: true, nome: true, tipo: true, quantidadeTotalEixos: true } } }, ['conjuntoId']),
+      this.optionRows(filters, ['fornecedorId', 'fornecedorIds'], { fornecedor: { select: { id: true, nome: true, documento: true } } }, ['fornecedorId']),
+      this.optionRows(filters, ['clienteId', 'clienteIds'], { cliente: { select: { id: true, nome: true, documento: true } } }, ['clienteId']),
+      this.optionRows(filters, ['categoriaId', 'categoriaIds'], { categoriaFinanceira: { select: { id: true, nome: true, tipoLancamento: true } } }, ['categoriaId']),
+      this.optionRows(filters, ['tipoLancamento', 'tiposLancamento'], { tipoLancamento: true }, ['tipoLancamento']),
+      this.optionRows(filters, ['tipoConjunto', 'tiposConjunto'], { conjunto: { select: { tipo: true } } }, ['conjuntoId']),
+      this.optionRows(filters, ['quantidadeEixos', 'quantidadesEixos'], { conjunto: { select: { quantidadeTotalEixos: true } } }, ['conjuntoId']),
     ]);
     const [motoristaRows, cavaloRows, implementoRows, conjuntoRows, fornecedorRows, clienteRows, categoriaRows, tipoRows, tipoConjuntoRows, eixoRows] = facets;
     const implementos = implementoRows.flatMap((row) => [
@@ -114,34 +200,44 @@ export class RelatoriosService {
     return result as RelatorioFinanceiroQueryDto;
   }
 
-  private async optionRows(filters: RelatorioFinanceiroQueryDto, omittedKeys: Array<keyof RelatorioFinanceiroQueryDto>) {
+  private async optionRows<T extends Prisma.LancamentoFinanceiroSelect>(
+    filters: RelatorioFinanceiroQueryDto,
+    omittedKeys: Array<keyof RelatorioFinanceiroQueryDto>,
+    select: T,
+    distinct: Prisma.LancamentoFinanceiroScalarFieldEnum[],
+  ) {
     const where = await this.buildWhere(this.withoutFilters(filters, ...omittedKeys));
     return this.prisma.lancamentoFinanceiro.findMany({
       where,
-      select: {
-        tipoLancamento: true,
-        motorista: { select: { id: true, nome: true, cpf: true } },
-        cavaloMecanico: { select: { id: true, placa: true, marca: true, modelo: true } },
-        implemento: { select: { id: true, placa: true, tipo: true, carroceria: true, quantidadeEixos: true } },
-        conjunto: {
-          select: {
-            id: true,
-            nome: true,
-            tipo: true,
-            quantidadeTotalEixos: true,
-            implementos: { select: { implemento: { select: { id: true, placa: true, tipo: true, carroceria: true, quantidadeEixos: true } } } },
-          },
-        },
-        fornecedor: { select: { id: true, nome: true, documento: true } },
-        cliente: { select: { id: true, nome: true, documento: true } },
-        categoriaFinanceira: { select: { id: true, nome: true, tipoLancamento: true } },
-      },
+      select,
+      distinct,
     });
   }
 
   private filterValues(value?: string | number | null) {
     if (value === undefined || value === null || value === '') return [];
     return String(value).split(',').map((item) => item.trim()).filter(Boolean);
+  }
+
+  private selectedSections(filters: RelatorioFinanceiroQueryDto, fleet = false) {
+    const requested = filters.secoes ?? filters.secoesPdf;
+    return new Set(requested === undefined
+      ? (fleet ? FLEET_REPORT_SECTIONS : FINANCIAL_REPORT_SECTIONS)
+      : this.filterValues(requested));
+  }
+
+  private selectedColumns(filters: RelatorioFinanceiroQueryDto) {
+    const requested = filters.colunas ?? filters.colunasPdf;
+    return requested === undefined ? null : new Set(this.filterValues(requested));
+  }
+
+  private emptyComissoes() {
+    return {
+      resumo: { quantidade: 0, totalFaturado: 0, totalComissoes: 0, faturamentoAposComissoes: 0 },
+      historico: [],
+      historicoTotal: 0,
+      historicoLimitado: false,
+    };
   }
 
   private async buildWhere(filters: RelatorioFinanceiroQueryDto) {
@@ -228,6 +324,8 @@ export class RelatoriosService {
     }
 
     const where = await this.buildWhere(filters);
+    const sections = this.selectedSections(filters);
+    const has = (section: string) => sections.has(section);
     const page = filters.page || 1;
     const limit = filters.limit || 50;
     const orderBy = this.lancamentoOrderBy(filters);
@@ -238,13 +336,11 @@ export class RelatoriosService {
       historico,
       despesasPorCavaloMecanico,
       despesasPorMotorista,
-      despesasPorCliente,
       despesasPorFornecedor,
       despesasPorCategoria,
       faturamentoPorCavaloMecanico,
       faturamentoPorMotorista,
       faturamentoPorCliente,
-      faturamentoPorFornecedor,
       faturamentoPorCategoria,
       despesasOperacionais,
       faturamentoOperacionais,
@@ -255,27 +351,25 @@ export class RelatoriosService {
         this.sum({ ...where, tipoLancamento: TipoLancamento.DESPESA }),
         this.sum({ ...where, tipoLancamento: TipoLancamento.FATURAMENTO }),
         this.prisma.lancamentoFinanceiro.count({ where }),
-        this.prisma.lancamentoFinanceiro.findMany({
+        has('lancamentos') ? this.prisma.lancamentoFinanceiro.findMany({
           where,
           include: this.lancamentoInclude(),
           orderBy,
           skip: (page - 1) * limit,
           take: limit,
-        }),
-        this.groupWithLabels('cavaloMecanicoId', { ...where, tipoLancamento: TipoLancamento.DESPESA }),
-        this.groupWithLabels('motoristaId', { ...where, tipoLancamento: TipoLancamento.DESPESA }),
-        this.groupWithLabels('clienteId', { ...where, tipoLancamento: TipoLancamento.DESPESA }),
-        this.groupWithLabels('fornecedorId', { ...where, tipoLancamento: TipoLancamento.DESPESA }),
-        this.groupWithLabels('categoriaId', { ...where, tipoLancamento: TipoLancamento.DESPESA }),
-        this.groupWithLabels('cavaloMecanicoId', { ...where, tipoLancamento: TipoLancamento.FATURAMENTO }),
-        this.groupWithLabels('motoristaId', { ...where, tipoLancamento: TipoLancamento.FATURAMENTO }),
-        this.groupWithLabels('clienteId', { ...where, tipoLancamento: TipoLancamento.FATURAMENTO }),
-        this.groupWithLabels('fornecedorId', { ...where, tipoLancamento: TipoLancamento.FATURAMENTO }),
-        this.groupWithLabels('categoriaId', { ...where, tipoLancamento: TipoLancamento.FATURAMENTO }),
-        this.operationalDimensionGroups({ ...where, tipoLancamento: TipoLancamento.DESPESA }),
-        this.operationalDimensionGroups({ ...where, tipoLancamento: TipoLancamento.FATURAMENTO }),
-        this.conjuntosPorCavalo(where),
-        this.comissoes(filters),
+        }) : Promise.resolve([]),
+        has('grupos_cavalo') ? this.groupWithLabels('cavaloMecanicoId', { ...where, tipoLancamento: TipoLancamento.DESPESA }) : Promise.resolve([]),
+        has('grupos_motorista') ? this.groupWithLabels('motoristaId', { ...where, tipoLancamento: TipoLancamento.DESPESA }) : Promise.resolve([]),
+        has('grupos_fornecedores') ? this.groupWithLabels('fornecedorId', { ...where, tipoLancamento: TipoLancamento.DESPESA }) : Promise.resolve([]),
+        has('grupos_categorias') ? this.groupWithLabels('categoriaId', { ...where, tipoLancamento: TipoLancamento.DESPESA }) : Promise.resolve([]),
+        has('grupos_cavalo') ? this.groupWithLabels('cavaloMecanicoId', { ...where, tipoLancamento: TipoLancamento.FATURAMENTO }) : Promise.resolve([]),
+        has('grupos_motorista') ? this.groupWithLabels('motoristaId', { ...where, tipoLancamento: TipoLancamento.FATURAMENTO }) : Promise.resolve([]),
+        has('grupos_clientes') ? this.groupWithLabels('clienteId', { ...where, tipoLancamento: TipoLancamento.FATURAMENTO }) : Promise.resolve([]),
+        has('grupos_categorias') ? this.groupWithLabels('categoriaId', { ...where, tipoLancamento: TipoLancamento.FATURAMENTO }) : Promise.resolve([]),
+        this.operationalDimensionGroups({ ...where, tipoLancamento: TipoLancamento.DESPESA }, sections),
+        this.operationalDimensionGroups({ ...where, tipoLancamento: TipoLancamento.FATURAMENTO }, sections),
+        has('composicoes') ? this.conjuntosPorCavalo(where) : Promise.resolve([]),
+        has('comissoes') ? this.comissoes(filters) : Promise.resolve(this.emptyComissoes()),
       ]);
 
     return {
@@ -284,13 +378,15 @@ export class RelatoriosService {
       saldoFinal: faturamento - despesas,
       despesasPorCavaloMecanico,
       despesasPorMotorista,
-      despesasPorCliente,
+      // Campos mantidos vazios para clientes antigos; dados válidos não associam despesa a cliente.
+      despesasPorCliente: [],
       despesasPorFornecedor,
       despesasPorCategoria,
       faturamentoPorCavaloMecanico,
       faturamentoPorMotorista,
       faturamentoPorCliente,
-      faturamentoPorFornecedor,
+      // Campos mantidos vazios para clientes antigos; dados válidos não associam faturamento a fornecedor.
+      faturamentoPorFornecedor: [],
       faturamentoPorCategoria,
       despesasPorPlaca: despesasOperacionais.porPlaca,
       faturamentoPorPlaca: faturamentoOperacionais.porPlaca,
@@ -308,151 +404,246 @@ export class RelatoriosService {
       total,
       page,
       limit,
+      secoesCalculadas: [...sections],
     };
   }
 
   async exportarCsv(filters: RelatorioFinanceiroQueryDto) {
     if (filters.tipoRelatorio === 'MEDIA_FROTA') {
-      const consumo = await this.consumo(filters, 5000);
-      return this.csvText(this.consumoCsvRows(consumo));
+      const consumo = await this.consumo(filters, null);
+      return this.csvText(this.consumoCsvRows(consumo, filters));
     }
 
-    const [rows, comissoes] = await Promise.all([
-      this.exportRows(filters),
-      this.comissoes(filters, 5000),
+    const sections = this.selectedSections(filters);
+    const summarySections = [...sections].filter((section) => section !== 'lancamentos' && section !== 'comissoes');
+    const [relatorio, rows, comissoes] = await Promise.all([
+      this.financeiros({ ...filters, secoes: summarySections.join(','), secoesPdf: undefined, page: 1, limit: 1 }),
+      sections.has('lancamentos') ? this.exportRows(filters) : Promise.resolve([]),
+      sections.has('comissoes') ? this.comissoes(filters, null) : Promise.resolve(this.emptyComissoes()),
     ]);
-    const header = [
-      'Data',
-      'Tipo',
-      'Cavalo mecânico',
-      'Conjunto operacional',
-      'Tipo do conjunto',
-      'Eixos do conjunto',
-      'Capacidade do conjunto',
-      'Implementos do conjunto',
-      'Implemento específico',
-      'Motorista',
-      'Fornecedor/Cliente',
-      'Categoria',
-      'Quantidade',
-      'Unidade',
-      'Valor unitário',
-      'Valor total',
-      'Tipo de comissão',
-      'Eixos da comissão',
-      'Percentual de comissão',
-      'Comissão por viagem',
-      'Comissão bruta',
-      'Desconto de impostos',
-      'Valor do desconto de impostos',
-      'Comissão líquida',
-      'Faturamento de origem',
-    ];
-    const body = rows.map((item) => {
-      const faturamentoComissao = item.tipoComissao ? item : null;
-      return [
-        item.data.toISOString().slice(0, 10),
-        item.tipoLancamento,
-        item.cavaloMecanico?.placa || item.placa,
-        item.conjunto?.nome || '',
-        item.conjunto?.tipo || '',
-        item.conjunto?.quantidadeTotalEixos ?? '',
-        item.conjunto?.capacidadeTotal ? String(item.conjunto.capacidadeTotal) : '',
-        this.formatImplementosConjunto(item.conjunto),
-        item.implemento?.placa || '',
-        item.motorista?.nome || '',
-        item.fornecedor?.nome || item.cliente?.nome || '',
-        item.categoriaFinanceira?.nome || '',
-        String(item.quantidade),
-        item.unidadeQuantidade,
-        this.formatCsvDecimal(item.valorUnitario, 2),
-        this.formatCsvDecimal(item.valorTotal, 2),
-        this.commissionTypeLabel(faturamentoComissao?.tipoComissao),
-        faturamentoComissao?.quantidadeEixosComissao ?? '',
-        faturamentoComissao?.percentualComissao != null ? this.formatCsvDecimal(faturamentoComissao.percentualComissao, 2) : '',
-        faturamentoComissao?.valorComissaoPorViagem != null ? this.formatCsvDecimal(faturamentoComissao.valorComissaoPorViagem, 2) : '',
-        faturamentoComissao?.valorComissaoBruta != null ? this.formatCsvDecimal(faturamentoComissao.valorComissaoBruta, 2) : '',
-        faturamentoComissao ? (faturamentoComissao.descontoImpostos ? 'Sim' : 'Não') : '',
-        faturamentoComissao?.valorDescontoImpostos != null ? this.formatCsvDecimal(faturamentoComissao.valorDescontoImpostos, 2) : '',
-        faturamentoComissao?.valorComissao != null ? this.formatCsvDecimal(faturamentoComissao.valorComissao, 2) : '',
-        item.faturamentoOrigemId || '',
+    relatorio.comissoes = comissoes;
+    return this.csvText(this.financialCsvRows(relatorio, rows, filters));
+  }
+
+  private financialCsvRows(relatorio: Record<string, unknown>, lancamentos: LancamentoReportRow[], filters: RelatorioFinanceiroQueryDto) {
+    const sections = this.selectedSections(filters);
+    const selectedColumns = this.selectedColumns(filters);
+    const rows: unknown[][] = [];
+    const addSection = (title: string, content: unknown[][]) => {
+      if (rows.length) rows.push([]);
+      rows.push([title], ...content);
+    };
+    const groupRows = (key: string) => (Array.isArray(relatorio[key]) ? relatorio[key] : []) as FinancialGroupRow[];
+    const groupTable = (
+      title: string,
+      expenseKey: string,
+      revenueKey: string,
+      note?: string,
+      mode: 'both' | 'expenses' | 'revenues' = 'both',
+    ) => {
+      const totals = new Map<string, { label: string; despesas: number; faturamento: number }>();
+      for (const [key, kind] of [[expenseKey, 'despesas'], [revenueKey, 'faturamento']] as const) {
+        for (const item of groupRows(key)) {
+          const id = String(item.id ?? item.label);
+          const current = totals.get(id) || { label: item.label || 'Sem cadastro', despesas: 0, faturamento: 0 };
+          current[kind] += Number(item.total || 0);
+          totals.set(id, current);
+        }
+      }
+      const content: unknown[][] = [];
+      if (note) content.push(['Nota', note]);
+      content.push(mode === 'both'
+        ? ['Item', 'Despesas', 'Faturamento', 'Saldo']
+        : ['Item', mode === 'expenses' ? 'Despesas' : 'Faturamento']);
+      content.push(...[...totals.values()]
+        .sort((left, right) => Math.max(right.despesas, right.faturamento) - Math.max(left.despesas, left.faturamento))
+        .map((item) => mode === 'expenses'
+          ? [item.label, this.formatCsvDecimal(item.despesas, 2)]
+          : mode === 'revenues'
+            ? [item.label, this.formatCsvDecimal(item.faturamento, 2)]
+            : [item.label, this.formatCsvDecimal(item.despesas, 2), this.formatCsvDecimal(item.faturamento, 2), this.formatCsvDecimal(item.faturamento - item.despesas, 2)]));
+      addSection(title, content);
+    };
+
+    if (sections.has('resumo_financeiro')) {
+      addSection('Resumo financeiro', [
+        ['Total de despesas', 'Total de faturamento', 'Saldo final', 'Lançamentos'],
+        [
+          this.formatCsvDecimal(relatorio.totalDespesas, 2),
+          this.formatCsvDecimal(relatorio.totalFaturamento, 2),
+          this.formatCsvDecimal(relatorio.saldoFinal, 2),
+          String(relatorio.total || 0),
+        ],
+      ]);
+    }
+
+    if (sections.has('lancamentos')) {
+      const columns: Array<{ key: string; header: string; value: (item: LancamentoReportRow) => unknown }> = [
+        { key: 'data', header: 'Data', value: (item) => item.data.toISOString().slice(0, 10) },
+        { key: 'tipo', header: 'Tipo', value: (item) => item.tipoLancamento },
+        { key: 'cavalo', header: 'Cavalo mecânico / placa registrada', value: (item) => item.cavaloMecanico?.placa || item.placa },
+        { key: 'conjunto', header: 'Conjunto operacional', value: (item) => item.conjunto?.nome || '' },
+        { key: 'implementos', header: 'Implementos utilizados', value: (item) => this.formatImplementosConjunto(item.conjunto) || item.implemento?.placa || '' },
+        { key: 'motorista', header: 'Motorista', value: (item) => item.motorista?.nome || '' },
+        { key: 'parte', header: 'Fornecedor/Cliente', value: (item) => item.fornecedor?.nome || item.cliente?.nome || '' },
+        { key: 'categoria', header: 'Categoria', value: (item) => item.categoriaFinanceira?.nome || '' },
+        { key: 'quantidade', header: 'Quantidade', value: (item) => String(item.quantidade) },
+        { key: 'valorUnitario', header: 'Valor unitário', value: (item) => this.formatCsvDecimal(item.valorUnitario, 2) },
+        { key: 'valorTotal', header: 'Valor total', value: (item) => this.formatCsvDecimal(item.valorTotal, 2) },
       ];
-    });
-    const resumoComissoes = comissoes.resumo;
-    const comissoesBody = comissoes.historico.map((item: any) => [
-      item.data.toISOString().slice(0, 10),
-      item.cavaloMecanico?.placa || item.placa || '',
-      item.motorista?.nome || '',
-      String(item.quantidadeEixosComissao),
-      this.commissionTypeLabel(item.tipoComissao),
-      this.commissionRuleLabel(item),
-      this.formatCsvDecimal(item.valorTotal, 2),
-      this.formatCsvDecimal(item.valorComissaoBruta ?? item.valorComissao, 2),
-      this.formatCsvDecimal(item.valorDescontoImpostos || 0, 2),
-      this.formatCsvDecimal(item.valorComissao, 2),
-      (Number(item.valorTotal) - Number(item.valorComissao)).toFixed(2),
-    ]);
-    const csvRows = [
-      header,
-      ...body,
-      [],
-      ['Resumo de comissões dos faturamentos'],
-      ['Viagens com comissão', 'Faturamento relacionado', 'Total de comissões', 'Faturamento após comissões'],
-      [
-        String(resumoComissoes.quantidade),
-        this.formatCsvDecimal(resumoComissoes.totalFaturado, 2),
-        this.formatCsvDecimal(resumoComissoes.totalComissoes, 2),
-        this.formatCsvDecimal(resumoComissoes.faturamentoAposComissoes, 2),
-      ],
-      [],
-      ['Histórico de comissões'],
-      ['Data', 'Cavalo mecânico', 'Motorista', 'Eixos', 'Tipo', 'Regra', 'Faturamento', 'Comissão bruta', 'Impostos', 'Comissão líquida', 'Após comissão'],
-      ...comissoesBody,
-    ];
-    return this.csvText(csvRows);
+      const active = columns.filter((column) => selectedColumns === null || selectedColumns.has(`lancamentos:${column.key}`));
+      addSection('Lançamentos encontrados', [
+        active.map((column) => column.header),
+        ...lancamentos.map((item) => active.map((column) => column.value(item))),
+      ]);
+    }
+
+    if (sections.has('grupos_cavalo')) groupTable('Totais por cavalo mecânico atualmente relacionado', 'despesasPorCavaloMecanico', 'faturamentoPorCavaloMecanico');
+    if (sections.has('grupos_placas')) groupTable(
+      'Placa registrada no lançamento (snapshot histórico)',
+      'despesasPorPlaca',
+      'faturamentoPorPlaca',
+      'Este agrupamento usa a placa gravada no lançamento e pode divergir do cavalo atualmente relacionado.',
+    );
+    if (sections.has('grupos_motorista')) groupTable('Totais por motorista', 'despesasPorMotorista', 'faturamentoPorMotorista');
+    if (sections.has('grupos_clientes')) groupTable('Faturamento por cliente', 'despesasPorCliente', 'faturamentoPorCliente', undefined, 'revenues');
+    if (sections.has('grupos_fornecedores')) groupTable('Despesas por fornecedor', 'despesasPorFornecedor', 'faturamentoPorFornecedor', undefined, 'expenses');
+    if (sections.has('grupos_categorias')) groupTable('Totais por categoria financeira', 'despesasPorCategoria', 'faturamentoPorCategoria');
+    if (sections.has('grupos_implementos')) groupTable(
+      'Valores relacionados a implementos (não somáveis)',
+      'despesasPorImplemento',
+      'faturamentoPorImplemento',
+      'O valor integral é relacionado a cada implemento do conjunto; os implementos não devem ser somados entre si.',
+    );
+    if (sections.has('grupos_conjuntos')) groupTable('Totais por conjunto operacional', 'despesasPorConjunto', 'faturamentoPorConjunto');
+    if (sections.has('grupos_tipos_conjunto')) groupTable('Totais por tipo de conjunto', 'despesasPorTipoConjunto', 'faturamentoPorTipoConjunto');
+    if (sections.has('grupos_eixos')) groupTable('Totais por quantidade de eixos', 'despesasPorQuantidadeEixos', 'faturamentoPorQuantidadeEixos');
+    if (sections.has('grupos_tipos_financeiros')) {
+      addSection('Totais por tipo financeiro', [
+        ['Item', 'Despesas', 'Faturamento', 'Saldo'],
+        [
+          'Total geral',
+          this.formatCsvDecimal(relatorio.totalDespesas, 2),
+          this.formatCsvDecimal(relatorio.totalFaturamento, 2),
+          this.formatCsvDecimal(relatorio.saldoFinal, 2),
+        ],
+      ]);
+    }
+
+    if (sections.has('composicoes')) {
+      const columns: Array<{ key: string; header: string; value: (item: CompositionSummaryRow) => unknown }> = [
+        { key: 'cavalo', header: 'Cavalo', value: (item) => item.cavalo },
+        { key: 'conjunto', header: 'Conjunto', value: (item) => item.conjunto },
+        { key: 'tipo', header: 'Tipo', value: (item) => item.tipoConjunto || '' },
+        { key: 'eixos', header: 'Eixos', value: (item) => item.quantidadeTotalEixos ?? '' },
+        { key: 'implementos', header: 'Implementos', value: (item) => item.implementos },
+        { key: 'lancamentos', header: 'Lançamentos', value: (item) => item.quantidadeLancamentos },
+        { key: 'despesas', header: 'Despesas', value: (item) => this.formatCsvDecimal(item.totalDespesas, 2) },
+        { key: 'faturamento', header: 'Faturamento', value: (item) => this.formatCsvDecimal(item.totalFaturamento, 2) },
+        { key: 'saldo', header: 'Saldo', value: (item) => this.formatCsvDecimal(item.saldo, 2) },
+      ];
+      const active = columns.filter((column) => selectedColumns === null || selectedColumns.has(`composicoes:${column.key}`));
+      const items = (Array.isArray(relatorio.conjuntosPorCavalo) ? relatorio.conjuntosPorCavalo : []) as CompositionSummaryRow[];
+      addSection('Resumo por composição do cavalo', [active.map((column) => column.header), ...items.map((item) => active.map((column) => column.value(item)))]);
+    }
+
+    if (sections.has('comissoes')) {
+      const comissoes = relatorio.comissoes as { resumo?: Record<string, unknown>; historico?: LancamentoReportRow[] } | undefined;
+      const resumo = comissoes?.resumo || {};
+      const columns: Array<{ key: string; header: string; value: (item: LancamentoReportRow) => unknown }> = [
+        { key: 'data', header: 'Data', value: (item) => item.data.toISOString().slice(0, 10) },
+        { key: 'cavalo', header: 'Cavalo', value: (item) => item.cavaloMecanico?.placa || item.placa },
+        { key: 'motorista', header: 'Motorista', value: (item) => item.motorista?.nome || '' },
+        { key: 'eixos', header: 'Eixos', value: (item) => item.quantidadeEixosComissao ?? '' },
+        { key: 'tipo', header: 'Tipo', value: (item) => this.commissionTypeLabel(item.tipoComissao) },
+        { key: 'regra', header: 'Regra', value: (item) => this.commissionRuleLabel(item) },
+        { key: 'faturamento', header: 'Faturamento', value: (item) => this.formatCsvDecimal(item.valorTotal, 2) },
+        { key: 'bruta', header: 'Comissão bruta', value: (item) => this.formatCsvDecimal(item.valorComissaoBruta ?? item.valorComissao, 2) },
+        { key: 'impostos', header: 'Impostos', value: (item) => this.formatCsvDecimal(item.valorDescontoImpostos, 2) },
+        { key: 'liquida', header: 'Comissão líquida', value: (item) => this.formatCsvDecimal(item.valorComissao, 2) },
+        { key: 'aposComissao', header: 'Após comissão', value: (item) => this.formatCsvDecimal(Number(item.valorTotal) - Number(item.valorComissao), 2) },
+      ];
+      const active = columns.filter((column) => selectedColumns === null || selectedColumns.has(`comissoes:${column.key}`));
+      addSection('Comissões dos faturamentos', [
+        ['Viagens com comissão', 'Faturamento relacionado', 'Total de comissões', 'Faturamento após comissões'],
+        [String(resumo.quantidade || 0), this.formatCsvDecimal(resumo.totalFaturado, 2), this.formatCsvDecimal(resumo.totalComissoes, 2), this.formatCsvDecimal(resumo.faturamentoAposComissoes, 2)],
+        [],
+        active.map((column) => column.header),
+        ...(comissoes?.historico || []).map((item) => active.map((column) => column.value(item))),
+      ]);
+    }
+
+    return rows;
   }
 
-  private consumoCsvRows(consumo: any) {
-    const consumoHeader = ['Data', 'Cavalo mecânico', 'Km anterior', 'Km atual', 'Distância percorrida', 'Litros', 'Média km/l', 'Divergência', 'Observações'];
-    const consumoBody = consumo.historico.map((item: any) => [
-      item.data.toISOString().slice(0, 10),
-      [item.cavaloMecanico?.placa, item.cavaloMecanico?.marca, item.cavaloMecanico?.modelo].filter(Boolean).join(' - '),
-      this.formatCsvDecimal(item.kmAnterior, 1),
-      this.formatCsvDecimal(item.kmAtual, 1),
-      this.formatCsvDecimal(item.distanciaPercorrida, 1),
-      this.formatCsvDecimal(item.litros, 2),
-      this.formatCsvDecimal(item.mediaKmLitro, 2),
-      item.divergente ? 'Sim' : 'Não',
-      item.observacoes || '',
-    ]);
-    const resumoConsumo = consumo.porCavalo.map((item: any) => [
-      item.posicao == null ? '' : String(item.posicao),
-      item.placa,
-      item.cavalo,
-      String(item.quantidadeRegistros),
-      this.formatCsvDecimal(item.distanciaTotal, 1),
-      this.formatCsvDecimal(item.litrosTotal, 2),
-      this.formatCsvDecimal(item.mediaGeralKmLitro, 2),
-      item.mediaPeriodoAnterior == null ? '' : this.formatCsvDecimal(item.mediaPeriodoAnterior, 2),
-      item.variacaoPercentual == null ? '' : this.formatCsvDecimal(item.variacaoPercentual, 2),
-      String(item.quantidadeDivergencias),
-      item.amostraConfiavel ? 'Confiável' : 'Amostra pequena',
-    ]);
-    return [
-      ['Média da frota'],
-      consumo.periodoComparacao
-        ? ['Período anterior comparado', consumo.periodoComparacao.dataInicial, consumo.periodoComparacao.dataFinal]
-        : ['Período anterior comparado', 'Não disponível: informe data inicial e final'],
-      ['Posição', 'Placa', 'Cavalo mecânico', 'Abastecimentos', 'Distância total', 'Litros registrados', 'Média atual km/l', 'Média anterior km/l', 'Variação %', 'Divergências', 'Amostra'],
-      ...resumoConsumo,
-      [],
-      ['Histórico de abastecimentos'],
-      consumoHeader,
-      ...consumoBody,
-    ];
+  private consumoCsvRows(consumo: FleetConsumptionResult, filters: RelatorioFinanceiroQueryDto) {
+    const sections = this.selectedSections(filters, true);
+    const selectedColumns = this.selectedColumns(filters);
+    const rows: unknown[][] = [['Média da frota']];
+    const addSection = (title: string, content: unknown[][]) => {
+      if (rows.length) rows.push([]);
+      rows.push([title], ...content);
+    };
+    if (sections.has('resumo_frota')) {
+      addSection('Resumo da frota', [
+        ['Abastecimentos', 'Distância total', 'Litros totais', 'Média geral km/l', 'Cavalos analisados', 'Divergências'],
+        [
+          consumo.resumo.quantidadeRegistros || 0,
+          this.formatCsvDecimal(consumo.resumo.distanciaTotal, 1),
+          this.formatCsvDecimal(consumo.resumo.litrosTotal, 2),
+          this.formatCsvDecimal(consumo.resumo.mediaGeralKmLitro, 2),
+          consumo.resumo.placasAnalisadas || 0,
+          consumo.resumo.quantidadeDivergencias || 0,
+        ],
+      ]);
+    }
+    if (sections.has('ranking_frota')) {
+      const columns: Array<{ key: string; header: string; value: (item: FleetSummaryRow) => unknown }> = [
+        { key: 'posicao', header: 'Posição', value: (item) => item.posicao ?? '' },
+        { key: 'placa', header: 'Placa', value: (item) => item.placa },
+        { key: 'abastecimentos', header: 'Abastecimentos', value: (item) => item.quantidadeRegistros },
+        { key: 'distancia', header: 'Distância total', value: (item) => this.formatCsvDecimal(item.distanciaTotal, 1) },
+        { key: 'litros', header: 'Litros', value: (item) => this.formatCsvDecimal(item.litrosTotal, 2) },
+        { key: 'media', header: 'Média atual km/l', value: (item) => this.formatCsvDecimal(item.mediaGeralKmLitro, 2) },
+        { key: 'mediaAnterior', header: 'Média anterior km/l', value: (item) => item.mediaPeriodoAnterior == null ? '' : this.formatCsvDecimal(item.mediaPeriodoAnterior, 2) },
+        { key: 'variacao', header: 'Variação %', value: (item) => item.variacaoPercentual == null ? '' : this.formatCsvDecimal(item.variacaoPercentual, 2) },
+        { key: 'divergencias', header: 'Divergências', value: (item) => item.quantidadeDivergencias },
+        { key: 'amostra', header: 'Amostra', value: (item) => item.amostraConfiavel ? 'Confiável' : 'Amostra pequena' },
+      ];
+      const active = columns.filter((column) => selectedColumns === null || selectedColumns.has(`ranking:${column.key}`));
+      addSection('Ranking da frota', [active.map((column) => column.header), ...consumo.porCavalo.map((item) => active.map((column) => column.value(item)))]);
+    }
+    if (sections.has('comparacao_periodo')) {
+      const columns: Array<{ key: string; header: string; value: (item: FleetSummaryRow) => unknown }> = [
+        { key: 'placa', header: 'Placa', value: (item) => item.placa },
+        { key: 'mediaAtual', header: 'Média atual km/l', value: (item) => this.formatCsvDecimal(item.mediaGeralKmLitro, 2) },
+        { key: 'mediaAnterior', header: 'Média anterior km/l', value: (item) => item.mediaPeriodoAnterior == null ? '' : this.formatCsvDecimal(item.mediaPeriodoAnterior, 2) },
+        { key: 'variacao', header: 'Variação %', value: (item) => item.variacaoPercentual == null ? '' : this.formatCsvDecimal(item.variacaoPercentual, 2) },
+      ];
+      const active = columns.filter((column) => selectedColumns === null || selectedColumns.has(`comparacao:${column.key}`));
+      const period = consumo.periodoComparacao
+        ? `Período anterior: ${consumo.periodoComparacao.dataInicial} a ${consumo.periodoComparacao.dataFinal}`
+        : 'Não disponível: informe data inicial e final.';
+      addSection('Comparação com período anterior', [[period], active.map((column) => column.header), ...consumo.porCavalo.map((item) => active.map((column) => column.value(item)))]);
+    }
+    if (sections.has('historico_abastecimentos')) {
+      const columns: Array<{ key: string; header: string; value: (item: FleetConsumptionResult['historico'][number]) => unknown }> = [
+        { key: 'data', header: 'Data', value: (item) => item.data.toISOString().slice(0, 10) },
+        { key: 'cavalo', header: 'Cavalo mecânico', value: (item) => [item.cavaloMecanico.placa, item.cavaloMecanico.marca, item.cavaloMecanico.modelo].filter(Boolean).join(' - ') },
+        { key: 'kmAnterior', header: 'Km anterior', value: (item) => this.formatCsvDecimal(item.kmAnterior, 1) },
+        { key: 'kmAtual', header: 'Km atual', value: (item) => this.formatCsvDecimal(item.kmAtual, 1) },
+        { key: 'distancia', header: 'Distância', value: (item) => this.formatCsvDecimal(item.distanciaPercorrida, 1) },
+        { key: 'litros', header: 'Litros', value: (item) => this.formatCsvDecimal(item.litros, 2) },
+        { key: 'media', header: 'Média km/l', value: (item) => this.formatCsvDecimal(item.mediaKmLitro, 2) },
+        { key: 'status', header: 'Status', value: (item) => item.divergente ? 'Divergência' : 'Consistente' },
+      ];
+      const active = columns.filter((column) => selectedColumns === null || selectedColumns.has(`historico:${column.key}`));
+      addSection('Histórico de abastecimentos', [active.map((column) => column.header), ...consumo.historico.map((item) => active.map((column) => column.value(item)))]);
+    }
+    return rows;
   }
 
-  private csvText(rows: any[][]) {
+  private csvText(rows: unknown[][]) {
     return rows.map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(';')).join('\n');
   }
 
@@ -462,7 +653,7 @@ export class RelatoriosService {
 
   async exportarPdf(filters: RelatorioFinanceiroQueryDto) {
     if (filters.tipoRelatorio === 'MEDIA_FROTA') {
-      const consumo = await this.consumo(filters, 5000);
+      const consumo = await this.consumo(filters, null);
       return this.styledFinancialPdf(
         { tipoRelatorio: 'MEDIA_FROTA', consumo, total: consumo.resumo.quantidadeRegistros },
         [],
@@ -471,43 +662,39 @@ export class RelatoriosService {
       );
     }
 
+    const sections = this.selectedSections(filters);
+    const summarySections = [...sections].filter((section) => section !== 'lancamentos' && section !== 'comissoes');
     const [relatorio, rows, comissoes] = await Promise.all([
-      this.financeiros({ ...filters, page: 1, limit: 50 }),
-      this.exportRows(filters),
-      this.comissoes(filters, 5000),
+      this.financeiros({ ...filters, secoes: summarySections.join(','), secoesPdf: undefined, page: 1, limit: 50 }),
+      sections.has('lancamentos') ? this.exportRows(filters) : Promise.resolve([]),
+      sections.has('comissoes') ? this.comissoes(filters, null) : Promise.resolve(this.emptyComissoes()),
     ]);
     relatorio.comissoes = comissoes;
     return this.styledFinancialPdf(relatorio, rows, false, filters);
   }
 
   private async exportRows(filters: RelatorioFinanceiroQueryDto) {
-    return this.prisma.lancamentoFinanceiro.findMany({
-      where: await this.buildWhere(filters),
-      include: this.lancamentoInclude(),
-      orderBy: this.lancamentoOrderBy(filters),
-      take: 5000,
-    });
+    const where = await this.buildWhere(filters);
+    const orderBy = this.lancamentoOrderBy(filters);
+    const rows: LancamentoReportRow[] = [];
+    let skip = 0;
+    while (true) {
+      const batch = await this.prisma.lancamentoFinanceiro.findMany({
+        where,
+        include: this.lancamentoInclude(),
+        orderBy,
+        skip,
+        take: EXPORT_BATCH_SIZE,
+      });
+      rows.push(...batch);
+      if (batch.length < EXPORT_BATCH_SIZE) break;
+      skip += batch.length;
+    }
+    return rows;
   }
 
   private lancamentoInclude() {
-    return {
-      motorista: true,
-      fornecedor: true,
-      cliente: true,
-      categoriaFinanceira: true,
-      cavaloMecanico: true,
-      implemento: true,
-      faturamentoOrigem: true,
-      despesaComissao: true,
-      conjunto: {
-        include: {
-          implementos: {
-            include: { implemento: true },
-            orderBy: { ordem: 'asc' as const },
-          },
-        },
-      },
-    };
+    return LANCAMENTO_REPORT_INCLUDE;
   }
 
   private styledFinancialPdf(
@@ -516,33 +703,47 @@ export class RelatoriosService {
     somenteConsumo = false,
     filters: RelatorioFinanceiroQueryDto = {},
   ) {
-    const defaultSections = somenteConsumo
-      ? ['resumo_frota', 'ranking_frota', 'comparacao_periodo', 'historico_abastecimentos']
-      : ['resumo_financeiro', 'lancamentos', 'grupos_cavalo', 'grupos_placas', 'grupos_motorista', 'grupos_clientes', 'grupos_fornecedores', 'grupos_categorias', 'grupos_implementos', 'grupos_conjuntos', 'grupos_tipos_conjunto', 'grupos_eixos', 'grupos_tipos_financeiros', 'composicoes', 'comissoes'];
-    const selectedSections = new Set(
-      filters.secoesPdf === undefined
-        ? defaultSections
-        : filters.secoesPdf.split(',').map((item) => item.trim()).filter(Boolean),
-    );
-    const selectedColumns = filters.colunasPdf === undefined
-      ? null
-      : new Set(filters.colunasPdf.split(',').map((item) => item.trim()).filter(Boolean));
+    const selectedSections = this.selectedSections(filters, somenteConsumo);
+    const selectedColumns = this.selectedColumns(filters);
     const columnsByTable = new Map<string, number>();
+    const tableSections: Record<string, string> = {
+      lancamentos: 'lancamentos',
+      composicoes: 'composicoes',
+      comissoes: 'comissoes',
+      ranking: 'ranking_frota',
+      comparacao: 'comparacao_periodo',
+      historico: 'historico_abastecimentos',
+    };
+    const defaultTableColumns: Record<string, number> = {
+      lancamentos: 11,
+      composicoes: 9,
+      comissoes: 11,
+      ranking: 10,
+      comparacao: 4,
+      historico: 8,
+    };
     selectedColumns?.forEach((column) => {
       const tableName = column.split(':')[0];
+      if (!selectedSections.has(tableSections[tableName])) return;
       columnsByTable.set(tableName, (columnsByTable.get(tableName) || 0) + 1);
     });
     const largestTable = selectedColumns === null
-      ? (somenteConsumo ? 10 : 11)
+      ? Math.max(0, ...Object.entries(defaultTableColumns)
+        .filter(([tableName]) => selectedSections.has(tableSections[tableName]))
+        .map(([, count]) => count))
       : Math.max(0, ...columnsByTable.values());
     const landscape = largestTable > 8;
     const pages: string[][] = [[]];
     const pageWidth = landscape ? 842 : 595;
     const pageHeight = landscape ? 595 : 842;
     const margin = 36;
+    const availableWidth = pageWidth - margin * 2;
     let y = pageHeight - margin;
     const hasSection = (section: string) => selectedSections.has(section);
     const hasColumn = (tableName: string, column: string) => selectedColumns === null || selectedColumns.has(`${tableName}:${column}`);
+    const reportTitle = somenteConsumo
+      ? 'Relatório de média da frota'
+      : filters.tipoRelatorio === 'RELATORIO_COMBINADO' ? 'Relatório Financeiro' : 'Registro Geral';
 
     const current = () => pages[pages.length - 1];
     const add = (command: string) => current().push(command);
@@ -565,13 +766,17 @@ export class RelatoriosService {
     };
     const newPage = () => {
       pages.push([]);
-      y = pageHeight - margin;
+      rect(0, pageHeight, pageWidth, 42, [15, 48, 63]);
+      rect(0, pageHeight - 42, pageWidth, 3, [31, 122, 140]);
+      text(reportTitle, margin, pageHeight - 27, { size: 11, font: 'bold', color: [255, 255, 255] });
+      text('Continuação', pageWidth - margin, pageHeight - 27, { size: 8.5, align: 'right', color: [203, 213, 225] });
+      y = pageHeight - 62;
     };
     const ensureSpace = (height: number) => {
       if (y - height < 58) newPage();
     };
-    const sectionTitle = (title: string) => {
-      ensureSpace(38);
+    const sectionTitle = (title: string, followingHeight = 44) => {
+      ensureSpace(38 + followingHeight);
       y -= 12;
       rect(margin, y + 8, 4, 18, [31, 122, 140]);
       text(title, margin + 12, y - 5, { size: 13, font: 'bold', color: [15, 23, 42] });
@@ -586,7 +791,11 @@ export class RelatoriosService {
     };
     const table = (headers: string[], values: string[][], widths: number[], aligns: Array<'left' | 'right'> = []) => {
       const rowHeight = 22;
-      const tableWidth = widths.reduce((sum, width) => sum + width, 0);
+      const requestedWidth = widths.reduce((sum, width) => sum + width, 0);
+      const fittedWidths = widths.map((width) => Math.floor((width / requestedWidth) * availableWidth));
+      fittedWidths[fittedWidths.length - 1] += availableWidth - fittedWidths.reduce((sum, width) => sum + width, 0);
+      widths = fittedWidths;
+      const tableWidth = availableWidth;
       const drawHeader = () => {
         rect(margin, y, tableWidth, rowHeight, [31, 122, 140]);
         let headerX = margin;
@@ -620,6 +829,56 @@ export class RelatoriosService {
       }
       y -= 12;
     };
+    const summaryTable = (
+      title: string,
+      expenseRows: any[] = [],
+      revenueRows: any[] = [],
+      note?: string,
+      mode: 'both' | 'expenses' | 'revenues' = 'both',
+    ) => {
+      const totals = new Map<string, { label: string; despesas: number; faturamento: number }>();
+      const addRows = (groupRows: any[], kind: 'despesas' | 'faturamento') => groupRows.forEach((row) => {
+        const key = String(row.id ?? row.label);
+        const current = totals.get(key) || { label: row.label || 'Sem cadastro', despesas: 0, faturamento: 0 };
+        current[kind] += Number(row.total || 0);
+        totals.set(key, current);
+      });
+      addRows(expenseRows || [], 'despesas');
+      addRows(revenueRows || [], 'faturamento');
+      const sorted = [...totals.values()]
+        .sort((left, right) => Math.max(right.despesas, right.faturamento) - Math.max(left.despesas, left.faturamento) || left.label.localeCompare(right.label, 'pt-BR'));
+      const values = sorted.map((item) => mode === 'expenses'
+        ? [item.label, this.formatCurrency(item.despesas)]
+        : mode === 'revenues'
+          ? [item.label, this.formatCurrency(item.faturamento)]
+          : [item.label, this.formatCurrency(item.despesas), this.formatCurrency(item.faturamento), this.formatCurrency(item.faturamento - item.despesas)]);
+      sectionTitle(title);
+      if (note) {
+        ensureSpace(24);
+        text(this.truncatePdfText(note, landscape ? 130 : 88), margin, y, { size: 8, color: [71, 85, 105] });
+        y -= 18;
+      }
+      if (!values.length) {
+        emptyMessage('Nenhum valor encontrado para este agrupamento.');
+        return;
+      }
+      const moneyWidth = Math.min(125, Math.floor(availableWidth * 0.24));
+      if (mode === 'both') {
+        table(
+          ['Item', 'Despesas', 'Faturamento', 'Saldo'],
+          values,
+          [availableWidth - moneyWidth * 3, moneyWidth, moneyWidth, moneyWidth],
+          ['left', 'right', 'right', 'right'],
+        );
+      } else {
+        table(
+          ['Item', mode === 'expenses' ? 'Despesas' : 'Faturamento'],
+          values,
+          [availableWidth - moneyWidth, moneyWidth],
+          ['left', 'right'],
+        );
+      }
+    };
     const configurableTable = (
       tableName: string,
       columns: Array<{
@@ -636,7 +895,6 @@ export class RelatoriosService {
         emptyMessage('Selecione ao menos uma coluna para exibir esta seção.');
         return;
       }
-      const availableWidth = pageWidth - margin * 2;
       const originalWidth = activeColumns.reduce((sum, column) => sum + column.width, 0);
       const widths = activeColumns.map((column) => Math.floor((column.width / originalWidth) * availableWidth));
       widths[widths.length - 1] += availableWidth - widths.reduce((sum, width) => sum + width, 0);
@@ -652,7 +910,7 @@ export class RelatoriosService {
     rect(0, pageHeight - 92, pageWidth, 5, [31, 122, 140]);
     text('Controle Transporte', margin, pageHeight - 43, { size: 11, font: 'bold', color: [148, 213, 220] });
     text(
-      somenteConsumo ? 'Relatório de média da frota' : filters.tipoRelatorio === 'RELATORIO_COMBINADO' ? 'Relatório Combinado' : 'Registro Geral',
+      reportTitle,
       margin,
       pageHeight - 67,
       { size: 17, font: 'bold', color: [255, 255, 255] },
@@ -706,57 +964,31 @@ export class RelatoriosService {
         }
       }
 
-      if (['grupos_cavalo', 'grupos_placas', 'grupos_motorista', 'grupos_clientes', 'grupos_fornecedores', 'grupos_categorias', 'grupos_implementos', 'grupos_conjuntos', 'grupos_tipos_conjunto', 'grupos_eixos', 'grupos_tipos_financeiros'].some(hasSection)) {
-        sectionTitle('Totais separados por grupo');
-        if (hasSection('grupos_cavalo')) {
-          table(['Despesas por cavalo mecânico', 'Total'], this.pdfGroupRows(relatorio.despesasPorCavaloMecanico), [390, 133], ['left', 'right']);
-          table(['Faturamento por cavalo mecânico', 'Total'], this.pdfGroupRows(relatorio.faturamentoPorCavaloMecanico), [390, 133], ['left', 'right']);
-        }
-        if (hasSection('grupos_placas')) {
-          table(['Despesas por placa registrada', 'Total'], this.pdfGroupRows(relatorio.despesasPorPlaca), [390, 133], ['left', 'right']);
-          table(['Faturamento por placa registrada', 'Total'], this.pdfGroupRows(relatorio.faturamentoPorPlaca), [390, 133], ['left', 'right']);
-        }
-        if (hasSection('grupos_motorista')) {
-          table(['Despesas por motorista', 'Total'], this.pdfGroupRows(relatorio.despesasPorMotorista), [390, 133], ['left', 'right']);
-          table(['Faturamento por motorista', 'Total'], this.pdfGroupRows(relatorio.faturamentoPorMotorista), [390, 133], ['left', 'right']);
-        }
-        if (hasSection('grupos_clientes')) {
-          table(['Despesas por cliente', 'Total'], this.pdfGroupRows(relatorio.despesasPorCliente), [390, 133], ['left', 'right']);
-          table(['Faturamento por cliente', 'Total'], this.pdfGroupRows(relatorio.faturamentoPorCliente), [390, 133], ['left', 'right']);
-        }
-        if (hasSection('grupos_fornecedores')) {
-          table(['Despesas por fornecedor', 'Total'], this.pdfGroupRows(relatorio.despesasPorFornecedor), [390, 133], ['left', 'right']);
-          table(['Faturamento por fornecedor', 'Total'], this.pdfGroupRows(relatorio.faturamentoPorFornecedor), [390, 133], ['left', 'right']);
-        }
-        if (hasSection('grupos_categorias')) {
-          table(['Despesas por categoria financeira', 'Total'], this.pdfGroupRows(relatorio.despesasPorCategoria), [390, 133], ['left', 'right']);
-          table(['Faturamento por categoria financeira', 'Total'], this.pdfGroupRows(relatorio.faturamentoPorCategoria), [390, 133], ['left', 'right']);
-        }
-        if (hasSection('grupos_implementos')) {
-          table(['Despesas por implemento', 'Total'], this.pdfGroupRows(relatorio.despesasPorImplemento), [390, 133], ['left', 'right']);
-          table(['Faturamento por implemento', 'Total'], this.pdfGroupRows(relatorio.faturamentoPorImplemento), [390, 133], ['left', 'right']);
-        }
-        if (hasSection('grupos_conjuntos')) {
-          table(['Despesas por conjunto operacional', 'Total'], this.pdfGroupRows(relatorio.despesasPorConjunto), [390, 133], ['left', 'right']);
-          table(['Faturamento por conjunto operacional', 'Total'], this.pdfGroupRows(relatorio.faturamentoPorConjunto), [390, 133], ['left', 'right']);
-        }
-        if (hasSection('grupos_tipos_conjunto')) {
-          table(['Despesas por tipo de conjunto', 'Total'], this.pdfGroupRows(relatorio.despesasPorTipoConjunto), [390, 133], ['left', 'right']);
-          table(['Faturamento por tipo de conjunto', 'Total'], this.pdfGroupRows(relatorio.faturamentoPorTipoConjunto), [390, 133], ['left', 'right']);
-        }
-        if (hasSection('grupos_eixos')) {
-          table(['Despesas por quantidade de eixos', 'Total'], this.pdfGroupRows(relatorio.despesasPorQuantidadeEixos), [390, 133], ['left', 'right']);
-          table(['Faturamento por quantidade de eixos', 'Total'], this.pdfGroupRows(relatorio.faturamentoPorQuantidadeEixos), [390, 133], ['left', 'right']);
-        }
-        if (hasSection('grupos_tipos_financeiros')) {
-          table(
-            ['Tipo financeiro', 'Valor total'],
-            [['Despesas', this.formatCurrency(relatorio.totalDespesas)], ['Faturamento', this.formatCurrency(relatorio.totalFaturamento)]],
-            [390, 133],
-            ['left', 'right'],
-          );
-        }
-      }
+      if (hasSection('grupos_cavalo')) summaryTable('Totais por cavalo mecânico atualmente relacionado', relatorio.despesasPorCavaloMecanico, relatorio.faturamentoPorCavaloMecanico);
+      if (hasSection('grupos_placas')) summaryTable(
+        'Placa registrada no lançamento (snapshot histórico)',
+        relatorio.despesasPorPlaca,
+        relatorio.faturamentoPorPlaca,
+        'Usa a placa gravada no lançamento e pode divergir do cavalo atualmente relacionado.',
+      );
+      if (hasSection('grupos_motorista')) summaryTable('Totais por motorista', relatorio.despesasPorMotorista, relatorio.faturamentoPorMotorista);
+      if (hasSection('grupos_clientes')) summaryTable('Faturamento por cliente', [], relatorio.faturamentoPorCliente, undefined, 'revenues');
+      if (hasSection('grupos_fornecedores')) summaryTable('Despesas por fornecedor', relatorio.despesasPorFornecedor, [], undefined, 'expenses');
+      if (hasSection('grupos_categorias')) summaryTable('Totais por categoria financeira', relatorio.despesasPorCategoria, relatorio.faturamentoPorCategoria);
+      if (hasSection('grupos_implementos')) summaryTable(
+        'Valores relacionados a implementos (não somáveis)',
+        relatorio.despesasPorImplemento,
+        relatorio.faturamentoPorImplemento,
+        'O valor integral é relacionado a cada implemento do conjunto; não some os implementos entre si.',
+      );
+      if (hasSection('grupos_conjuntos')) summaryTable('Totais por conjunto operacional', relatorio.despesasPorConjunto, relatorio.faturamentoPorConjunto);
+      if (hasSection('grupos_tipos_conjunto')) summaryTable('Totais por tipo de conjunto', relatorio.despesasPorTipoConjunto, relatorio.faturamentoPorTipoConjunto);
+      if (hasSection('grupos_eixos')) summaryTable('Totais por quantidade de eixos', relatorio.despesasPorQuantidadeEixos, relatorio.faturamentoPorQuantidadeEixos);
+      if (hasSection('grupos_tipos_financeiros')) summaryTable(
+        'Totais por tipo financeiro',
+        [{ id: 'TOTAL', label: 'Total geral', total: relatorio.totalDespesas }],
+        [{ id: 'TOTAL', label: 'Total geral', total: relatorio.totalFaturamento }],
+      );
 
       if (hasSection('composicoes')) {
         sectionTitle('Resumo por composição do cavalo');
@@ -888,14 +1120,16 @@ export class RelatoriosService {
     }
 
     pages.forEach((page, index) => {
+      const pageLabel = `Página ${index + 1} de ${pages.length}`;
+      const pageLabelX = pageWidth - margin - textWidth(pageLabel, 8);
       page.push(`BT /F1 8 Tf ${rgb([100, 116, 139])} rg ${margin} 28 Td (${this.escapePdfText('Controle Transporte')}) Tj ET`);
-      page.push(`BT /F1 8 Tf ${rgb([100, 116, 139])} rg ${pageWidth - margin - 58} 28 Td (${this.escapePdfText(`Página ${index + 1} de ${pages.length}`)}) Tj ET`);
+      page.push(`BT /F1 8 Tf ${rgb([100, 116, 139])} rg ${pageLabelX.toFixed(2)} 28 Td (${this.escapePdfText(pageLabel)}) Tj ET`);
     });
 
-    return this.renderPdf(pages);
+    return this.renderPdf(pages, pageWidth, pageHeight);
   }
 
-  private renderPdf(pages: string[][]) {
+  private renderPdf(pages: string[][], pageWidth = 595, pageHeight = 842) {
     const fontRegularObjectId = 3 + pages.length * 2;
     const fontBoldObjectId = fontRegularObjectId + 1;
     const pageObjectIds = pages.map((_, index) => 3 + index * 2);
@@ -906,7 +1140,7 @@ export class RelatoriosService {
       ...pages.flatMap((pageCommands, index) => {
         const content = pageCommands.join('\n');
         return [
-          `${pageObjectIds[index]} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${fontRegularObjectId} 0 R /F2 ${fontBoldObjectId} 0 R >> >> /Contents ${contentObjectIds[index]} 0 R >> endobj`,
+          `${pageObjectIds[index]} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${fontRegularObjectId} 0 R /F2 ${fontBoldObjectId} 0 R >> >> /Contents ${contentObjectIds[index]} 0 R >> endobj`,
           `${contentObjectIds[index]} 0 obj << /Length ${Buffer.byteLength(content, 'latin1')} >> stream\n${content}\nendstream endobj`,
         ];
       }),
@@ -973,6 +1207,7 @@ export class RelatoriosService {
     return [
       ...(sortableFields[filters.orderBy || 'data'] || sortableFields.data),
       { createdAt: 'desc' },
+      { id: 'desc' },
     ];
   }
 
@@ -1043,14 +1278,25 @@ export class RelatoriosService {
     })).sort((left, right) => right.total - left.total || left.label.localeCompare(right.label, 'pt-BR'));
   }
 
-  private async operationalDimensionGroups(where: any) {
+  private async operationalDimensionGroups(where: any, sections: Set<string>) {
+    const needsPlaca = sections.has('grupos_placas');
+    const needsImplemento = sections.has('grupos_implementos');
+    const needsConjunto = needsImplemento
+      || sections.has('grupos_conjuntos')
+      || sections.has('grupos_tipos_conjunto')
+      || sections.has('grupos_eixos');
+    if (!needsPlaca && !needsImplemento && !needsConjunto) {
+      return { porPlaca: [], porImplemento: [], porConjunto: [], porTipoConjunto: [], porQuantidadeEixos: [] };
+    }
     const [porPlaca, porImplemento, conjuntoRows] = await Promise.all([
-      this.groupWithLabels('placa', where),
-      this.groupWithLabels('implementoId', where),
-      this.group('conjuntoId', where),
+      needsPlaca ? this.groupWithLabels('placa', where) : Promise.resolve([]),
+      // Quando há conjunto, seus implementos definem a associação. O vínculo direto só é usado sem conjunto,
+      // evitando contabilizar duas vezes o mesmo lançamento legado.
+      needsImplemento ? this.groupWithLabels('implementoId', { ...where, conjuntoId: null }) : Promise.resolve([]),
+      needsConjunto ? this.group('conjuntoId', where) : Promise.resolve([]),
     ]);
     const conjuntoIds = conjuntoRows.map((row) => row.conjuntoId).filter(Boolean) as string[];
-    const conjuntos = await this.prisma.conjunto.findMany({
+    const conjuntos = conjuntoIds.length ? await this.prisma.conjunto.findMany({
       where: { id: { in: conjuntoIds } },
       select: {
         id: true,
@@ -1059,16 +1305,16 @@ export class RelatoriosService {
         quantidadeTotalEixos: true,
         implementos: { select: { implemento: { select: { id: true, placa: true, tipo: true, carroceria: true } } } },
       },
-    });
+    }) : [];
     const conjuntosById = new Map(conjuntos.map((item) => [item.id, item]));
-    const porConjunto = conjuntoRows.map((row) => {
+    const porConjunto = sections.has('grupos_conjuntos') ? conjuntoRows.map((row) => {
       const conjunto = conjuntosById.get(row.conjuntoId || '');
       return {
         id: row.conjuntoId,
         label: conjunto ? [conjunto.nome, conjunto.tipo, `${conjunto.quantidadeTotalEixos} eixos`].join(' - ') : 'Sem cadastro',
         total: Number(row._sum.valorTotal || 0),
       };
-    });
+    }) : [];
     const consolidate = (labelFor: (item: typeof conjuntos[number]) => string) => {
       const totals = new Map<string, number>();
       conjuntoRows.forEach((row) => {
@@ -1082,7 +1328,7 @@ export class RelatoriosService {
     const sortRows = (rows: Array<{ id: string | null; label: string; total: number }>) => rows
       .sort((left, right) => right.total - left.total || left.label.localeCompare(right.label, 'pt-BR'));
     const implementoTotals = new Map(porImplemento.map((item) => [item.id, { ...item }]));
-    conjuntoRows.forEach((row) => {
+    if (needsImplemento) conjuntoRows.forEach((row) => {
       const conjunto = conjuntosById.get(row.conjuntoId || '');
       conjunto?.implementos?.forEach(({ implemento }) => {
         const current = implementoTotals.get(implemento.id);
@@ -1099,12 +1345,16 @@ export class RelatoriosService {
       porPlaca,
       porImplemento: sortRows([...implementoTotals.values()]),
       porConjunto: sortRows(porConjunto),
-      porTipoConjunto: sortRows(consolidate((item) => this.tipoConjuntoLabel(item.tipo))),
-      porQuantidadeEixos: sortRows(consolidate((item) => `${item.quantidadeTotalEixos} eixos`)),
+      porTipoConjunto: sections.has('grupos_tipos_conjunto') ? sortRows(consolidate((item) => this.tipoConjuntoLabel(item.tipo))) : [],
+      porQuantidadeEixos: sections.has('grupos_eixos') ? sortRows(consolidate((item) => `${item.quantidadeTotalEixos} eixos`)) : [],
     };
   }
 
-  private async comissoes(filters: RelatorioFinanceiroQueryDto, take = 50) {
+  private async comissoes(filters: RelatorioFinanceiroQueryDto, historyLimit: number | null = 50) {
+    const requestedTypes = this.filterValues(filters.tiposLancamento || filters.tipoLancamento);
+    if (requestedTypes.length && !requestedTypes.includes(TipoLancamento.FATURAMENTO)) {
+      return this.emptyComissoes();
+    }
     const commissionFilters = {
       ...filters,
       tipoLancamento: undefined,
@@ -1136,19 +1386,35 @@ export class RelatoriosService {
       { despesaComissao: { isNot: null } },
     );
     const where = { AND: and };
-    const [totais, historico] = await Promise.all([
-      this.prisma.lancamentoFinanceiro.aggregate({
-        where,
-        _count: { _all: true },
-        _sum: { valorTotal: true, valorComissao: true },
-      }),
-      this.prisma.lancamentoFinanceiro.findMany({
+    const totais = await this.prisma.lancamentoFinanceiro.aggregate({
+      where,
+      _count: { _all: true },
+      _sum: { valorTotal: true, valorComissao: true },
+    });
+    let historico: LancamentoReportRow[];
+    if (historyLimit === null) {
+      historico = [];
+      let skip = 0;
+      while (true) {
+        const batch = await this.prisma.lancamentoFinanceiro.findMany({
+          where,
+          include: this.lancamentoInclude(),
+          orderBy: this.lancamentoOrderBy(filters),
+          skip,
+          take: EXPORT_BATCH_SIZE,
+        });
+        historico.push(...batch);
+        if (batch.length < EXPORT_BATCH_SIZE) break;
+        skip += batch.length;
+      }
+    } else {
+      historico = await this.prisma.lancamentoFinanceiro.findMany({
         where,
         include: this.lancamentoInclude(),
         orderBy: this.lancamentoOrderBy(filters),
-        take,
-      }),
-    ]);
+        take: historyLimit,
+      });
+    }
     const totalFaturado = Number(totais._sum.valorTotal || 0);
     const totalComissoes = Number(totais._sum.valorComissao || 0);
 
@@ -1160,6 +1426,8 @@ export class RelatoriosService {
         faturamentoAposComissoes: Number((totalFaturado - totalComissoes).toFixed(2)),
       },
       historico,
+      historicoTotal: totais._count._all,
+      historicoLimitado: historyLimit !== null && historico.length < totais._count._all,
     };
   }
 
@@ -1175,8 +1443,13 @@ export class RelatoriosService {
       : this.formatCurrency(item?.valorComissaoPorViagem);
   }
 
-  private async consumo(filters: RelatorioFinanceiroQueryDto, take = 50) {
+  private async consumo(filters: RelatorioFinanceiroQueryDto, historyLimit: number | null = 50) {
     const where = this.buildAbastecimentoWhere(filters);
+    const sections = this.selectedSections(filters, true);
+    const needsSummary = sections.has('resumo_frota');
+    const needsGroups = needsSummary || sections.has('ranking_frota') || sections.has('comparacao_periodo');
+    const needsRecords = needsSummary || sections.has('ranking_frota') || sections.has('historico_abastecimentos');
+    const needsPrevious = sections.has('ranking_frota') || sections.has('comparacao_periodo');
     const periodoAnterior = this.periodoAnteriorConsumo(filters);
     const wherePeriodoAnterior = periodoAnterior
       ? {
@@ -1190,13 +1463,13 @@ export class RelatoriosService {
         _count: { _all: true },
         _sum: { distanciaPercorrida: true, litros: true },
       }),
-      this.prisma.abastecimento.groupBy({
+      needsGroups ? this.prisma.abastecimento.groupBy({
         by: ['cavaloMecanicoId'],
         where,
         _count: { _all: true },
         _sum: { distanciaPercorrida: true, litros: true },
-      }),
-      wherePeriodoAnterior
+      }) : Promise.resolve([]),
+      wherePeriodoAnterior && needsPrevious
         ? this.prisma.abastecimento.groupBy({
           by: ['cavaloMecanicoId'],
           where: wherePeriodoAnterior,
@@ -1204,11 +1477,7 @@ export class RelatoriosService {
           _sum: { distanciaPercorrida: true, litros: true },
         })
         : Promise.resolve([]),
-      this.prisma.abastecimento.findMany({
-        where,
-        include: { cavaloMecanico: true },
-        orderBy: [{ cavaloMecanicoId: 'asc' }, { data: 'asc' }, { createdAt: 'asc' }],
-      }),
+      needsRecords ? this.findAllAbastecimentos(where) : Promise.resolve([]),
     ]);
     const ids = grupos.map((item) => item.cavaloMecanicoId);
     const cavalos = await this.prisma.cavaloMecanico.findMany({
@@ -1286,34 +1555,70 @@ export class RelatoriosService {
           const data = b.data.getTime() - a.data.getTime();
           return data || b.createdAt.getTime() - a.createdAt.getTime();
         })
-        .slice(0, take)
+        .slice(0, historyLimit ?? registros.length)
         .map((item) => ({ ...item, divergente: divergencias.has(item.id) })),
+      historicoTotal: registros.length,
+      historicoLimitado: historyLimit !== null && registros.length > historyLimit,
     };
   }
 
+  private async findAllAbastecimentos(where: Prisma.AbastecimentoWhereInput) {
+    const rows: AbastecimentoReportRow[] = [];
+    let skip = 0;
+    while (true) {
+      const batch = await this.prisma.abastecimento.findMany({
+        where,
+        include: ABASTECIMENTO_REPORT_INCLUDE,
+        orderBy: [{ cavaloMecanicoId: 'asc' }, { data: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+        skip,
+        take: EXPORT_BATCH_SIZE,
+      });
+      rows.push(...batch);
+      if (batch.length < EXPORT_BATCH_SIZE) break;
+      skip += batch.length;
+    }
+    return rows;
+  }
+
   private async conjuntosPorCavalo(where: any) {
-    const lancamentos = await this.prisma.lancamentoFinanceiro.findMany({
+    const grupos = await this.prisma.lancamentoFinanceiro.groupBy({
+      by: ['cavaloMecanicoId', 'conjuntoId', 'tipoLancamento'],
       where: { ...where, cavaloMecanicoId: { not: null } },
-      include: this.lancamentoInclude(),
-      orderBy: { data: 'desc' },
-      take: 5000,
+      _count: { _all: true },
+      _sum: { valorTotal: true },
     });
+    const cavaloIds = [...new Set(grupos.map((item) => item.cavaloMecanicoId).filter((id): id is string => Boolean(id)))];
+    const conjuntoIds = [...new Set(grupos.map((item) => item.conjuntoId).filter((id): id is string => Boolean(id)))];
+    const [cavalos, conjuntos] = await Promise.all([
+      this.prisma.cavaloMecanico.findMany({
+        where: { id: { in: cavaloIds } },
+        select: { id: true, placa: true, marca: true, modelo: true },
+      }),
+      this.prisma.conjunto.findMany({
+        where: { id: { in: conjuntoIds } },
+        include: { implementos: { include: { implemento: true }, orderBy: { ordem: 'asc' } } },
+      }),
+    ]);
+    const cavalosById = new Map(cavalos.map((item) => [item.id, item]));
+    const conjuntosById = new Map(conjuntos.map((item) => [item.id, item]));
 
     const mapa = new Map<string, any>();
-    for (const item of lancamentos) {
+    for (const item of grupos) {
       const cavaloId = item.cavaloMecanicoId || 'sem-cavalo';
       const conjuntoId = item.conjuntoId || 'sem-conjunto';
       const key = `${cavaloId}:${conjuntoId}`;
       if (!mapa.has(key)) {
+        const cavalo = cavalosById.get(cavaloId);
+        const conjunto = item.conjuntoId ? conjuntosById.get(item.conjuntoId) : null;
         mapa.set(key, {
           cavaloId,
-          cavalo: item.cavaloMecanico ? [item.cavaloMecanico.placa, item.cavaloMecanico.marca, item.cavaloMecanico.modelo].filter(Boolean).join(' - ') : item.placa,
+          cavalo: cavalo ? [cavalo.placa, cavalo.marca, cavalo.modelo].filter(Boolean).join(' - ') : 'Sem cadastro',
           conjuntoId: item.conjuntoId,
-          conjunto: item.conjunto?.nome || 'Sem conjunto operacional',
-          tipoConjunto: item.conjunto?.tipo || null,
-          quantidadeTotalEixos: item.conjunto?.quantidadeTotalEixos ?? null,
-          capacidadeTotal: item.conjunto?.capacidadeTotal ? Number(item.conjunto.capacidadeTotal) : 0,
-          implementos: this.formatImplementosConjunto(item.conjunto),
+          conjunto: conjunto?.nome || 'Sem conjunto operacional',
+          tipoConjunto: conjunto?.tipo || null,
+          quantidadeTotalEixos: conjunto?.quantidadeTotalEixos ?? null,
+          capacidadeTotal: conjunto?.capacidadeTotal ? Number(conjunto.capacidadeTotal) : 0,
+          implementos: this.formatImplementosConjunto(conjunto),
           quantidadeLancamentos: 0,
           totalDespesas: 0,
           totalFaturamento: 0,
@@ -1321,8 +1626,8 @@ export class RelatoriosService {
         });
       }
       const row = mapa.get(key);
-      const valor = Number(item.valorTotal || 0);
-      row.quantidadeLancamentos += 1;
+      const valor = Number(item._sum.valorTotal || 0);
+      row.quantidadeLancamentos += item._count._all;
       if (item.tipoLancamento === TipoLancamento.DESPESA) row.totalDespesas += valor;
       if (item.tipoLancamento === TipoLancamento.FATURAMENTO) row.totalFaturamento += valor;
       row.saldo = row.totalFaturamento - row.totalDespesas;

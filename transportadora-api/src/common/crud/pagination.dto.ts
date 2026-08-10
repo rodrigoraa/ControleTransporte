@@ -95,6 +95,10 @@ export class PaginationDto {
 
   @IsOptional()
   @IsString()
+  cavaloMecanicoId?: string;
+
+  @IsOptional()
+  @IsString()
   motorista?: string;
 
   @IsOptional()
