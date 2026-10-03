@@ -408,6 +408,8 @@ Testes completos:
 npm run test
 ```
 
+Os testes de integração das últimas médias criam um PostgreSQL temporário com dados fictícios, sem utilizar o banco configurado da aplicação. Detectam PostgreSQL 18 no Windows ou 15 a 18 no Linux; para outra instalação, defina `POSTGRES_TEST_BIN` com o diretório dos executáveis `initdb`, `pg_ctl` e `postgres`. Se esses executáveis não estiverem disponíveis, somente essa suíte de integração será ignorada.
+
 Build por workspace:
 
 ```bash
@@ -1176,6 +1178,7 @@ Os aliases legados `secoesPdf` e `colunasPdf` continuam aceitos para não quebra
 
 - **Relatório Financeiro**: reúne lançamentos, totais, agrupamentos e comissões. Os filtros aceitam um ou vários valores, enviados como listas separadas por vírgula.
 - **Média da Frota**: usa abastecimentos para calcular consumo, ranking, comparação e divergências.
+- **Últimas médias da frota**: mostra somente o último abastecimento de cada cavalo, mesmo quando as datas são diferentes. Não exige período e usa a média individual já registrada.
 
 O antigo **Registro Geral** foi removido do seletor porque era apenas uma versão de seleção única do mesmo relatório. O identificador `REGISTRO_GERAL`, seus parâmetros singulares e as preferências já salvas continuam aceitos como compatibilidade legada; ao restaurá-los, o frontend abre o Relatório Financeiro e converte os filtros para o formato múltiplo.
 
@@ -1196,6 +1199,18 @@ A comissão nasce de um faturamento elegível. Ao salvar o faturamento, a API cr
 - Comparação: período imediatamente anterior, com a mesma duração, somente quando data inicial e final são informadas.
 - Divergência: o `kmAtual` de um abastecimento deve coincidir com o `kmAnterior` do próximo abastecimento do mesmo cavalo.
 - Ranking: somente cavalos com pelo menos dois abastecimentos recebem posição de amostra confiável; amostras menores aparecem separadas, sem competir no ranking principal.
+
+### Últimas médias da frota
+
+O tipo `ULTIMAS_MEDIAS_FROTA` retorna uma linha por cavalo que tenha abastecimentos. O registro é escolhido por `data DESC`, `createdAt DESC` e `id DESC`; a listagem inicial é ordenada por placa crescente. A coluna **Última média** usa diretamente `Abastecimento.mediaKmLitro`, sem agregar registros anteriores.
+
+Os filtros são cavalo mecânico e placa. Datas de início e fim não são aplicadas a essa opção. A seção `ultimas_medias` permite escolher as sete colunas da tabela, tanto na tela quanto no PDF e CSV. A Média da Frota continua calculando o consumo agregado do período.
+
+```http
+GET /api/relatorios/financeiros?tipoRelatorio=ULTIMAS_MEDIAS_FROTA
+```
+
+As exportações usam os endpoints existentes, com o mesmo `tipoRelatorio`, e o nome `relatorio-ultimas-medias-frota.pdf` ou `.csv`.
 
 ### Exportação e seleção de conteúdo
 

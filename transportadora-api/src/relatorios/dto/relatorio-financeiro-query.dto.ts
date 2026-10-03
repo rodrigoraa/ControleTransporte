@@ -4,7 +4,7 @@ import { IsDateString, IsEnum, IsIn, IsInt, IsOptional, IsString, Matches, Max, 
 import { normalizePlate, PLATE_MAX_LENGTH } from '../../common/validation/normalize-plate';
 
 export class RelatorioFinanceiroQueryDto {
-  @IsOptional() @IsIn(['REGISTRO_GERAL', 'RELATORIO_COMBINADO', 'MEDIA_FROTA']) tipoRelatorio?: 'REGISTRO_GERAL' | 'RELATORIO_COMBINADO' | 'MEDIA_FROTA';
+  @IsOptional() @IsIn(['REGISTRO_GERAL', 'RELATORIO_COMBINADO', 'MEDIA_FROTA', 'ULTIMAS_MEDIAS_FROTA']) tipoRelatorio?: 'REGISTRO_GERAL' | 'RELATORIO_COMBINADO' | 'MEDIA_FROTA' | 'ULTIMAS_MEDIAS_FROTA';
   @IsOptional() @IsDateString() dataInicial?: string;
   @IsOptional() @IsDateString() dataFinal?: string;
   @IsOptional() @IsString() motoristaId?: string;

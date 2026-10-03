@@ -224,6 +224,30 @@ function makeService() {
 }
 
 describe('RelatoriosService', () => {
+  it('mantém MEDIA_FROTA calculada pela soma das distâncias dividida pela soma dos litros', async () => {
+    const { service, prisma } = makeService();
+    const registros = [{
+      id: 'ab-ponderada-1', data: new Date('2026-05-12T00:00:00.000Z'), createdAt: new Date('2026-05-12T00:00:00.000Z'),
+      cavaloMecanicoId: 'cav-1', cavaloMecanico: { id: 'cav-1', placa: 'ABC1D23', marca: 'Volvo', modelo: 'FH' },
+      kmAnterior: 100000, kmAtual: 100750, distanciaPercorrida: 750, litros: 250, mediaKmLitro: 3,
+    }, {
+      id: 'ab-ponderada-2', data: new Date('2026-05-13T00:00:00.000Z'), createdAt: new Date('2026-05-13T00:00:00.000Z'),
+      cavaloMecanicoId: 'cav-1', cavaloMecanico: { id: 'cav-1', placa: 'ABC1D23', marca: 'Volvo', modelo: 'FH' },
+      kmAnterior: 100750, kmAtual: 101750, distanciaPercorrida: 1000, litros: 500, mediaKmLitro: 2,
+    }];
+    prisma.abastecimento.aggregate.mockResolvedValue({ _count: { _all: 2 }, _sum: { distanciaPercorrida: 1750, litros: 750 } });
+    prisma.abastecimento.groupBy.mockResolvedValue([{ cavaloMecanicoId: 'cav-1', _count: { _all: 2 }, _sum: { distanciaPercorrida: 1750, litros: 750 } }]);
+    prisma.abastecimento.findMany.mockResolvedValue(registros);
+
+    const result = await service.financeiros({ tipoRelatorio: 'MEDIA_FROTA', dataInicial: '2026-05-01', dataFinal: '2026-05-31' });
+
+    expect(result.consumo.resumo.mediaGeralKmLitro).toBeCloseTo(1750 / 750, 12);
+    expect(result.consumo.porCavalo[0].mediaGeralKmLitro).toBeCloseTo(1750 / 750, 12);
+    expect(result.consumo.resumo.mediaGeralKmLitro).not.toBe(2.5);
+    expect(result.consumo.resumo.mediaGeralKmLitro).not.toBe(2);
+    expect(result.consumo.resumo.quantidadeRegistros).toBe(2);
+    expect(result.consumo.historico).toHaveLength(2);
+  });
   it('gera relatório financeiro e contabiliza a comissão uma única vez como despesa', async () => {
     const { service, prisma } = makeService();
 

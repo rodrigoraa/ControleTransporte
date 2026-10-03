@@ -1,4 +1,4 @@
-export type ReportType = 'REGISTRO_GERAL' | 'RELATORIO_COMBINADO' | 'MEDIA_FROTA';
+export type ReportType = 'REGISTRO_GERAL' | 'RELATORIO_COMBINADO' | 'MEDIA_FROTA' | 'ULTIMAS_MEDIAS_FROTA';
 export type VisibleReportType = Exclude<ReportType, 'REGISTRO_GERAL'>;
 
 export type ReportSelection = {
@@ -46,7 +46,7 @@ const financialSummarySectionsV2 = ['grupos_clientes', 'grupos_fornecedores', 'g
 const financialSummarySectionsV3 = ['grupos_placas', 'grupos_implementos', 'grupos_conjuntos', 'grupos_tipos_conjunto', 'grupos_eixos', 'grupos_tipos_financeiros'];
 
 function migrateSelection(reportType: ReportType, selection: ReportSelection, version?: number): ReportSelection {
-  if (version === REPORT_PREFERENCE_VERSION || reportType === 'MEDIA_FROTA') return selection;
+  if (version === REPORT_PREFERENCE_VERSION || (reportType !== 'REGISTRO_GERAL' && reportType !== 'RELATORIO_COMBINADO')) return selection;
   const sectionsToAdd = [
     ...(version === undefined || version < 2 ? financialSummarySectionsV2 : []),
     ...(version === undefined || version < 3 ? financialSummarySectionsV3 : []),
@@ -185,19 +185,54 @@ const fleetReportConfig: ReportConfig = {
     ],
 };
 
+const latestFleetReportConfig: ReportConfig = {
+  sections: [{ id: 'ultimas_medias', label: 'Últimas médias da frota' }],
+  columnGroups: [{
+    id: 'ultimas_medias',
+    label: 'Últimas médias da frota',
+    sectionId: 'ultimas_medias',
+    columns: [
+      { key: 'placa', label: 'Placa' },
+      { key: 'data', label: 'Data' },
+      { key: 'kmAnterior', label: 'Km anterior' },
+      { key: 'kmAtual', label: 'Km atual' },
+      { key: 'distancia', label: 'Distância percorrida' },
+      { key: 'litros', label: 'Litros' },
+      { key: 'media', label: 'Última média' },
+    ],
+  }],
+};
+
 export const reportConfigs: Record<ReportType, ReportConfig> = {
   REGISTRO_GERAL: financialReportConfig,
   RELATORIO_COMBINADO: financialReportConfig,
   MEDIA_FROTA: fleetReportConfig,
+  ULTIMAS_MEDIAS_FROTA: latestFleetReportConfig,
 };
 
 export const visibleReportTypes: Array<{ value: VisibleReportType; label: string }> = [
   { value: 'RELATORIO_COMBINADO', label: 'Relatório Financeiro' },
   { value: 'MEDIA_FROTA', label: 'Média da frota' },
+  { value: 'ULTIMAS_MEDIAS_FROTA', label: 'Últimas médias da frota' },
 ];
 
 export function normalizeReportType(reportType: ReportType): VisibleReportType {
-  return reportType === 'MEDIA_FROTA' ? 'MEDIA_FROTA' : 'RELATORIO_COMBINADO';
+  return reportType === 'REGISTRO_GERAL' ? 'RELATORIO_COMBINADO' : reportType;
+}
+
+export function reportFilterParams(filters: Record<string, string>, reportType: VisibleReportType) {
+  const allowedFilters = reportType === 'MEDIA_FROTA'
+    ? ['dataInicial', 'dataFinal', 'cavaloMecanicoId', 'placa']
+    : reportType === 'ULTIMAS_MEDIAS_FROTA' ? ['cavaloMecanicoId', 'placa'] : null;
+  const relevantFilters = Object.fromEntries(
+    Object.entries(filters).filter(([name, value]) => value && (!allowedFilters || allowedFilters.includes(name))),
+  );
+  return { ...relevantFilters, tipoRelatorio: reportType };
+}
+
+export function reportFileName(reportType: VisibleReportType) {
+  if (reportType === 'ULTIMAS_MEDIAS_FROTA') return 'relatorio-ultimas-medias-frota';
+  return reportType === 'MEDIA_FROTA' ? 'relatorio-media-frota' : 'relatorio-financeiro';
 }
 
 export function migrateLegacyFinancialFilters(filters: Record<string, string>) {
@@ -322,7 +357,7 @@ export function loadLastGeneratedReport(
       reportType?: ReportType;
       version?: number;
     };
-    if (parsed.reportType !== 'REGISTRO_GERAL' && parsed.reportType !== 'RELATORIO_COMBINADO' && parsed.reportType !== 'MEDIA_FROTA') return null;
+    if (parsed.reportType !== 'REGISTRO_GERAL' && parsed.reportType !== 'RELATORIO_COMBINADO' && parsed.reportType !== 'MEDIA_FROTA' && parsed.reportType !== 'ULTIMAS_MEDIAS_FROTA') return null;
     if (!parsed.filters || typeof parsed.filters !== 'object' || Array.isArray(parsed.filters)) return null;
     if (!parsed.selection) return null;
     const reportType = normalizeReportType(parsed.reportType);

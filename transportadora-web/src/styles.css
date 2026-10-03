@@ -1543,6 +1543,11 @@ tbody tr:hover {
   padding: 0 18px 18px;
 }
 
+.latest-fleet-table th,
+.latest-fleet-table td {
+  white-space: nowrap;
+}
+
 .type-badge {
   display: inline-flex;
   align-items: center;

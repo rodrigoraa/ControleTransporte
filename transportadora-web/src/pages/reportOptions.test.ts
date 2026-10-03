@@ -6,6 +6,8 @@ import {
   migrateLegacyFinancialFilters,
   normalizeReportType,
   reportConfigs,
+  reportFileName,
+  reportFilterParams,
   reportSelectionParams,
   saveReportSelection,
   saveLastGeneratedReport,
@@ -22,12 +24,50 @@ describe('seleção de conteúdo dos relatórios', () => {
   it('usa a mesma configuração financeira interna nos dois modos de UX', () => {
     expect(reportConfigs.RELATORIO_COMBINADO).toBe(reportConfigs.REGISTRO_GERAL);
   });
-  it('exibe apenas o relatório financeiro e a média da frota', () => {
+  it('disponibiliza o relatório financeiro, a média da frota e as últimas médias', () => {
     expect(visibleReportTypes).toEqual([
       { value: 'RELATORIO_COMBINADO', label: 'Relatório Financeiro' },
       { value: 'MEDIA_FROTA', label: 'Média da frota' },
+      { value: 'ULTIMAS_MEDIAS_FROTA', label: 'Últimas médias da frota' },
     ]);
     expect(normalizeReportType('REGISTRO_GERAL')).toBe('RELATORIO_COMBINADO');
+    expect(normalizeReportType('ULTIMAS_MEDIAS_FROTA')).toBe('ULTIMAS_MEDIAS_FROTA');
+  });
+
+  it('inicia últimas médias com a tabela e suas sete colunas', () => {
+    expect(defaultReportSelection('ULTIMAS_MEDIAS_FROTA')).toEqual({
+      sections: ['ultimas_medias'],
+      columns: [
+        'ultimas_medias:placa', 'ultimas_medias:data', 'ultimas_medias:kmAnterior',
+        'ultimas_medias:kmAtual', 'ultimas_medias:distancia', 'ultimas_medias:litros', 'ultimas_medias:media',
+      ],
+    });
+    expect(validateReportSelection('ULTIMAS_MEDIAS_FROTA', { sections: ['ultimas_medias'], columns: [] }))
+      .toContain('Últimas médias da frota');
+  });
+
+  it('exclui datas e filtros financeiros das últimas médias e mantém os parâmetros dos relatórios anteriores', () => {
+    const filters = {
+      dataInicial: '2026-09-01', dataFinal: '2026-09-30', cavaloMecanicoId: 'cav-1',
+      cavaloMecanicoIds: 'cav-1,cav-2', placa: 'QAV0D73', motoristaIds: 'mot-1',
+      orderBy: 'data', orderDirection: 'desc', vazio: '',
+    };
+
+    expect(reportFilterParams(filters, 'ULTIMAS_MEDIAS_FROTA')).toEqual({
+      tipoRelatorio: 'ULTIMAS_MEDIAS_FROTA', cavaloMecanicoId: 'cav-1', placa: 'QAV0D73',
+    });
+    expect(reportFilterParams(filters, 'MEDIA_FROTA')).toEqual({
+      tipoRelatorio: 'MEDIA_FROTA', dataInicial: '2026-09-01', dataFinal: '2026-09-30',
+      cavaloMecanicoId: 'cav-1', placa: 'QAV0D73',
+    });
+    const { vazio: _vazio, ...filledFilters } = filters;
+    expect(reportFilterParams(filters, 'RELATORIO_COMBINADO')).toEqual({ ...filledFilters, tipoRelatorio: 'RELATORIO_COMBINADO' });
+  });
+
+  it('identifica os arquivos exportados de cada tipo de relatório', () => {
+    expect(reportFileName('ULTIMAS_MEDIAS_FROTA')).toBe('relatorio-ultimas-medias-frota');
+    expect(reportFileName('MEDIA_FROTA')).toBe('relatorio-media-frota');
+    expect(reportFileName('RELATORIO_COMBINADO')).toBe('relatorio-financeiro');
   });
   it('inicia com todas as seções e colunas marcadas', () => {
     const selection = defaultReportSelection('REGISTRO_GERAL');
@@ -219,5 +259,37 @@ describe('seleção de conteúdo dos relatórios', () => {
         columns: ['lancamentos:data'],
       },
     });
+  });
+
+  it('salva e restaura últimas médias por usuário sem alterar as preferências dos relatórios existentes', () => {
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) || null,
+      setItem: (key: string, value: string) => { values.set(key, value); },
+    };
+    const selection = { sections: ['ultimas_medias'], columns: ['ultimas_medias:placa', 'ultimas_medias:media'] };
+    const report = { reportType: 'ULTIMAS_MEDIAS_FROTA' as const, filters: { placa: 'QAV0D73' }, selection };
+    const financialSelection = { sections: ['resumo_financeiro'], columns: [] };
+
+    expect(saveReportSelection('RELATORIO_COMBINADO', financialSelection, 'user-1', storage)).toBe(true);
+    expect(saveReportSelection('ULTIMAS_MEDIAS_FROTA', selection, 'user-1', storage)).toBe(true);
+    expect(loadReportSelection('ULTIMAS_MEDIAS_FROTA', 'user-1', storage)).toEqual(selection);
+    expect(loadReportSelection('ULTIMAS_MEDIAS_FROTA', 'user-2', storage)).toEqual(defaultReportSelection('ULTIMAS_MEDIAS_FROTA'));
+    expect(loadReportSelection('RELATORIO_COMBINADO', 'user-1', storage)).toEqual(financialSelection);
+    expect(saveLastGeneratedReport(report, 'user-1', storage)).toBe(true);
+    expect(loadLastGeneratedReport('user-1', storage)).toEqual(report);
+    expect(loadLastGeneratedReport('user-2', storage)).toBeNull();
+  });
+
+  it('não adiciona seções financeiras a preferências de últimas médias sem versão', () => {
+    const selection = { sections: ['ultimas_medias'], columns: ['ultimas_medias:placa', 'ultimas_medias:media'] };
+    const report = { reportType: 'ULTIMAS_MEDIAS_FROTA' as const, filters: {}, selection };
+    const storage = {
+      getItem: (key: string) => JSON.stringify(key.includes('last-generated-report') ? report : selection),
+      setItem: () => undefined,
+    };
+
+    expect(loadReportSelection('ULTIMAS_MEDIAS_FROTA', 'user-1', storage)).toEqual(selection);
+    expect(loadLastGeneratedReport('user-1', storage)).toEqual(report);
   });
 });

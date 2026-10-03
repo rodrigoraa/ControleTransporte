@@ -37,6 +37,8 @@ const FLEET_REPORT_SECTIONS = [
   'historico_abastecimentos',
 ] as const;
 
+const LAST_FLEET_AVERAGE_REPORT_SECTIONS = ['ultimas_medias'] as const;
+
 const EXPORT_BATCH_SIZE = 1000;
 
 const LANCAMENTO_REPORT_INCLUDE = Prisma.validator<Prisma.LancamentoFinanceiroInclude>()({
@@ -95,11 +97,48 @@ type FleetConsumptionResult = {
   historico: Array<AbastecimentoReportRow & { divergente: boolean }>;
 };
 
+type LastFleetAverageRow = {
+  id: string;
+  cavaloMecanicoId: string;
+  placa: string;
+  marca: string | null;
+  modelo: string | null;
+  data: Date;
+  kmAnterior: number;
+  kmAtual: number;
+  distanciaPercorrida: number;
+  litros: number;
+  mediaKmLitro: number;
+  observacoes: string | null;
+};
+type LastFleetAverageNumericField = 'kmAnterior' | 'kmAtual' | 'distanciaPercorrida' | 'litros' | 'mediaKmLitro';
+type LastFleetAverageRawRow = Omit<LastFleetAverageRow, LastFleetAverageNumericField> & Record<LastFleetAverageNumericField, Prisma.Decimal>;
+type LastFleetAverageResult = {
+  registros: LastFleetAverageRow[];
+  resumo: { cavalosComMedia: number; dataMaisRecente: Date | null; dataMaisAntiga: Date | null };
+};
+
 @Injectable()
 export class RelatoriosService {
   constructor(private readonly prisma: PrismaService) {}
 
   async opcoes(filters: RelatorioFinanceiroQueryDto = {}) {
+    if (filters.tipoRelatorio === 'ULTIMAS_MEDIAS_FROTA') {
+      const where: Prisma.CavaloMecanicoWhereInput = { abastecimentos: { some: {} } };
+      if (filters.placa) where.placa = { contains: filters.placa, mode: 'insensitive' };
+      const cavalos = await this.prisma.cavaloMecanico.findMany({
+        where,
+        select: { id: true, placa: true, marca: true, modelo: true },
+        orderBy: [{ placa: 'asc' }, { id: 'asc' }],
+      });
+      return {
+        ...this.emptyOptions(),
+        cavalosMecanicos: cavalos.map((cavalo) => ({
+          value: cavalo.id,
+          label: [cavalo.placa, cavalo.marca, cavalo.modelo].filter(Boolean).join(' - '),
+        })),
+      };
+    }
     if (filters.tipoRelatorio !== 'RELATORIO_COMBINADO' && filters.tipoRelatorio !== 'MEDIA_FROTA') {
       return this.opcoesRegistroGeral();
     }
@@ -222,7 +261,7 @@ export class RelatoriosService {
   private selectedSections(filters: RelatorioFinanceiroQueryDto, fleet = false) {
     const requested = filters.secoes ?? filters.secoesPdf;
     return new Set(requested === undefined
-      ? (fleet ? FLEET_REPORT_SECTIONS : FINANCIAL_REPORT_SECTIONS)
+      ? (filters.tipoRelatorio === 'ULTIMAS_MEDIAS_FROTA' ? LAST_FLEET_AVERAGE_REPORT_SECTIONS : fleet ? FLEET_REPORT_SECTIONS : FINANCIAL_REPORT_SECTIONS)
       : this.filterValues(requested));
   }
 
@@ -316,6 +355,9 @@ export class RelatoriosService {
   }
 
   async financeiros(filters: RelatorioFinanceiroQueryDto): Promise<any> {
+    if (filters.tipoRelatorio === 'ULTIMAS_MEDIAS_FROTA') {
+      return { tipoRelatorio: 'ULTIMAS_MEDIAS_FROTA', ultimasMedias: await this.ultimasMediasFrota(filters) };
+    }
     if (filters.tipoRelatorio === 'MEDIA_FROTA') {
       return {
         tipoRelatorio: 'MEDIA_FROTA',
@@ -409,6 +451,10 @@ export class RelatoriosService {
   }
 
   async exportarCsv(filters: RelatorioFinanceiroQueryDto) {
+    if (filters.tipoRelatorio === 'ULTIMAS_MEDIAS_FROTA') {
+      const ultimasMedias = await this.ultimasMediasFrota(filters);
+      return this.csvText(this.ultimasMediasCsvRows(ultimasMedias, filters));
+    }
     if (filters.tipoRelatorio === 'MEDIA_FROTA') {
       const consumo = await this.consumo(filters, null);
       return this.csvText(this.consumoCsvRows(consumo, filters));
@@ -643,6 +689,31 @@ export class RelatoriosService {
     return rows;
   }
 
+  private ultimasMediasCsvRows(ultimasMedias: LastFleetAverageResult, filters: RelatorioFinanceiroQueryDto) {
+    const rows: unknown[][] = [['Últimas médias da frota']];
+    if (!this.selectedSections(filters).has('ultimas_medias')) return rows;
+    const selectedColumns = this.selectedColumns(filters);
+    const columns: Array<{ key: string; header: string; value: (item: LastFleetAverageRow) => unknown }> = [
+      { key: 'placa', header: 'Placa', value: (item) => item.placa },
+      { key: 'data', header: 'Data', value: (item) => item.data.toISOString().slice(0, 10) },
+      { key: 'kmAnterior', header: 'Km anterior', value: (item) => this.formatCsvDecimal(item.kmAnterior, 1) },
+      { key: 'kmAtual', header: 'Km atual', value: (item) => this.formatCsvDecimal(item.kmAtual, 1) },
+      { key: 'distancia', header: 'Distância', value: (item) => this.formatCsvDecimal(item.distanciaPercorrida, 1) },
+      { key: 'litros', header: 'Litros', value: (item) => this.formatCsvDecimal(item.litros, 3) },
+      { key: 'media', header: 'Última média km/l', value: (item) => this.formatCsvDecimal(item.mediaKmLitro, 3) },
+    ];
+    const active = columns.filter((column) => selectedColumns === null || selectedColumns.has(`ultimas_medias:${column.key}`));
+    rows.push([]);
+    if (!active.length) {
+      rows.push(['Selecione ao menos uma coluna para exibir esta seção.']);
+    } else {
+      rows.push(active.map((column) => column.header));
+      rows.push(...ultimasMedias.registros.map((item) => active.map((column) => column.value(item))));
+      if (!ultimasMedias.registros.length) rows.push(['Nenhum abastecimento encontrado para os filtros informados.']);
+    }
+    return rows;
+  }
+
   private csvText(rows: unknown[][]) {
     return rows.map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(';')).join('\n');
   }
@@ -652,6 +723,10 @@ export class RelatoriosService {
   }
 
   async exportarPdf(filters: RelatorioFinanceiroQueryDto) {
+    if (filters.tipoRelatorio === 'ULTIMAS_MEDIAS_FROTA') {
+      const ultimasMedias = await this.ultimasMediasFrota(filters);
+      return this.styledFinancialPdf({ ultimasMedias, total: ultimasMedias.resumo.cavalosComMedia }, [], false, filters);
+    }
     if (filters.tipoRelatorio === 'MEDIA_FROTA') {
       const consumo = await this.consumo(filters, null);
       return this.styledFinancialPdf(
@@ -703,6 +778,7 @@ export class RelatoriosService {
     somenteConsumo = false,
     filters: RelatorioFinanceiroQueryDto = {},
   ) {
+    const somenteUltimasMedias = filters.tipoRelatorio === 'ULTIMAS_MEDIAS_FROTA';
     const selectedSections = this.selectedSections(filters, somenteConsumo);
     const selectedColumns = this.selectedColumns(filters);
     const columnsByTable = new Map<string, number>();
@@ -713,6 +789,7 @@ export class RelatoriosService {
       ranking: 'ranking_frota',
       comparacao: 'comparacao_periodo',
       historico: 'historico_abastecimentos',
+      ultimas_medias: 'ultimas_medias',
     };
     const defaultTableColumns: Record<string, number> = {
       lancamentos: 11,
@@ -721,6 +798,7 @@ export class RelatoriosService {
       ranking: 10,
       comparacao: 4,
       historico: 8,
+      ultimas_medias: 7,
     };
     selectedColumns?.forEach((column) => {
       const tableName = column.split(':')[0];
@@ -741,7 +819,9 @@ export class RelatoriosService {
     let y = pageHeight - margin;
     const hasSection = (section: string) => selectedSections.has(section);
     const hasColumn = (tableName: string, column: string) => selectedColumns === null || selectedColumns.has(`${tableName}:${column}`);
-    const reportTitle = somenteConsumo
+    const reportTitle = somenteUltimasMedias
+      ? 'Últimas médias da frota'
+      : somenteConsumo
       ? 'Relatório de média da frota'
       : filters.tipoRelatorio === 'RELATORIO_COMBINADO' ? 'Relatório Financeiro' : 'Registro Geral';
 
@@ -917,14 +997,14 @@ export class RelatoriosService {
     );
     text(`Gerado em ${new Date().toLocaleString('pt-BR')}`, pageWidth - margin, pageHeight - 47, { size: 9, align: 'right', color: [203, 213, 225] });
     text(
-      somenteConsumo ? `${relatorio.total} abastecimentos` : `${relatorio.total} lançamentos`,
+      somenteUltimasMedias ? `${relatorio.total} cavalos com média` : somenteConsumo ? `${relatorio.total} abastecimentos` : `${relatorio.total} lançamentos`,
       pageWidth - margin,
       pageHeight - 68,
       { size: 10, font: 'bold', align: 'right', color: [255, 255, 255] },
     );
     y = pageHeight - 120;
 
-    if (!somenteConsumo) {
+    if (!somenteConsumo && !somenteUltimasMedias) {
       if (hasSection('resumo_financeiro')) {
         const cards = [
           { label: 'Despesas', value: this.formatCurrency(relatorio.totalDespesas), color: [180, 35, 24] as [number, number, number] },
@@ -1116,6 +1196,23 @@ export class RelatoriosService {
             { key: 'status', header: 'Status', width: 48, value: (item) => item.divergente ? 'Divergente' : 'OK' },
           ], consumo.historico);
         }
+      }
+    }
+
+    if (somenteUltimasMedias && hasSection('ultimas_medias')) {
+      sectionTitle('Últimas médias por cavalo');
+      if (!relatorio.ultimasMedias.registros.length) {
+        emptyMessage('Nenhum abastecimento encontrado para os filtros informados.');
+      } else {
+        configurableTable('ultimas_medias', [
+          { key: 'placa', header: 'Placa', width: 66, value: (item) => item.placa },
+          { key: 'data', header: 'Data', width: 58, value: (item) => this.formatDate(item.data) },
+          { key: 'kmAnterior', header: 'Km anterior', width: 78, align: 'right', value: (item) => this.formatDecimal(item.kmAnterior, 1) },
+          { key: 'kmAtual', header: 'Km atual', width: 78, align: 'right', value: (item) => this.formatDecimal(item.kmAtual, 1) },
+          { key: 'distancia', header: 'Distância', width: 65, align: 'right', value: (item) => this.formatDecimal(item.distanciaPercorrida, 1) },
+          { key: 'litros', header: 'Litros', width: 75, align: 'right', value: (item) => this.formatDecimal(item.litros, 3) },
+          { key: 'media', header: 'Última média', width: 86, align: 'right', value: (item) => `${this.formatDecimal(item.mediaKmLitro, 3)} km/l` },
+        ], relatorio.ultimasMedias.registros);
       }
     }
 
@@ -1441,6 +1538,46 @@ export class RelatoriosService {
     return item?.tipoComissao === 'PERCENTUAL'
       ? `${this.formatDecimal(item.percentualComissao, 2)}%`
       : this.formatCurrency(item?.valorComissaoPorViagem);
+  }
+
+  private async ultimasMediasFrota(filters: RelatorioFinanceiroQueryDto): Promise<LastFleetAverageResult> {
+    const predicates: Prisma.Sql[] = [];
+    const cavaloIds = this.filterValues(filters.cavaloMecanicoIds || filters.cavaloMecanicoId);
+    if (cavaloIds.length) predicates.push(Prisma.sql`c."id" IN (${Prisma.join(cavaloIds)})`);
+    if (filters.placa) predicates.push(Prisma.sql`c."placa" ILIKE ${`%${filters.placa}%`}`);
+    const where = predicates.length ? Prisma.sql`WHERE ${Prisma.join(predicates, ' AND ')}` : Prisma.empty;
+    // O histórico permanece no banco: a consulta devolve somente o último registro de cada cavalo.
+    const rows = await this.prisma.$queryRaw<LastFleetAverageRawRow[]>(Prisma.sql`
+      SELECT ultimo."id", c."id" AS "cavaloMecanicoId", c."placa", c."marca", c."modelo",
+        ultimo."data", ultimo."kmAnterior", ultimo."kmAtual", ultimo."distanciaPercorrida",
+        ultimo."litros", ultimo."mediaKmLitro", ultimo."observacoes"
+      FROM "cavalos_mecanicos" c
+      JOIN LATERAL (
+        SELECT a."id", a."data", a."kmAnterior", a."kmAtual", a."distanciaPercorrida",
+          a."litros", a."mediaKmLitro", a."observacoes"
+        FROM "abastecimentos" a
+        WHERE a."cavaloMecanicoId" = c."id"
+        ORDER BY a."data" DESC, a."createdAt" DESC, a."id" DESC
+        LIMIT 1
+      ) ultimo ON TRUE
+      ${where}
+      ORDER BY c."placa" ASC, c."id" ASC
+    `);
+    const registros = rows.map((row): LastFleetAverageRow => ({
+      ...row,
+      kmAnterior: Number(row.kmAnterior),
+      kmAtual: Number(row.kmAtual),
+      distanciaPercorrida: Number(row.distanciaPercorrida),
+      litros: Number(row.litros),
+      mediaKmLitro: Number(row.mediaKmLitro),
+    }));
+    let dataMaisRecente: Date | null = null;
+    let dataMaisAntiga: Date | null = null;
+    for (const { data } of registros) {
+      if (!dataMaisRecente || data > dataMaisRecente) dataMaisRecente = data;
+      if (!dataMaisAntiga || data < dataMaisAntiga) dataMaisAntiga = data;
+    }
+    return { registros, resumo: { cavalosComMedia: registros.length, dataMaisRecente, dataMaisAntiga } };
   }
 
   private async consumo(filters: RelatorioFinanceiroQueryDto, historyLimit: number | null = 50) {

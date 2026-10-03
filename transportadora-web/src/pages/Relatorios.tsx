@@ -12,6 +12,8 @@ import {
   loadReportSelection,
   reportColumnId,
   reportConfigs,
+  reportFileName,
+  reportFilterParams,
   reportSelectionParams,
   ReportSelection,
   VisibleReportType,
@@ -38,6 +40,7 @@ type ReportOptions = {
 const filterFieldsByReport: Record<VisibleReportType, string[]> = {
   RELATORIO_COMBINADO: ['dataInicial', 'dataFinal', 'cavaloMecanicoIds', 'placa', 'motoristaIds', 'implementoIds', 'conjuntoIds', 'tiposConjunto', 'quantidadesEixos', 'fornecedorIds', 'clienteIds', 'tiposLancamento', 'categoriaIds'],
   MEDIA_FROTA: ['dataInicial', 'dataFinal', 'cavaloMecanicoId', 'placa'],
+  ULTIMAS_MEDIAS_FROTA: ['cavaloMecanicoId', 'placa'],
 };
 
 export function Relatorios() {
@@ -72,7 +75,9 @@ export function Relatorios() {
     quantidadesEixos: [],
   });
   const activeFilters = filterFieldsByReport[reportType].filter((name) => Boolean(filters[name])).length;
-  const hasFiltersToClear = Object.entries(filters).some(([name, value]) => value && !['orderBy', 'orderDirection'].includes(name));
+  const hasFiltersToClear = reportType === 'ULTIMAS_MEDIAS_FROTA'
+    ? activeFilters > 0
+    : Object.entries(filters).some(([name, value]) => value && !['orderBy', 'orderDirection'].includes(name));
   const reportSort: TableSort = {
     orderBy: generatedReport?.filters.orderBy || '',
     orderDirection: generatedReport?.filters.orderDirection === 'asc' ? 'asc' : 'desc',
@@ -118,10 +123,7 @@ export function Relatorios() {
   }
 
   function reportParams(sourceFilters = filters, sourceType = reportType) {
-    const relevantFilters = sourceType === 'MEDIA_FROTA'
-      ? Object.fromEntries(Object.entries(sourceFilters).filter(([name, value]) => value && ['dataInicial', 'dataFinal', 'cavaloMecanicoId', 'placa'].includes(name)))
-      : Object.fromEntries(Object.entries(sourceFilters).filter(([, value]) => value));
-    return { ...relevantFilters, tipoRelatorio: sourceType };
+    return reportFilterParams(sourceFilters, sourceType);
   }
 
   async function submit(event: FormEvent) {
@@ -177,9 +179,7 @@ export function Relatorios() {
       const url = URL.createObjectURL(data);
       const link = document.createElement('a');
       link.href = url;
-      const reportName = generatedReport.reportType === 'MEDIA_FROTA'
-        ? 'relatorio-media-frota'
-        : 'relatorio-financeiro';
+      const reportName = reportFileName(generatedReport.reportType);
       link.download = `${reportName}.${format}`;
       link.click();
       URL.revokeObjectURL(url);
@@ -213,9 +213,11 @@ export function Relatorios() {
       <div className="page-header report-header">
         <div>
           <h1>Relatórios</h1>
-          <p>{reportType === 'MEDIA_FROTA'
-            ? 'Média ponderada de consumo, ranking e comparação por cavalo mecânico.'
-            : 'Lançamentos, indicadores financeiros e comissões com filtros simples ou múltiplos.'}</p>
+          <p>{reportType === 'ULTIMAS_MEDIAS_FROTA'
+            ? 'Último abastecimento e média de consumo de cada cavalo mecânico.'
+            : reportType === 'MEDIA_FROTA'
+              ? 'Média ponderada de consumo, ranking e comparação por cavalo mecânico.'
+              : 'Lançamentos, indicadores financeiros e comissões com filtros simples ou múltiplos.'}</p>
         </div>
         {financeiro && (
           <div className="actions">
@@ -254,7 +256,7 @@ export function Relatorios() {
           value={reportType}
           options={visibleReportTypes}
           onChange={(_, value) => {
-            const nextType: VisibleReportType = value === 'MEDIA_FROTA' ? 'MEDIA_FROTA' : 'RELATORIO_COMBINADO';
+            const nextType = visibleReportTypes.find((type) => type.value === value)?.value || 'RELATORIO_COMBINADO';
             setReportType(nextType);
             setReportSelection(loadReportSelection(nextType, preferenceScope));
             setFilters({});
@@ -264,22 +266,24 @@ export function Relatorios() {
             setError('');
           }}
         />
-        <label>Data inicial<input type="date" value={filters.dataInicial || ''} onChange={(e) => updateFilter('dataInicial', e.target.value)} /></label>
-        <label>Data final<input type="date" value={filters.dataFinal || ''} onChange={(e) => updateFilter('dataFinal', e.target.value)} /></label>
-        {reportType === 'MEDIA_FROTA'
+        {reportType !== 'ULTIMAS_MEDIAS_FROTA' && <>
+          <label>Data inicial<input type="date" value={filters.dataInicial || ''} onChange={(e) => updateFilter('dataInicial', e.target.value)} /></label>
+          <label>Data final<input type="date" value={filters.dataFinal || ''} onChange={(e) => updateFilter('dataFinal', e.target.value)} /></label>
+        </>}
+        {reportType !== 'RELATORIO_COMBINADO'
           ? <SelectFilter label="Cavalo mecânico" name="cavaloMecanicoId" value={filters.cavaloMecanicoId || ''} options={options.cavalosMecanicos} disabled={optionsLoading} onChange={updateFilter} />
           : <MultiSelectFilter label="Cavalos mecânicos / placas" name="cavaloMecanicoIds" value={filterArray(filters.cavaloMecanicoIds)} options={options.cavalosMecanicos} disabled={optionsLoading} onChange={updateFilter} />}
         <label>
-          Placa gravada no registro
+          {reportType === 'ULTIMAS_MEDIAS_FROTA' ? 'Placa' : 'Placa gravada no registro'}
           <input
             type="text"
             maxLength={128}
-            placeholder="Filtro avançado do snapshot histórico"
+            placeholder={reportType === 'ULTIMAS_MEDIAS_FROTA' ? 'Pesquisar placa...' : 'Filtro avançado do snapshot histórico'}
             value={filters.placa || ''}
             onChange={(event) => updateFilter('placa', event.target.value.toUpperCase())}
           />
         </label>
-        {reportType !== 'MEDIA_FROTA' && (
+        {reportType === 'RELATORIO_COMBINADO' && (
           <>
             <MultiSelectFilter label="Motoristas" name="motoristaIds" value={filterArray(filters.motoristaIds)} options={options.motoristas} disabled={optionsLoading} onChange={updateFilter} />
             <MultiSelectFilter label="Implementos" name="implementoIds" value={filterArray(filters.implementoIds)} options={options.implementos} disabled={optionsLoading} onChange={updateFilter} />
@@ -323,7 +327,9 @@ export function Relatorios() {
 
       {error && <div className="form-error">{error}</div>}
       {financeiro && (
-        generatedReport?.reportType === 'MEDIA_FROTA' ? (
+        generatedReport?.reportType === 'ULTIMAS_MEDIAS_FROTA' ? (
+          <UltimasMediasReport ultimasMedias={financeiro.ultimasMedias} selection={generatedReport.selection} />
+        ) : generatedReport?.reportType === 'MEDIA_FROTA' ? (
           <ConsumoReport consumo={financeiro.consumo} selection={generatedReport.selection} />
         ) : (
         <>
@@ -689,6 +695,88 @@ function CommissionReport({ comissoes, selection }: { comissoes: any; selection:
       </div>
     </>
   );
+}
+
+type LatestFleetRow = {
+  id: string;
+  cavaloMecanicoId: string;
+  placa: string;
+  data: string | Date;
+  kmAnterior: number | string | null;
+  kmAtual: number | string | null;
+  distanciaPercorrida: number | string | null;
+  litros: number | string | null;
+  mediaKmLitro: number | string | null;
+};
+
+export function UltimasMediasReport({ ultimasMedias, selection }: {
+  ultimasMedias: { registros: LatestFleetRow[] } | null | undefined;
+  selection: ReportSelection;
+}) {
+  const rows = ultimasMedias?.registros || [];
+  const [sort, setSort] = useState<TableSort>({ orderBy: 'placa', orderDirection: 'asc' });
+  const sortedRows = useMemo(() => sortTableRows(rows, sort, {
+    placa: (item) => item.placa,
+    data: (item) => new Date(item.data),
+    kmAnterior: (item) => latestReportNumber(item.kmAnterior),
+    kmAtual: (item) => latestReportNumber(item.kmAtual),
+    distancia: (item) => latestReportNumber(item.distanciaPercorrida),
+    litros: (item) => latestReportNumber(item.litros),
+    media: (item) => latestReportNumber(item.mediaKmLitro),
+  }), [rows, sort]);
+  if (!selection.sections.includes('ultimas_medias')) return null;
+
+  const onSort = (key: string) => setSort((current) => nextTableSort(current, key));
+  return (
+    <div className="panel report-table-panel">
+      <div className="panel-title-row">
+        <div>
+          <h2>Últimas médias da frota</h2>
+          <p>Último abastecimento registrado de cada cavalo mecânico e sua média de consumo.</p>
+        </div>
+      </div>
+      <div className="table-wrap">
+        <table className="latest-fleet-table">
+          <thead>
+            <tr>
+              {hasColumn(selection, 'ultimas_medias', 'placa') && <SortableHeader label="Placa" sortKey="placa" sort={sort} onSort={onSort} />}
+              {hasColumn(selection, 'ultimas_medias', 'data') && <SortableHeader label="Data" sortKey="data" sort={sort} onSort={onSort} />}
+              {hasColumn(selection, 'ultimas_medias', 'kmAnterior') && <SortableHeader label="Km anterior" sortKey="kmAnterior" sort={sort} onSort={onSort} />}
+              {hasColumn(selection, 'ultimas_medias', 'kmAtual') && <SortableHeader label="Km atual" sortKey="kmAtual" sort={sort} onSort={onSort} />}
+              {hasColumn(selection, 'ultimas_medias', 'distancia') && <SortableHeader label="Distância percorrida" sortKey="distancia" sort={sort} onSort={onSort} />}
+              {hasColumn(selection, 'ultimas_medias', 'litros') && <SortableHeader label="Litros" sortKey="litros" sort={sort} onSort={onSort} />}
+              {hasColumn(selection, 'ultimas_medias', 'media') && <SortableHeader label="Última média" sortKey="media" sort={sort} onSort={onSort} />}
+            </tr>
+          </thead>
+          <tbody>
+            {!rows.length && <tr><td colSpan={selectedColumnCount(selection, 'ultimas_medias')}>Nenhum abastecimento encontrado para os cavalos e placas informados.</td></tr>}
+            {sortedRows.map((item) => (
+              <tr key={item.cavaloMecanicoId}>
+                {hasColumn(selection, 'ultimas_medias', 'placa') && <td>{item.placa || '-'}</td>}
+                {hasColumn(selection, 'ultimas_medias', 'data') && <td>{date(item.data)}</td>}
+                {hasColumn(selection, 'ultimas_medias', 'kmAnterior') && <td>{latestReportDecimal(item.kmAnterior, 1)}</td>}
+                {hasColumn(selection, 'ultimas_medias', 'kmAtual') && <td>{latestReportDecimal(item.kmAtual, 1)}</td>}
+                {hasColumn(selection, 'ultimas_medias', 'distancia') && <td>{latestReportDecimal(item.distanciaPercorrida, 1, ' km')}</td>}
+                {hasColumn(selection, 'ultimas_medias', 'litros') && <td>{latestReportDecimal(item.litros, 3, ' L')}</td>}
+                {hasColumn(selection, 'ultimas_medias', 'media') && <td><strong>{latestReportDecimal(item.mediaKmLitro, 3, ' km/l')}</strong></td>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function latestReportNumber(value: number | string | null) {
+  if (value == null || (typeof value === 'string' && !value.trim())) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function latestReportDecimal(value: number | string | null, digits: number, suffix = '') {
+  const number = latestReportNumber(value);
+  return number == null ? '-' : `${decimal(number, digits)}${suffix}`;
 }
 
 function ConsumoReport({ consumo, selection }: { consumo: any; selection: ReportSelection }) {
