@@ -1,5 +1,6 @@
 ﻿import { describe, expect, it } from 'vitest';
 import { crudResources, resourceListPath } from './resources';
+import { buildColumnFilterParams } from '../utils/columnFilters';
 
 const byPath = (path: string) => crudResources.find((resource) => resource.path === path)!;
 const field = (path: string, name: string) => byPath(path).fields.find((item) => item.name === name);
@@ -69,6 +70,31 @@ describe('crudResources', () => {
     expect(field('abastecimentos', 'cavaloMecanicoId')?.required).toBe(true);
     expect(field('abastecimentos', 'distanciaPercorrida')).toMatchObject({ table: true, hidden: true });
     expect(field('abastecimentos', 'mediaKmLitro')).toMatchObject({ table: true, hidden: true });
+  });
+
+  it('envia todos os filtros de abastecimentos e pesquisa o cavalo pelo texto, sem acionar o histórico por ID', () => {
+    const tableFields = byPath('abastecimentos').fields.filter((item) => item.table);
+
+    expect(tableFields).toHaveLength(7);
+    expect(tableFields.every((item) => item.filterKey && item.filterType)).toBe(true);
+    expect(buildColumnFilterParams(tableFields, {
+      data: '2026-09-28',
+      cavaloMecanicoId: '  QAV0D73  ',
+      kmAnterior: '566357',
+      kmAtual: '567101',
+      distanciaPercorrida: '744',
+      litros: '389',
+      mediaKmLitro: '1.913',
+    })).toEqual({
+      data: '2026-09-28',
+      cavalo: 'QAV0D73',
+      kmAnterior: '566357',
+      kmAtual: '567101',
+      distanciaPercorrida: '744',
+      litros: '389',
+      mediaKmLitro: '1.913',
+    });
+    expect(tableFields.filter((item) => item.type === 'number').every((item) => item.filterType === 'number')).toBe(true);
   });
 
   it('marca senha como obrigatória na criação de usuários e limita a placa do cavalo a 128 caracteres', () => {

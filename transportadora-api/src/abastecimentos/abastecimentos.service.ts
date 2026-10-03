@@ -7,6 +7,8 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateAbastecimentoDto } from './dto/create-abastecimento.dto';
 import { UpdateAbastecimentoDto } from './dto/update-abastecimento.dto';
 
+const numericFilterFields = ['kmAnterior', 'kmAtual', 'distanciaPercorrida', 'litros', 'mediaKmLitro'] as const;
+
 @Injectable()
 export class AbastecimentosService extends CrudService<CreateAbastecimentoDto, UpdateAbastecimentoDto> {
   constructor(prisma: PrismaService) {
@@ -15,13 +17,48 @@ export class AbastecimentosService extends CrudService<CreateAbastecimentoDto, U
 
   protected buildWhere(query: PaginationDto & Record<string, unknown>) {
     const where: Prisma.AbastecimentoWhereInput = {};
-    if (typeof query.data === 'string' && query.data) {
-      where.data = {
-        gte: new Date(`${query.data}T00:00:00.000Z`),
-        lte: new Date(`${query.data}T23:59:59.999Z`),
-      };
+    const relatedFilter = (value: string) => ({
+      is: {
+        OR: ['placa', 'marca', 'modelo'].map((field) => ({
+          [field]: { contains: value, mode: 'insensitive' as const },
+        })),
+      },
+    });
+    const search = query.search?.trim();
+    if (search) {
+      where.OR = [
+        { observacoes: { contains: search, mode: 'insensitive' } },
+        { cavaloMecanico: relatedFilter(search) },
+      ];
+      if (/^\d+(?:[.,]\d+)?$/.test(search)) {
+        const value = new Prisma.Decimal(search.replace(',', '.'));
+        where.OR.push(...numericFilterFields.map((field) => ({ [field]: value })));
+      }
+      const dateFilter = this.dateFilter(search);
+      if (dateFilter) where.OR.push({ data: dateFilter });
+    }
+    if (query.data) {
+      const dateFilter = this.dateFilter(query.data.slice(0, 10));
+      if (!dateFilter) throw new BadRequestException('Informe uma data válida.');
+      where.data = dateFilter;
+    }
+    if (query.cavalo?.trim()) where.cavaloMecanico = relatedFilter(query.cavalo.trim());
+    for (const field of numericFilterFields) {
+      const value = query[field];
+      if (typeof value === 'number') where[field] = value;
     }
     return where;
+  }
+
+  private dateFilter(value: string) {
+    const brazilian = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value);
+    const isoDate = brazilian ? `${brazilian[3]}-${brazilian[2]}-${brazilian[1]}` : value;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return undefined;
+    const start = new Date(`${isoDate}T00:00:00.000Z`);
+    if (!Number.isFinite(start.getTime()) || start.toISOString().slice(0, 10) !== isoDate) return undefined;
+    const end = new Date(start);
+    end.setUTCDate(end.getUTCDate() + 1);
+    return { gte: start, lt: end };
   }
 
   protected buildOrderBy() {
