@@ -1,103 +1,122 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
-import { Prisma, TipoCavaloMecanico, TipoConjuntoOperacional, TipoImplemento } from '@prisma/client';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { ComposicoesCavaloService, TransferenciaImplemento } from '../caminhoes/composicoes-cavalo.service';
 import { AuditActor } from '../common/audit/audit-context';
 import { CrudService } from '../common/crud/crud.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateConjuntoDto } from './dto/create-conjunto.dto';
 import { UpdateConjuntoDto } from './dto/update-conjunto.dto';
 
+const conjuntoInclude = {
+  cavaloMecanico: true,
+  implementos: { include: { implemento: true }, orderBy: { ordem: 'asc' as const } },
+} satisfies Prisma.ConjuntoInclude;
+
 @Injectable()
 export class ConjuntosService extends CrudService<CreateConjuntoDto, UpdateConjuntoDto> {
-  constructor(prisma: PrismaService) {
-    super(prisma, 'conjunto', ['nome'], {
-      cavaloMecanico: true,
-      implementos: { include: { implemento: true }, orderBy: { ordem: 'asc' } },
-    });
+  constructor(
+    prisma: PrismaService,
+    private readonly composicoes: ComposicoesCavaloService,
+  ) {
+    super(prisma, 'conjunto', ['nome'], conjuntoInclude);
   }
 
   async create(dto: CreateConjuntoDto, actor?: AuditActor) {
-    const cavalo = await this.getCavalo(dto.cavaloMecanicoId);
-    await this.validateComposition(dto, cavalo);
-    const implementos = await this.getImplementosInOrder(dto.implementoIds);
-    const totals = this.calculateTotals(cavalo.tipoCavalo, implementos);
-    const composition = this.inferComposition(totals.eixos, implementos);
-    const created = await this.prisma.conjunto.create({
-      data: {
-        nome: this.buildNome(cavalo),
-        tipo: composition.tipo,
-        cavaloMecanicoId: dto.cavaloMecanicoId,
-        quantidadeTotalEixos: composition.eixos,
-        capacidadeTotal: totals.capacidade,
-        status: dto.status || 'ATIVO',
-        justificativaSemImplemento: dto.justificativaSemImplemento || null,
-        observacoes: dto.observacoes || null,
-        implementos: {
-          create: dto.implementoIds.map((implementoId, index) => ({ implementoId, ordem: index + 1 })),
-        },
-      },
-      include: this.include as any,
-    });
-    await this.prisma.historicoCavaloMecanico.create({
-      data: {
-        cavaloMecanicoId: created.cavaloMecanicoId,
-        acao: 'ENGATE_CONJUNTO',
-        dadosAntes: undefined,
-        dadosDepois: JSON.parse(JSON.stringify(created)),
-        observacoes: 'Conjunto operacional engatado ao cavalo mecânico',
-      },
+    const created = await this.composicoes.runCompositionTransaction<any>(this.prisma, async (tx) => {
+      const { cavalo, implementos } = await this.loadComposition(tx, dto);
+      const timestamp = new Date();
+      const status = dto.status || 'ATIVO';
+      const transferencias = status === 'ATIVO'
+        ? await this.prepareActiveComposition(tx, cavalo.id, dto.implementoIds, timestamp)
+        : [];
+      const conjunto = await this.composicoes.createConjunto(
+        tx, cavalo, implementos, status, dto.observacoes || null, timestamp, dto.justificativaSemImplemento || null,
+      );
+      await this.composicoes.registrarTransferencias(tx, transferencias, conjunto, timestamp);
+      await this.registrarHistoricoCavalo(tx, cavalo.id, status === 'ATIVO' ? 'ENGATE_CONJUNTO' : 'CADASTRO_CONJUNTO', null, conjunto, timestamp);
+      return conjunto;
     });
     await this.audit('CRIACAO', created.id, null, created, actor);
     return created;
   }
 
   async update(id: string, dto: UpdateConjuntoDto, actor?: AuditActor) {
-    const before = await this.findOne(id);
-    const cavaloMecanicoId = dto.cavaloMecanicoId ?? before.cavaloMecanicoId;
-    const implementoIds: string[] = dto.implementoIds ?? before.implementos.map((item: any) => item.implementoId);
-    const cavalo = await this.getCavalo(cavaloMecanicoId);
-    await this.validateComposition({ ...before, ...dto, cavaloMecanicoId, implementoIds } as CreateConjuntoDto, cavalo);
-    const implementos = await this.getImplementosInOrder(implementoIds);
-    const totals = this.calculateTotals(cavalo.tipoCavalo, implementos);
-    const composition = this.inferComposition(totals.eixos, implementos);
-    const updated = await this.prisma.$transaction(async (tx) => {
-      if (dto.implementoIds) {
-        await tx.conjuntoImplemento.deleteMany({ where: { conjuntoId: id } });
+    const result = await this.composicoes.runCompositionTransaction<any>(this.prisma, async (tx) => {
+      const before = await tx.conjunto.findUnique({ where: { id }, include: conjuntoInclude });
+      if (!before) throw new NotFoundException('Registro não encontrado.');
+      const implementoIds: string[] = dto.implementoIds ?? before.implementos.map((item: any) => item.implementoId);
+      const cavaloMecanicoId = dto.cavaloMecanicoId ?? before.cavaloMecanicoId;
+      const justificativaSemImplemento = dto.justificativaSemImplemento !== undefined
+        ? dto.justificativaSemImplemento
+        : before.justificativaSemImplemento;
+      const status = dto.status || before.status;
+      const observacoes = dto.observacoes !== undefined ? dto.observacoes : before.observacoes;
+      const compositionChanged = cavaloMecanicoId !== before.cavaloMecanicoId
+        || implementoIds.length !== before.implementos.length
+        || implementoIds.some((implementoId, index) => implementoId !== before.implementos[index].implementoId);
+      const reactivating = before.status !== 'ATIVO' && status === 'ATIVO';
+      const timestamp = new Date();
+      let updated: any;
+
+      if (compositionChanged || reactivating) {
+        const { cavalo, implementos } = await this.loadComposition(tx, {
+          cavaloMecanicoId, implementoIds, justificativaSemImplemento,
+        });
+        const transferenciasDoConjunto: TransferenciaImplemento[] = before.status === 'ATIVO'
+          && status === 'ATIVO' && before.cavaloMecanicoId !== cavaloMecanicoId
+          ? before.implementos
+            .filter((vinculo: any) => vinculo.dataFim === null && implementoIds.includes(vinculo.implementoId))
+            .map((vinculo: any) => ({
+              implementoId: vinculo.implementoId,
+              placa: vinculo.implemento.placa,
+              cavaloMecanicoId: before.cavaloMecanicoId,
+              cavaloPlaca: before.cavaloMecanico.placa,
+              conjuntoId: before.id,
+            }))
+          : [];
+        if (before.status === 'ATIVO') {
+          await this.composicoes.encerrarConjunto(tx, before, timestamp, 'Composição substituída pelo cadastro do conjunto operacional');
+        }
+        const transferencias = status === 'ATIVO'
+          ? await this.prepareActiveComposition(tx, cavaloMecanicoId, implementoIds, timestamp)
+          : [];
+        // O registro anterior e seus vínculos continuam representando os lançamentos de sua época.
+        updated = await this.composicoes.createConjunto(
+          tx, cavalo, implementos, status, observacoes || null, timestamp, justificativaSemImplemento || null,
+        );
+        await this.composicoes.registrarTransferencias(tx, [...transferenciasDoConjunto, ...transferencias], updated, timestamp);
+      } else {
+        this.validateEmptyComposition(implementoIds, justificativaSemImplemento);
+        if (before.status === 'ATIVO' && status !== 'ATIVO') {
+          await this.composicoes.encerrarConjunto(tx, before, timestamp, 'Composição encerrada pelo cadastro do conjunto operacional');
+        }
+        updated = await tx.conjunto.update({
+          where: { id },
+          data: { status, observacoes, justificativaSemImplemento },
+          include: conjuntoInclude,
+        });
       }
-      return tx.conjunto.update({
-        where: { id },
+
+      await tx.historicoConjuntoOperacional.create({
         data: {
-          nome: this.buildNome(cavalo),
-          tipo: composition.tipo,
-          cavaloMecanicoId: dto.cavaloMecanicoId,
-          quantidadeTotalEixos: composition.eixos,
-          capacidadeTotal: totals.capacidade,
-          status: dto.status || undefined,
-          justificativaSemImplemento: dto.justificativaSemImplemento,
-          observacoes: dto.observacoes,
-          ...(dto.implementoIds
-            ? { implementos: { create: implementoIds.map((implementoId: string, index: number) => ({ implementoId, ordem: index + 1 })) } }
-            : {}),
+          conjuntoId: updated.id,
+          acao: compositionChanged || reactivating ? 'ATUALIZACAO_COMPOSICAO' : 'ATUALIZACAO',
+          dadosAntes: this.snapshot(before),
+          dadosDepois: this.snapshot(updated),
+          observacoes: compositionChanged || reactivating
+            ? 'Nova versão da composição; o conjunto anterior e seus lançamentos foram preservados'
+            : 'Alteração cadastral do conjunto operacional',
+          createdAt: timestamp,
         },
-        include: this.include as any,
       });
+      if (before.cavaloMecanicoId !== updated.cavaloMecanicoId) {
+        await this.registrarHistoricoCavalo(tx, before.cavaloMecanicoId, 'DESENGATE_CONJUNTO', before, updated, timestamp);
+      }
+      await this.registrarHistoricoCavalo(tx, updated.cavaloMecanicoId, 'ATUALIZACAO_ENGATE', before, updated, timestamp);
+      return { before, updated };
     });
-    await this.prisma.historicoConjuntoOperacional.create({
-      data: {
-        conjuntoId: id,
-        acao: 'ATUALIZACAO_COMPOSICAO',
-        dadosAntes: JSON.parse(JSON.stringify(before)),
-        dadosDepois: JSON.parse(JSON.stringify(updated)),
-        observacoes: 'Alteração de composição registrada automaticamente',
-      },
-    });
-    if ((before as any).cavaloMecanicoId !== updated.cavaloMecanicoId) {
-      await this.registrarHistoricoCavalo((before as any).cavaloMecanicoId, 'DESENGATE_CONJUNTO', before, updated);
-      await this.registrarHistoricoCavalo(updated.cavaloMecanicoId, 'ENGATE_CONJUNTO', before, updated);
-    } else {
-      await this.registrarHistoricoCavalo(updated.cavaloMecanicoId, 'ATUALIZACAO_ENGATE', before, updated);
-    }
-    await this.audit('ATUALIZACAO', id, before, updated, actor);
-    return updated;
+    await this.audit('ATUALIZACAO', id, result.before, result.updated, actor);
+    return result.updated;
   }
 
   async historico(id: string) {
@@ -109,110 +128,80 @@ export class ConjuntosService extends CrudService<CreateConjuntoDto, UpdateConju
   }
 
   async remove(id: string, actor?: AuditActor) {
-    await this.assertNoRelatedRecords([
-      {
-        count: this.prisma.lancamentoFinanceiro.count({ where: { conjuntoId: id } }),
-        message: 'Não foi possível excluir: conjunto possui lançamentos financeiros vinculados ao histórico.',
-      },
-      {
-        count: this.prisma.historicoConjuntoOperacional.count({ where: { conjuntoId: id } }),
-        message: 'Não foi possível excluir: conjunto possui histórico registrado. Inative o cadastro para preservar os dados.',
-      },
-    ]);
-    return super.remove(id, actor);
+    const before = await this.composicoes.runCompositionTransaction<any>(this.prisma, async (tx) => {
+      const conjunto = await tx.conjunto.findUnique({ where: { id }, include: conjuntoInclude });
+      if (!conjunto) throw new NotFoundException('Registro não encontrado.');
+      await this.assertNoRelatedRecords([
+        {
+          count: tx.lancamentoFinanceiro.count({ where: { conjuntoId: id } }),
+          message: 'Não foi possível excluir: conjunto possui lançamentos financeiros vinculados ao histórico.',
+        },
+        {
+          count: tx.historicoConjuntoOperacional.count({ where: { conjuntoId: id } }),
+          message: 'Não foi possível excluir: conjunto possui histórico registrado. Inative o cadastro para preservar os dados.',
+        },
+        {
+          count: tx.conjuntoImplemento.count({ where: { conjuntoId: id } }),
+          message: 'Não foi possível excluir: conjunto possui vínculos de implementos. Inative o cadastro para preservar os dados.',
+        },
+        {
+          count: tx.caminhao.count({ where: { conjuntoId: id } }),
+          message: 'Não foi possível excluir: conjunto está vinculado a um caminhão. Inative o cadastro para preservar os dados.',
+        },
+      ]);
+      await tx.conjunto.delete({ where: { id } });
+      return conjunto;
+    });
+    await this.audit('EXCLUSAO', id, before, null, actor);
+    return { message: 'Registro excluído com sucesso.' };
   }
 
-  private async validateComposition(dto: CreateConjuntoDto, cavalo?: { tipoCavalo?: TipoCavaloMecanico | null }) {
+  private async prepareActiveComposition(tx: Prisma.TransactionClient, cavaloMecanicoId: string, implementoIds: string[], timestamp: Date) {
+    const activeConjuntos = await tx.conjunto.findMany({
+      where: { cavaloMecanicoId, status: 'ATIVO' },
+      include: conjuntoInclude,
+    });
+    for (const conjunto of activeConjuntos) {
+      await this.composicoes.encerrarConjunto(tx, conjunto, timestamp, 'Composição substituída pelo cadastro do conjunto operacional');
+    }
+    return this.composicoes.resolverTransferencias(tx, cavaloMecanicoId, implementoIds, timestamp);
+  }
+
+  private async loadComposition(tx: Prisma.TransactionClient, dto: Pick<CreateConjuntoDto, 'cavaloMecanicoId' | 'implementoIds' | 'justificativaSemImplemento'>) {
     if (!dto.cavaloMecanicoId) throw new BadRequestException('Conjunto operacional deve ter um cavalo mecânico.');
-    if ((!dto.implementoIds || dto.implementoIds.length === 0) && !dto.justificativaSemImplemento) {
+    this.validateEmptyComposition(dto.implementoIds, dto.justificativaSemImplemento);
+    if (new Set(dto.implementoIds).size !== dto.implementoIds.length) {
+      throw new BadRequestException('Não informe o mesmo implemento mais de uma vez na composição.');
+    }
+    const cavalo = await tx.cavaloMecanico.findUnique({ where: { id: dto.cavaloMecanicoId } });
+    if (!cavalo) throw new BadRequestException('Cavalo mecânico não encontrado.');
+    const found = await tx.implemento.findMany({ where: { id: { in: dto.implementoIds } } });
+    if (found.length !== dto.implementoIds.length) throw new BadRequestException('Um ou mais implementos não foram encontrados.');
+    const byId = new Map(found.map((item) => [item.id, item]));
+    const implementos = dto.implementoIds.map((implementoId) => byId.get(implementoId)!);
+    this.composicoes.validateComposition(implementos, cavalo.tipoCavalo);
+    return { cavalo, implementos };
+  }
+
+  private validateEmptyComposition(implementoIds: string[], justificativa?: string | null) {
+    if ((!implementoIds || implementoIds.length === 0) && !justificativa?.trim()) {
       throw new BadRequestException('Informe pelo menos um implemento ou uma justificativa para conjunto sem implemento.');
     }
-    if (!dto.implementoIds?.length) return;
-
-    const implementos = await this.getImplementosInOrder(dto.implementoIds);
-    const hasDolly = implementos.some((item) => item.tipo === TipoImplemento.DOLLY);
-    const carretas = implementos.filter((item) => item.tipo !== TipoImplemento.DOLLY);
-    const dollys = implementos.filter((item) => item.tipo === TipoImplemento.DOLLY);
-
-    if (hasDolly && implementos.every((item) => item.tipo === TipoImplemento.DOLLY)) {
-      throw new BadRequestException('Dolly deve estar acompanhado de pelo menos uma carreta, semirreboque ou reboque.');
-    }
-
-    if (carretas.length > 2) {
-      throw new BadRequestException('A composição deve ter no máximo duas carretas/reboques.');
-    }
-
-    if (dollys.length > 1) {
-      throw new BadRequestException('A composição deve ter no máximo um dolly.');
-    }
-
-    if (carretas.length === 1 && hasDolly) {
-      throw new BadRequestException('Se houver apenas uma carreta, não informe dolly.');
-    }
-
-    if (hasDolly && (implementos.length !== 3 || implementos[1]?.tipo !== TipoImplemento.DOLLY)) {
-      throw new BadRequestException('No rodotrem, informe os implementos na ordem: 1ª carreta, dolly e 2ª carreta.');
-    }
-
-    if (hasDolly && !this.isThreeAxleCavalo(cavalo?.tipoCavalo)) {
-      throw new BadRequestException('Rodotrem deve usar cavalo trucado ou traçado.');
-    }
-
-    if (carretas.some((item) => ![2, 3].includes(Number(item.quantidadeEixos)))) {
-      throw new BadRequestException('Carretas devem ter 2 ou 3 eixos.');
-    }
   }
 
-  private calculateTotals(tipoCavalo: TipoCavaloMecanico | null | undefined, implementos: Array<{ tipo: TipoImplemento; quantidadeEixos: number; capacidadeCarga: Prisma.Decimal }>) {
-    if (!implementos.length) return { eixos: 0, capacidade: new Prisma.Decimal(0) };
-    return {
-      eixos: this.cavaloEixos(tipoCavalo) + implementos.reduce((total, item) => total + (item.tipo === TipoImplemento.DOLLY ? 2 : item.quantidadeEixos), 0),
-      capacidade: implementos.reduce((total, item) => total.add(item.capacidadeCarga), new Prisma.Decimal(0)),
-    };
+  private snapshot(value: unknown) {
+    return JSON.parse(JSON.stringify(value));
   }
 
-  private async getImplementosInOrder(implementoIds: string[]) {
-    const implementos = await this.prisma.implemento.findMany({ where: { id: { in: implementoIds } } });
-    if (implementos.length !== new Set(implementoIds).size) throw new BadRequestException('Um ou mais implementos não foram encontrados.');
-    const byId = new Map(implementos.map((item) => [item.id, item]));
-    return implementoIds.map((id) => byId.get(id)!);
-  }
-
-  private async getCavalo(cavaloMecanicoId: string) {
-    const cavalo = await this.prisma.cavaloMecanico.findUnique({ where: { id: cavaloMecanicoId } });
-    if (!cavalo) throw new BadRequestException('Cavalo mecânico não encontrado.');
-    return cavalo;
-  }
-
-  private buildNome(cavalo: { placa: string; marca: string | null }) {
-    return [cavalo.placa, cavalo.marca].filter(Boolean).join(' - ');
-  }
-
-  private inferComposition(eixos: number, implementos: Array<{ tipo: TipoImplemento }>) {
-    if (implementos.some((item) => item.tipo === TipoImplemento.DOLLY)) return { tipo: TipoConjuntoOperacional.RODOTREM, eixos };
-    if (implementos.filter((item) => item.tipo !== TipoImplemento.DOLLY).length === 2) return { tipo: TipoConjuntoOperacional.BITREM, eixos };
-    return { tipo: TipoConjuntoOperacional.SIMPLES, eixos };
-  }
-
-  private cavaloEixos(tipoCavalo: TipoCavaloMecanico | null | undefined) {
-    if (tipoCavalo === TipoCavaloMecanico.SIMPLES_TOCO_4X2) return 2;
-    if (tipoCavalo === TipoCavaloMecanico.TRUCADO_6X2 || tipoCavalo === TipoCavaloMecanico.TRACADO_6X4) return 3;
-    return 0;
-  }
-
-  private isThreeAxleCavalo(tipoCavalo: TipoCavaloMecanico | null | undefined) {
-    return tipoCavalo === TipoCavaloMecanico.TRUCADO_6X2 || tipoCavalo === TipoCavaloMecanico.TRACADO_6X4;
-  }
-
-  private async registrarHistoricoCavalo(cavaloMecanicoId: string | null | undefined, acao: string, antes: unknown, depois: unknown) {
-    if (!cavaloMecanicoId) return;
-    await this.prisma.historicoCavaloMecanico.create({
+  private async registrarHistoricoCavalo(tx: Prisma.TransactionClient, cavaloMecanicoId: string, acao: string, antes: unknown, depois: unknown, timestamp: Date) {
+    await tx.historicoCavaloMecanico.create({
       data: {
         cavaloMecanicoId,
         acao,
-        dadosAntes: JSON.parse(JSON.stringify(antes)),
-        dadosDepois: JSON.parse(JSON.stringify(depois)),
+        dadosAntes: antes == null ? undefined : this.snapshot(antes),
+        dadosDepois: this.snapshot(depois),
         observacoes: 'Histórico de engate do conjunto operacional',
+        createdAt: timestamp,
       },
     });
   }

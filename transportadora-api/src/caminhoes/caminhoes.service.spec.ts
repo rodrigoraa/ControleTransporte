@@ -19,6 +19,7 @@ function makePrisma() {
 
   const tx: any = {
     cavaloMecanico: {
+      findUnique: jest.fn(async () => ({ ...state.cavalo, conjuntos: state.conjuntos.filter((item: any) => item.status === StatusGeral.ATIVO), motorista: null })),
       create: jest.fn(async ({ data }: any) => ({ id: 'cav-1', ...data, motorista: null })),
       update: jest.fn(async ({ data }: any) => {
         state.cavalo = { ...state.cavalo, ...data };
@@ -27,6 +28,7 @@ function makePrisma() {
       findUniqueOrThrow: jest.fn(async () => ({ ...state.cavalo, conjuntos: state.conjuntos.filter((item: any) => item.status === StatusGeral.ATIVO), motorista: null })),
     },
     implemento: {
+      findMany: jest.fn(async ({ where }: any) => state.implementos.filter((item: any) => where.id.in.includes(item.id))),
       create: jest.fn(async ({ data }: any) => {
         const item = { id: `imp-${state.implementos.length + 1}`, ...data };
         state.implementos.push(item);
@@ -39,6 +41,10 @@ function makePrisma() {
       }),
     },
     conjunto: {
+      findFirst: jest.fn(async ({ where }: any) => state.conjuntos.find((item: any) => item.status === where.status && where.OR.some((clause: any) =>
+        clause.cavaloMecanicoId === item.cavaloMecanicoId || item.implementos.some((link: any) => !link.dataFim && clause.implementos?.some.implementoId.in.includes(link.implementoId)),
+      )) || null),
+      findUniqueOrThrow: jest.fn(async ({ where }: any) => ({ ...state.conjuntos.find((item: any) => item.id === where.id), cavaloMecanico: state.cavalo })),
       create: jest.fn(async ({ data }: any) => {
         const conjunto = {
           id: `conj-${state.conjuntos.length + 1}`,
@@ -53,16 +59,26 @@ function makePrisma() {
         state.conjuntos.push(conjunto);
         return conjunto;
       }),
-      findMany: jest.fn(async () => state.conjuntos.filter((item: any) => item.status === StatusGeral.ATIVO)),
+      findMany: jest.fn(async ({ where }: any) => state.conjuntos.filter((item: any) => item.status === where.status && (
+        typeof where.cavaloMecanicoId === 'string'
+          ? item.cavaloMecanicoId === where.cavaloMecanicoId
+          : item.cavaloMecanicoId !== where.cavaloMecanicoId.not && item.implementos.some((link: any) => !link.dataFim && where.implementos.some.implementoId.in.includes(link.implementoId))
+      ))),
       update: jest.fn(async ({ where, data }: any) => {
         const conjunto = state.conjuntos.find((item: any) => item.id === where.id);
         Object.assign(conjunto, data);
         return conjunto;
       }),
     },
-    conjuntoImplemento: { updateMany: jest.fn(async () => ({ count: 1 })) },
+    conjuntoImplemento: { updateMany: jest.fn(async ({ where, data }: any) => {
+      const conjunto = state.conjuntos.find((item: any) => item.id === where.conjuntoId);
+      conjunto?.implementos.forEach((link: any) => { if (!link.dataFim) link.dataFim = data.dataFim; });
+      return { count: conjunto?.implementos.length || 0 };
+    }) },
     historicoConjuntoOperacional: { create: jest.fn(async (args: any) => args) },
     historicoCavaloMecanico: { create: jest.fn(async (args: any) => args) },
+    historicoImplemento: { create: jest.fn(async (args: any) => args) },
+    historicoMotorista: { create: jest.fn(async (args: any) => args) },
   };
 
   return {

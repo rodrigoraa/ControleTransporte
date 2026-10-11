@@ -14,6 +14,7 @@ import { buildColumnFilterParams } from '../utils/columnFilters';
 import { date, maskPlate, money } from '../utils/formatters';
 import { billingTotal, commissionAfterTaxDiscount, commissionDefaults, commissionValues, selectedCommissionValue } from '../utils/commission';
 import { nextTableSort, TableSort } from '../utils/tableSorting';
+import { buildImplementoOwnership, existingImplementoOptions, ImplementoOwnership, implementoTransferConfirmation, implementoTransferNotice, selectedImplementoTransfers } from '../utils/compositionTransfers';
 import { carrocerias, crudResources, Field, Resource, resourceListPath, tiposImplemento } from './resources';
 
 type Mode = 'create' | 'edit' | 'view';
@@ -290,14 +291,17 @@ const implementoFields: Field[] = [
 
 async function loadRelationRows(field: Field) {
   if (!field.relation) return [];
+  return loadPaginatedRows(field.relation.endpoint, field.relation.params);
+}
 
+async function loadPaginatedRows(endpoint: string, params: Record<string, string> = {}) {
   const rows: any[] = [];
   let page = 1;
   let total = 0;
 
   do {
-    const { data } = await api.get(field.relation.endpoint, {
-      params: { page, limit: relationPageLimit, ...field.relation.params },
+    const { data } = await api.get(endpoint, {
+      params: { page, limit: relationPageLimit, ...params },
     });
     const pageRows = Array.isArray(data.data) ? data.data : [];
     rows.push(...pageRows);
@@ -388,11 +392,11 @@ function HistoricoOperacionalModal({ resource, item, onClose }: { resource: Reso
   </div>;
 }
 
-function buildTimeline(data: any, isCavalo: boolean): TimelineEvent[] {
+export function buildTimeline(data: any, isCavalo: boolean): TimelineEvent[] {
   const motoristas = new Map((data.motoristasHistoricos || []).map((motorista: any) => [motorista.id, motorista.nome]));
   const alteracoes = (data.alteracoes || []).map((registro: any) => {
-    const antes = registro.dadosAntes || {};
-    const depois = registro.dadosDepois || {};
+    const antes = registro.dadosAntes?.cavalo || registro.dadosAntes || {};
+    const depois = registro.dadosDepois?.cavalo || registro.dadosDepois || {};
     let description = registro.observacoes || historyAction(registro.acao);
     if (isCavalo && antes.motoristaId !== depois.motoristaId) {
       const anterior = motoristas.get(antes.motoristaId) || (antes.motoristaId ? 'Motorista anterior' : 'Sem motorista');
@@ -537,8 +541,27 @@ function CaminhaoCompletoModal({ resource, mode, item, onClose, onSaved }: { res
   const [form, setForm] = useState<any>(() => ({ ...prepareInitial(item, cavaloFields), status: item.status || 'ATIVO' }));
   const [implementos, setImplementos] = useState<any[]>(() => compositionImplementos(item));
   const [relationOptions, setRelationOptions] = useState<Record<string, { label: string; value: string }[]>>({});
+  const [implementoCatalog, setImplementoCatalog] = useState<any[]>([]);
+  const [implementoOwnership, setImplementoOwnership] = useState<Record<string, ImplementoOwnership>>({});
+  const [loadingImplementos, setLoadingImplementos] = useState(true);
+  const [catalogError, setCatalogError] = useState('');
+  const [pendingTransfer, setPendingTransfer] = useState<{ payload: any; message: string } | null>(null);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  useEscapeToClose(onClose);
+  useEscapeToClose(onClose, !saving);
+
+  useEffect(() => {
+    let mounted = true;
+    Promise.all([loadPaginatedRows('/implementos'), loadPaginatedRows('/conjuntos', { status: 'ATIVO' })])
+      .then(([catalog, conjuntos]) => {
+        if (!mounted) return;
+        setImplementoCatalog(catalog);
+        setImplementoOwnership(buildImplementoOwnership(conjuntos));
+      })
+      .catch(() => { if (mounted) setCatalogError('Não foi possível carregar os implementos existentes. Feche e abra a edição para tentar novamente.'); })
+      .finally(() => { if (mounted) setLoadingImplementos(false); });
+    return () => { mounted = false; };
+  }, []);
 
   useEffect(() => {
     const fields = cavaloFields.filter((field) => field.relation);
@@ -586,8 +609,19 @@ function CaminhaoCompletoModal({ resource, mode, item, onClose, onSaved }: { res
     setImplementos((current) => [...current, { tipo: 'CARRETA', carroceria: 'OUTRO', quantidadeEixos: 2, capacidadeCarga: 0, status: 'ATIVO' }]);
   }
 
+  function selectImplemento(index: number, id: string) {
+    const selected = implementoCatalog.find((implemento) => implemento.id === id);
+    if (id && !selected) return;
+    if (id && implementos.some((implemento, itemIndex) => itemIndex !== index && implemento.id === id)) return;
+    const next = selected
+      ? { ...selected, capacidadeCarga: Number(selected.capacidadeCarga || 0) }
+      : { tipo: 'CARRETA', carroceria: 'OUTRO', quantidadeEixos: 2, capacidadeCarga: 0, status: 'ATIVO' };
+    setImplementos((current) => current.map((implemento, itemIndex) => itemIndex === index ? next : implemento));
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (saving) return;
     const validationError = validateComposicao(form, implementos);
     if (validationError) {
       setError(validationError);
@@ -597,7 +631,19 @@ function CaminhaoCompletoModal({ resource, mode, item, onClose, onSaved }: { res
       ...sanitize(form, cavaloFields, 'create'),
       implementos: implementos.map((item) => sanitize(item, implementoFields, 'create')),
     };
+    const transfers = selectedImplementoTransfers(implementos, item.id, implementoOwnership);
+    if (transfers.length) {
+      setPendingTransfer({ payload, message: implementoTransferConfirmation(transfers) });
+      return;
+    }
+    await save(payload);
+  }
 
+  async function save(payload: any) {
+    if (saving) return;
+    setSaving(true);
+    setError('');
+    setPendingTransfer(null);
     try {
       const response = mode === 'create'
         ? await api.post(resource.endpoint, payload)
@@ -606,6 +652,8 @@ function CaminhaoCompletoModal({ resource, mode, item, onClose, onSaved }: { res
     } catch (requestError: any) {
       const message = await apiErrorMessage(requestError, 'Verifique os campos e tente novamente.');
       setError(message === 'Internal server error' ? 'Não foi possível salvar a composição. Verifique placas duplicadas e tente novamente.' : message);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -614,7 +662,7 @@ function CaminhaoCompletoModal({ resource, mode, item, onClose, onSaved }: { res
       <form className="modal large-modal" onSubmit={submit}>
         <div className="modal-header">
           <h2>{mode === 'create' ? 'Novo cavalo mecânico' : 'Editar cavalo mecânico'}</h2>
-          <button type="button" className="icon-button" onClick={onClose}><X size={18} /></button>
+          <button type="button" className="icon-button" onClick={onClose} disabled={saving}><X size={18} /></button>
         </div>
         <div className="form-section">
           <div className="section-title">
@@ -639,6 +687,7 @@ function CaminhaoCompletoModal({ resource, mode, item, onClose, onSaved }: { res
           </div>
           <CompositionSummary cavalo={form} implementos={implementos} />
           <CompositionDrawing cavalo={form} implementos={implementos} />
+          {catalogError && <div className="form-warning">{catalogError}</div>}
           {!implementos.length && <div className="empty-inline">Sem carreta, dolly ou reboque vinculado neste cadastro.</div>}
           <div className="implemento-list">
             {implementos.map((implemento, index) => (
@@ -650,6 +699,18 @@ function CaminhaoCompletoModal({ resource, mode, item, onClose, onSaved }: { res
                   </button>
                 </div>
                 <div className="form-grid">
+                  <label className="wide">
+                    Implemento existente
+                    <SearchableSelect
+                      value={implemento.id || ''}
+                      options={existingImplementoOptions(implementoCatalog, implementos, index, item.id, implementoOwnership)}
+                      emptyLabel={loadingImplementos ? 'Carregando implementos...' : 'Cadastrar novo implemento'}
+                      disabled={loadingImplementos || Boolean(catalogError)}
+                      ariaLabel={`Implemento existente ${index + 1}`}
+                      onChange={(id) => selectImplemento(index, id)}
+                    />
+                    {implementoTransferNotice(implemento, item.id, implementoOwnership) && <small>{implementoTransferNotice(implemento, item.id, implementoOwnership)}</small>}
+                  </label>
                   {implementoFields.filter((field) => shouldRenderImplementoField(field, implemento)).map((field) => (
                     <FieldControl
                       key={field.name}
@@ -665,10 +726,11 @@ function CaminhaoCompletoModal({ resource, mode, item, onClose, onSaved }: { res
         </div>
         {error && <div className="form-error">{error}</div>}
         <div className="modal-actions">
-          <button type="button" className="button ghost" onClick={onClose}>Cancelar</button>
-          <button className="button primary">Salvar tudo</button>
+          <button type="button" className="button ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+          <button className="button primary" disabled={saving}>{saving ? 'Salvando...' : 'Salvar tudo'}</button>
         </div>
       </form>
+      {pendingTransfer && <ConfirmModal title="Transferir implementos" message={pendingTransfer.message} confirmLabel="Transferir e salvar" confirmClassName="primary" onCancel={() => setPendingTransfer(null)} onConfirm={() => save(pendingTransfer.payload)} />}
     </div>
   );
 }
