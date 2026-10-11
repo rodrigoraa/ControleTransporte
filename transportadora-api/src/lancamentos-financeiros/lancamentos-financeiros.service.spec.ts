@@ -43,6 +43,7 @@ function makeService(eixos = 6, currentOverrides: Record<string, any> = {}) {
       upsert: jest.fn(async () => ({ id: 'commission-category', codigoSistema: 'COMISSAO_MOTORISTA' })),
     },
     auditoria: { create: jest.fn() },
+    lancamentoImportado: { findUnique: jest.fn(async () => null) },
   };
   prisma.$transaction = jest.fn(async (callback: (transaction: any) => Promise<any>) => callback(prisma));
 
@@ -89,6 +90,85 @@ const baseDto = {
 };
 
 describe('LancamentosFinanceirosService', () => {
+  it('valida uma linha sem transação aninhada, gravações financeiras ou auditoria', async () => {
+    const { service, prisma, create } = makeService(6);
+    const result = await service.validateInTransaction(prisma, {
+      ...baseDto, tipoLancamento: TipoLancamento.FATURAMENTO, clienteId: 'client-1',
+      quantidade: 32_500, valorUnitario: 4_850, multiplicarQuantidade: false,
+    });
+
+    expect(result.quantidadeTotalEixos).toBe(6);
+    expect(String(result.valorTotal)).toBe('4850');
+    expect(result.comissao.tipoComissao).toBeNull();
+    expect(create).not.toHaveBeenCalled();
+    expect(prisma.categoriaFinanceira.upsert).not.toHaveBeenCalled();
+    expect(prisma.auditoria.create).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it.each([4, 7, 9])('exige escolha explícita de comissão no preview de %s eixos', async (eixos) => {
+    const { service, prisma, create } = makeService(eixos);
+    await expect(service.validateInTransaction(prisma, {
+      ...baseDto, tipoLancamento: TipoLancamento.FATURAMENTO, clienteId: 'client-1',
+    })).rejects.toThrow('Selecione o tipo de comissão');
+    expect(create).not.toHaveBeenCalled();
+    expect(prisma.categoriaFinanceira.upsert).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('reutiliza as regras de cliente e fornecedor durante a validação transacional', async () => {
+    const { service, prisma } = makeService();
+    await expect(service.validateInTransaction(prisma, { ...baseDto, tipoLancamento: TipoLancamento.FATURAMENTO })).rejects.toThrow('Faturamento deve ter cliente');
+    await expect(service.validateInTransaction(prisma, baseDto)).rejects.toThrow('Despesa deve ter fornecedor');
+  });
+
+  it('cria dentro da transação recebida com auditoria obrigatória e sem multiplicar o peso', async () => {
+    const { service, prisma, create } = makeService(7);
+    const result = await service.createInTransaction(prisma, {
+      ...baseDto, tipoLancamento: TipoLancamento.FATURAMENTO, clienteId: 'client-1',
+      quantidade: 32_500, valorUnitario: 4_850, multiplicarQuantidade: false,
+      tipoComissao: TipoComissao.PERCENTUAL, descontoImpostos: true,
+    }, { sub: 'admin-importacao' }, true);
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(String(result.valorTotal)).toBe('4850');
+    expect(String(result.valorComissaoBruta)).toBe('582');
+    expect(String(result.valorDescontoImpostos)).toBe('69.84');
+    expect(String(result.valorComissao)).toBe('512.16');
+    expect(result.despesaComissao).not.toBeNull();
+    expect(String(result.despesaComissao!.valorTotal)).toBe('512.16');
+    expect(prisma.auditoria.create).toHaveBeenCalledTimes(2);
+    expect(prisma.auditoria.create).toHaveBeenNthCalledWith(1, {
+      data: expect.objectContaining({ entidade: 'lancamentoFinanceiro', entidadeId: result.id, acao: 'CRIACAO', usuarioId: 'admin-importacao' }),
+    });
+    expect(prisma.auditoria.create).toHaveBeenNthCalledWith(2, {
+      data: expect.objectContaining({ entidade: 'lancamentoFinanceiro', entidadeId: result.despesaComissao!.id, acao: 'CRIACAO_COMISSAO', usuarioId: 'admin-importacao' }),
+    });
+  });
+
+  it('propaga falha de auditoria para permitir rollback do lote importado', async () => {
+    const { service, prisma } = makeService();
+    prisma.auditoria.create.mockRejectedValueOnce(new Error('Falha de auditoria'));
+    await expect(service.createInTransaction(prisma, {
+      ...baseDto, tipoLancamento: TipoLancamento.FATURAMENTO, clienteId: 'client-1',
+    }, { id: 'admin-importacao' }, true)).rejects.toThrow('Falha de auditoria');
+  });
+
+  it('permite criação transacional sem auditoria quando o chamador vai registrá-la depois', async () => {
+    const { service, prisma } = makeService();
+    await service.createInTransaction(prisma, { ...baseDto, fornecedorId: 'supplier-1' });
+    expect(prisma.auditoria.create).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('bloqueia exclusão de lançamento importado preservando a chave de idempotência', async () => {
+    const { service, prisma, remove } = makeService();
+    prisma.lancamentoImportado.findUnique.mockResolvedValueOnce({ id: 'import-1' });
+    await expect(service.remove('launch-1')).rejects.toThrow('preservar a rastreabilidade');
+    expect(remove).not.toHaveBeenCalled();
+  });
+
   it.each([TipoLancamento.DESPESA, TipoLancamento.FATURAMENTO])(
     'ordena %s por ordem de lançamento decrescente quando nenhuma outra ordenação é escolhida',
     async (tipoLancamento) => {

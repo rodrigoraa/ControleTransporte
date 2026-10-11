@@ -5,6 +5,8 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateMotoristaDto } from './dto/create-motorista.dto';
 import { UpdateMotoristaDto } from './dto/update-motorista.dto';
 
+const MENSAGEM_MAPEAMENTO_IMPORTACAO = 'Não foi possível excluir: motorista possui associações de importação confirmadas. Inative o cadastro para preservar a rastreabilidade.';
+
 @Injectable()
 export class MotoristasService extends CrudService<CreateMotoristaDto, UpdateMotoristaDto> {
   constructor(prisma: PrismaService) {
@@ -39,6 +41,10 @@ export class MotoristasService extends CrudService<CreateMotoristaDto, UpdateMot
       {
         count: this.prisma.historicoMotorista.count({ where: { motoristaId: id } }),
         message: 'Não foi possível excluir: motorista possui histórico registrado. Inative o cadastro para preservar os dados.',
+      },
+      {
+        count: this.prisma.mapeamentoImportacao.count({ where: { motoristaId: id } }),
+        message: MENSAGEM_MAPEAMENTO_IMPORTACAO,
       },
     ]);
     return super.remove(id, actor);

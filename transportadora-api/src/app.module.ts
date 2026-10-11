@@ -15,6 +15,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { FornecedoresModule } from './fornecedores/fornecedores.module';
 import { HealthController } from './health/health.controller';
 import { ImplementosModule } from './implementos/implementos.module';
+import { ImportacoesModule } from './importacoes/importacoes.module';
 import { LancamentosFinanceirosModule } from './lancamentos-financeiros/lancamentos-financeiros.module';
 import { MotoristasModule } from './motoristas/motoristas.module';
 import { RelatoriosModule } from './relatorios/relatorios.module';
@@ -45,6 +46,7 @@ import { AbastecimentosModule } from './abastecimentos/abastecimentos.module';
     CategoriasFinanceirasModule,
     FornecedoresModule,
     LancamentosFinanceirosModule,
+    ImportacoesModule,
     DashboardModule,
     RelatoriosModule,
   ],

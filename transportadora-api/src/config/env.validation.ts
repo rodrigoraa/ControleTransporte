@@ -46,6 +46,7 @@ export function validateEnv(config: Record<string, unknown>) {
   const port = parseInteger(config.PORT ?? 3000, 'PORT', 1, 65_535);
   const bcryptRounds = parseInteger(config.BCRYPT_ROUNDS ?? 12, 'BCRYPT_ROUNDS', 10, 15);
   const maxBodyBytes = parseInteger(config.MAX_BODY_BYTES ?? 1_048_576, 'MAX_BODY_BYTES', 1_024, 10_485_760);
+  const importMaxFileBytes = parseInteger(config.IMPORT_MAX_FILE_BYTES ?? 5_242_880, 'IMPORT_MAX_FILE_BYTES', 1_024, 10_485_760);
   const poolMode = String(config.DATABASE_POOL_MODE || 'auto');
   if (!poolModes.has(poolMode)) {
     throw new Error('DATABASE_POOL_MODE deve ser auto, direct ou transaction.');
@@ -57,6 +58,7 @@ export function validateEnv(config: Record<string, unknown>) {
     PORT: port,
     BCRYPT_ROUNDS: bcryptRounds,
     MAX_BODY_BYTES: maxBodyBytes,
+    IMPORT_MAX_FILE_BYTES: importMaxFileBytes,
     DATABASE_POOL_MODE: poolMode,
   };
 }

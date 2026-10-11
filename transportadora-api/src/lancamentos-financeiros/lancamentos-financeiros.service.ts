@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma, TipoComissao, TipoLancamento, UnidadeQuantidade } from '@prisma/client';
-import { AuditActor } from '../common/audit/audit-context';
+import { AuditActor, auditUserId } from '../common/audit/audit-context';
 import { CrudService } from '../common/crud/crud.service';
 import { PaginationDto } from '../common/crud/pagination.dto';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -29,33 +29,58 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
   }
 
   async create(dto: CreateLancamentoFinanceiroDto, actor?: AuditActor) {
-    const cleaned = this.cleanData(dto);
-    const multiplicarQuantidade = dto.multiplicarQuantidade ?? true;
-
-    const result = await this.prisma.$transaction(async (transaction) => {
-      const prepared = await this.prepareData(cleaned, transaction);
-      const valorTotal = this.calculateValorTotal(dto.quantidade, dto.valorUnitario, multiplicarQuantidade);
-      const comissao = this.calculateCommission(prepared.data, valorTotal, prepared.quantidadeTotalEixos, true);
-      const created = await transaction.lancamentoFinanceiro.create({
-        data: {
-          ...prepared.data,
-          ...comissao,
-          multiplicarQuantidade,
-          valorTotal,
-        },
-        include: lancamentoInclude,
-      });
-      const despesaComissao = comissao.valorComissao
-        ? await this.createCommissionExpense(transaction, created, comissao.valorComissao)
-        : null;
-      return { created, despesaComissao };
-    });
-
-    await this.audit('CRIACAO', result.created.id, null, result.created, actor);
+    const result = await this.prisma.$transaction((transaction) => this.createInTransaction(transaction, dto));
+    await this.audit('CRIACAO', result.id, null, result, actor);
     if (result.despesaComissao) {
       await this.audit('CRIACAO_COMISSAO', result.despesaComissao.id, null, result.despesaComissao, actor);
     }
-    return { ...result.created, despesaComissao: result.despesaComissao };
+    return result;
+  }
+
+  async validateInTransaction(transaction: Prisma.TransactionClient, dto: CreateLancamentoFinanceiroDto) {
+    const prepared = await this.prepareCreation(transaction, dto);
+    return {
+      quantidadeTotalEixos: prepared.quantidadeTotalEixos,
+      valorTotal: prepared.data.valorTotal,
+      comissao: prepared.comissao,
+    };
+  }
+
+  async createInTransaction(transaction: Prisma.TransactionClient, dto: CreateLancamentoFinanceiroDto, actor?: AuditActor, auditar = false) {
+    const prepared = await this.prepareCreation(transaction, dto);
+    const created = await transaction.lancamentoFinanceiro.create({
+      data: prepared.data,
+      include: lancamentoInclude,
+    });
+    const despesaComissao = prepared.comissao.valorComissao
+      ? await this.createCommissionExpense(transaction, created, prepared.comissao.valorComissao)
+      : null;
+    if (auditar) {
+      const registros = [{ acao: 'CRIACAO', registro: created }];
+      if (despesaComissao) registros.push({ acao: 'CRIACAO_COMISSAO', registro: despesaComissao });
+      for (const { acao, registro } of registros) {
+        // Imported batches require audit records to commit together with the financial rows.
+        await transaction.auditoria.create({
+          data: {
+            entidade: 'lancamentoFinanceiro', entidadeId: registro.id, acao, usuarioId: auditUserId(actor),
+            dadosDepois: JSON.parse(JSON.stringify(registro)),
+          },
+        });
+      }
+    }
+    return { ...created, despesaComissao };
+  }
+
+  private async prepareCreation(transaction: Prisma.TransactionClient, dto: CreateLancamentoFinanceiroDto) {
+    const prepared = await this.prepareData(this.cleanData(dto), transaction);
+    const multiplicarQuantidade = dto.multiplicarQuantidade ?? true;
+    const valorTotal = this.calculateValorTotal(dto.quantidade, dto.valorUnitario, multiplicarQuantidade);
+    const comissao = this.calculateCommission(prepared.data, valorTotal, prepared.quantidadeTotalEixos, true);
+    return {
+      data: { ...prepared.data, ...comissao, multiplicarQuantidade, valorTotal },
+      quantidadeTotalEixos: prepared.quantidadeTotalEixos,
+      comissao,
+    };
   }
 
   protected normalizeUpdate(dto: UpdateLancamentoFinanceiroDto) {
@@ -267,6 +292,10 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
     const current = await this.findOne(id);
     if (current.faturamentoOrigemId) {
       throw new BadRequestException('Esta despesa de comissão é automática. Exclua o faturamento de origem para removê-la.');
+    }
+    const importado = await this.prisma.lancamentoImportado.findUnique({ where: { lancamentoFinanceiroId: id }, select: { id: true } });
+    if (importado) {
+      throw new BadRequestException('Este lançamento foi importado e não pode ser excluído para preservar a rastreabilidade e impedir importações duplicadas.');
     }
     const despesaComissao = current.despesaComissao;
     const result = await super.remove(id, actor);

@@ -1378,7 +1378,8 @@ Backend:
 | `PORT` | Porta da API. |
 | `FRONTEND_URL` | Origem liberada no CORS. Use virgulas para mais de uma origem. |
 | `TRUST_PROXY` | Use `true` quando a API estiver atrás de proxy reverso confiável. |
-| `MAX_BODY_BYTES` | Limite de corpo das requisições. Padrão: `1048576`. |
+| `MAX_BODY_BYTES` | Limite de corpo das requisições JSON. Padrão: `1048576`. |
+| `IMPORT_MAX_FILE_BYTES` | Limite do arquivo Excel importado. Padrão: `5242880` (5 MiB); máximo: 10 MiB. |
 | `ADMIN_EMAIL` | E-mail do administrador criado pelo seed. |
 | `ADMIN_PASSWORD` | Senha do administrador criado pelo seed. Deve ser forte e privada. |
 
@@ -1645,3 +1646,7 @@ GET /api/relatorios/financeiros?dataInicial=2026-05-01&dataFinal=2026-05-31&cava
 - O sistema evita apagar dados automaticamente quando a conversão não é totalmente confiável.
 - O CSV usa separador `;`, adequado para abertura em aplicativos de planilha configurados em pt-BR.
 - O PDF é gerado no backend de forma simples, suficiente para exportação operacional.
+
+## Importação de faturamentos
+
+Administradores podem importar os arquivos `.xls` e `.xlsx` do layout CTRC em **Faturamento → Importar planilha**, com prévia, associações confirmadas, comissão e proteção contra duplicidade. Consulte [o guia da importação](docs/importacao-lancamentos.md) para limites, API, migration e validação.

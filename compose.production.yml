@@ -51,6 +51,7 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:?FRONTEND_URL deve ser informado}
       TRUST_PROXY: "true"
       MAX_BODY_BYTES: ${MAX_BODY_BYTES:-1048576}
+      IMPORT_MAX_FILE_BYTES: ${IMPORT_MAX_FILE_BYTES:-5242880}
       PORT: 3000
       HOST: 0.0.0.0
     depends_on:

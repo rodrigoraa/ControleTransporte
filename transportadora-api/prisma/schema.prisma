@@ -29,6 +29,11 @@ enum TipoComissao {
   POR_VIAGEM
 }
 
+enum TipoEntidadeImportacao {
+  MOTORISTA
+  CLIENTE
+}
+
 enum UnidadeQuantidade {
   KG
   UNIDADE
@@ -91,6 +96,7 @@ model Cliente {
 
   lancamentos LancamentoFinanceiro[]
   historicos  HistoricoCliente[]
+  mapeamentosImportacao MapeamentoImportacao[]
 
   @@map("clientes")
 }
@@ -111,6 +117,7 @@ model Motorista {
   cavalosMecanicos CavaloMecanico[]
   lancamentos      LancamentoFinanceiro[]
   historicos       HistoricoMotorista[]
+  mapeamentosImportacao MapeamentoImportacao[]
 
   @@map("motoristas")
 }
@@ -445,6 +452,7 @@ model LancamentoFinanceiro {
   categoriaFinanceira CategoriaFinanceira? @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
   faturamentoOrigem    LancamentoFinanceiro? @relation("FaturamentoComissao", fields: [faturamentoOrigemId], references: [id], onDelete: Cascade)
   despesaComissao      LancamentoFinanceiro? @relation("FaturamentoComissao")
+  importacao          LancamentoImportado?
 
   @@index([data])
   @@index([tipoLancamento])
@@ -458,4 +466,44 @@ model LancamentoFinanceiro {
   @@index([clienteId])
   @@index([tipoComissao])
   @@map("lancamentos_financeiros")
+}
+
+model MapeamentoImportacao {
+  id            String                @id @default(uuid())
+  origem        String
+  tipoEntidade  TipoEntidadeImportacao
+  codigoExterno String
+  nomeExterno   String
+  motoristaId   String?
+  clienteId     String?
+  criadoPorId   String?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  motorista Motorista? @relation(fields: [motoristaId], references: [id], onDelete: Restrict)
+  cliente   Cliente?   @relation(fields: [clienteId], references: [id], onDelete: Restrict)
+
+  @@unique([origem, tipoEntidade, codigoExterno])
+  @@index([motoristaId])
+  @@index([clienteId])
+  @@map("mapeamentos_importacao")
+}
+
+model LancamentoImportado {
+  id                    String   @id @default(uuid())
+  origem                String
+  chaveExterna          String
+  lancamentoFinanceiroId String  @unique
+  dadosOriginais        Json
+  hashDados             String
+  hashArquivo           String
+  nomeArquivo           String
+  usuarioId             String?
+  dataImportacao        DateTime @default(now())
+
+  lancamentoFinanceiro LancamentoFinanceiro @relation(fields: [lancamentoFinanceiroId], references: [id], onDelete: Restrict)
+
+  @@unique([origem, chaveExterna])
+  @@index([dataImportacao])
+  @@map("lancamentos_importados")
 }

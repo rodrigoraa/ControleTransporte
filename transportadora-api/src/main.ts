@@ -1,9 +1,11 @@
 ﻿import { BadRequestException, ValidationError, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import helmet from '@fastify/helmet';
+import multipart from '@fastify/multipart';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { AppModule } from './app.module';
+import { DEFAULT_IMPORT_MAX_FILE_BYTES, IMPORT_MAX_OPTIONS_BYTES } from './importacoes/importacao.constants';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -22,6 +24,16 @@ async function bootstrap() {
 
   await app.register(helmet, {
     contentSecurityPolicy: false,
+  });
+  await app.register(multipart, {
+    limits: {
+      fileSize: config.get<number>('IMPORT_MAX_FILE_BYTES') ?? DEFAULT_IMPORT_MAX_FILE_BYTES,
+      files: 1,
+      fields: 1,
+      parts: 2,
+      fieldSize: IMPORT_MAX_OPTIONS_BYTES,
+    },
+    throwFileSizeLimit: true,
   });
   app.enableCors({
     origin: allowedOrigins,

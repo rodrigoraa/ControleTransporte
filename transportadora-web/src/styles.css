@@ -2541,6 +2541,28 @@ tbody tr:hover {
 .consumo-form { display: grid; gap: 14px; padding: 16px; border: 1px solid #dfe9ec; border-radius: 14px; }
 .consumo-preview { display: flex; gap: 24px; padding: 12px 14px; border-radius: 10px; color: #38525b; background: #edf6f7; }
 .form-warning { padding: 11px 13px; border: 1px solid #e9c978; border-radius: 10px; color: #765613; background: #fff8e5; font-size: 13px; }
+.crud-header-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.import-modal { width: min(1500px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; }
+.import-modal .modal-header span { color: #667b83; font-size: 13px; }
+.import-modal > p { margin: 0; }
+.import-upload, .import-selection { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.import-upload label { flex: 1; }
+.import-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+.import-stats > div { display: grid; gap: 5px; padding: 13px; border: 1px solid #dfe9ec; border-radius: 10px; background: #f7fafb; }
+.import-stats strong { font-size: 20px; color: #175d6b; }
+.import-stats span { color: #667b83; font-size: 12px; }
+.import-batch, .import-editor { display: grid; gap: 14px; padding: 14px; border: 1px solid #dfe9ec; border-radius: 10px; background: #f7fafb; }
+.import-batch summary { cursor: pointer; font-weight: 700; }
+.import-batch[open] .form-grid { margin: 14px 0 10px; }
+.import-selection { align-items: center; }
+.import-table { max-height: 42vh; }
+.import-table table { min-width: 1050px; }
+.import-table th { position: sticky; top: 0; background: #edf3f5; z-index: 1; }
+.import-table td { vertical-align: top; }
+.import-table td small { display: block; margin-top: 5px; max-width: 260px; color: #667b83; font-size: 11px; }
+.import-editing-row { background: #edf6f7; }
+.import-editor .searchable-select-options { position: relative; top: auto; margin-top: 5px; }
+.import-editor .commission-section { margin: 0; }
 .consumo-history { max-height: 310px; }
 .consumo-divergente { background: #fffaf0; }
 .consumo-divergente small { display: block; margin-top: 3px; color: #9a6811; font-size: 10px; font-weight: 700; }

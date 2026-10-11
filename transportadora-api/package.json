@@ -27,6 +27,7 @@
     "@nestjs/platform-fastify": "^11.1.27",
     "@nestjs/throttler": "^6.5.0",
     "@fastify/helmet": "^13.0.2",
+    "@fastify/multipart": "^9.4.0",
     "@prisma/client": "^5.17.0",
     "bcrypt": "^6.0.0",
     "class-transformer": "^0.5.1",
@@ -35,7 +36,8 @@
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.2"
+    "rxjs": "^7.8.2",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.23",

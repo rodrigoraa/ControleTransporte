@@ -5,6 +5,8 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateClienteDto } from './dto/create-cliente.dto';
 import { UpdateClienteDto } from './dto/update-cliente.dto';
 
+const MENSAGEM_MAPEAMENTO_IMPORTACAO = 'Não foi possível excluir: cliente possui associações de importação confirmadas. Inative o cadastro para preservar a rastreabilidade.';
+
 @Injectable()
 export class ClientesService extends CrudService<CreateClienteDto, UpdateClienteDto> {
   constructor(prisma: PrismaService) {
@@ -44,6 +46,8 @@ export class ClientesService extends CrudService<CreateClienteDto, UpdateCliente
     if (totalLancamentos > 0) {
       throw new BadRequestException('Não foi possível excluir: cliente possui faturamentos vinculados ao histórico.');
     }
+    const totalMapeamentos = await this.prisma.mapeamentoImportacao.count({ where: { clienteId: id } });
+    if (totalMapeamentos > 0) throw new BadRequestException(MENSAGEM_MAPEAMENTO_IMPORTACAO);
     return super.remove(id, actor);
   }
 

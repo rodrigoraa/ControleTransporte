@@ -10,12 +10,21 @@ const baseConfig = {
 };
 
 describe('validateEnv', () => {
+  it('normaliza o limite de upload de importação configurado', () => {
+    expect(validateEnv({ ...baseConfig, IMPORT_MAX_FILE_BYTES: '2097152' }).IMPORT_MAX_FILE_BYTES).toBe(2_097_152);
+  });
+
+  it.each(['invalido', '0', '-1', '5.5', '10485761'])('recusa limite de importação inválido: %s', (value) => {
+    expect(() => validateEnv({ ...baseConfig, IMPORT_MAX_FILE_BYTES: value })).toThrow(/IMPORT_MAX_FILE_BYTES/);
+  });
+
   it('normaliza valores numericos e aceita desenvolvimento local', () => {
     const result = validateEnv({ ...baseConfig, PORT: '3100', BCRYPT_ROUNDS: '12' });
 
     expect(result.PORT).toBe(3100);
     expect(result.BCRYPT_ROUNDS).toBe(12);
     expect(result.DATABASE_POOL_MODE).toBe('auto');
+    expect(result.IMPORT_MAX_FILE_BYTES).toBe(5_242_880);
   });
 
   it('exige segredo forte e HTTPS em produção', () => {

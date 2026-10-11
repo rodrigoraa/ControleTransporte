@@ -6,6 +6,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Toast } from '../components/Toast';
 import { SearchableSelect } from '../components/SearchableSelect';
+import { FinancialImportModal } from '../components/FinancialImportModal';
 import { useAuth } from '../contexts/AuthContext';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import { api } from '../services/api';
@@ -14,6 +15,7 @@ import { buildColumnFilterParams } from '../utils/columnFilters';
 import { date, maskPlate, money } from '../utils/formatters';
 import { billingTotal, commissionAfterTaxDiscount, commissionDefaults, commissionValues, selectedCommissionValue } from '../utils/commission';
 import { nextTableSort, TableSort } from '../utils/tableSorting';
+import { financialImportVisible } from '../utils/financialImport';
 import { buildImplementoOwnership, existingImplementoOptions, ImplementoOwnership, implementoTransferConfirmation, implementoTransferNotice, selectedImplementoTransfers } from '../utils/compositionTransfers';
 import { carrocerias, crudResources, Field, Resource, resourceListPath, tiposImplemento } from './resources';
 
@@ -45,6 +47,7 @@ export function CrudPage({ resource }: { resource: Resource }) {
   const [pendingDelete, setPendingDelete] = useState<any | null>(null);
   const [consumoCavalo, setConsumoCavalo] = useState<any | null>(null);
   const [historicoItem, setHistoricoItem] = useState<any | null>(null);
+  const [importing, setImporting] = useState(false);
   const { user } = useAuth();
   const canWrite = user?.perfil === 'ADMIN' && !resource.readOnly;
   const limit = 10;
@@ -116,9 +119,12 @@ export function CrudPage({ resource }: { resource: Resource }) {
           <p>{resource.path === 'caminhoes' ? 'Cadastre o cavalo e os implementos vinculados em uma única operação.' : 'Cadastro, edição, detalhes e exclusão.'}</p>
         </div>
         {canWrite && (
-          <button className="button primary" onClick={() => setModal({ mode: 'create', item: {} })}>
-            <Plus size={18} /> Novo
-          </button>
+          <div className="crud-header-actions">
+            {financialImportVisible(resource, user?.perfil) && <button type="button" className="button" onClick={() => setImporting(true)}>Importar planilha</button>}
+            <button className="button primary" onClick={() => setModal({ mode: 'create', item: {} })}>
+              <Plus size={18} /> Novo
+            </button>
+          </div>
         )}
       </div>
       <div className="toolbar">
@@ -274,6 +280,7 @@ export function CrudPage({ resource }: { resource: Resource }) {
       )}
       {consumoCavalo && <ConsumoModal cavalo={consumoCavalo} canWrite={canWrite} onClose={() => setConsumoCavalo(null)} />}
       {historicoItem && <HistoricoOperacionalModal resource={resource} item={historicoItem} onClose={() => setHistoricoItem(null)} />}
+      {importing && financialImportVisible(resource, user?.perfil) && <FinancialImportModal onClose={() => setImporting(false)} onImported={() => void load()} />}
     </section>
   );
 }
