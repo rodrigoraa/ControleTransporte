@@ -26,6 +26,7 @@ export type ImportRow = {
   motoristaExterno: { codigo: string | null; nome: string };
   clienteExterno: { codigo: string | null; nome: string };
   cavalo: ImportHorse | null;
+  conjunto: ImportEntity | null;
   motorista: ImportEntity | null;
   cliente: ImportEntity | null;
   sugestoesMotorista: ImportEntity[];
@@ -48,7 +49,7 @@ export type ImportPreview = {
 export type ImportResult = { importados: number; duplicadosIgnorados: number; erros: number };
 export type ImportOptions = { hashArquivo?: string; selecoes?: ImportSelection[]; linhasSelecionadas?: number[] };
 
-const selectableStatuses = new Set(['PRONTO', 'PENDENTE_MOTORISTA', 'PENDENTE_CLIENTE', 'PLACA_NAO_ENCONTRADA', 'PENDENTE_COMISSAO']);
+const selectableStatuses = new Set(['PRONTO', 'PENDENTE_MOTORISTA', 'PENDENTE_CLIENTE', 'PLACA_NAO_ENCONTRADA', 'PENDENTE_COMPOSICAO', 'PENDENTE_COMISSAO']);
 
 export function canSelectImportRow(row: Pick<ImportRow, 'status'>) {
   return selectableStatuses.has(row.status);
@@ -74,6 +75,7 @@ export function financialImportStatus(status: string) {
     PRONTO: 'Pronto', DUPLICADO: 'Já importado', DUPLICADO_ARQUIVO: 'Repetido no arquivo',
     PENDENTE_MOTORISTA: 'Associar motorista', PENDENTE_CLIENTE: 'Associar cliente/pagador',
     PLACA_NAO_ENCONTRADA: 'Cavalo não encontrado', PENDENTE_COMISSAO: 'Informar comissão',
+    PENDENTE_COMPOSICAO: 'Revisar composição histórica',
     DADOS_INVALIDOS: 'Dados inválidos', CONFLITO: 'Conflito com importação anterior',
   };
   return labels[status] || status;
@@ -128,7 +130,7 @@ export function applyImportCommission(rows: ImportRow[], selected: number[], sel
   if (!rule.tipoComissao) return result;
   const selectedLines = new Set(selected);
   for (const row of rows) {
-    if (!selectedLines.has(row.linha) || !canSelectImportRow(row) || !commissionDefaults(row.quantidadeEixos || 0)) continue;
+    if (!selectedLines.has(row.linha) || !canSelectImportRow(row) || row.status === 'PENDENTE_COMPOSICAO' || !commissionDefaults(row.quantidadeEixos || 0)) continue;
     if (result[row.linha]?.cavaloMecanicoId && result[row.linha].cavaloMecanicoId !== row.cavalo?.id) continue;
     result[row.linha] = {
       ...result[row.linha],

@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
-import { TipoComissao, TipoLancamento, UnidadeQuantidade } from '@prisma/client';
+import { StatusGeral, TipoComissao, TipoConjuntoOperacional, TipoLancamento, UnidadeQuantidade } from '@prisma/client';
+import { ContextoFrotaHistorica } from '../caminhoes/composicao-historica';
 import { LancamentosFinanceirosService } from './lancamentos-financeiros.service';
 
 function makeService(eixos = 6, currentOverrides: Record<string, any> = {}) {
@@ -64,6 +65,7 @@ function makeService(eixos = 6, currentOverrides: Record<string, any> = {}) {
     conjunto: { quantidadeTotalEixos: eixos },
     faturamentoOrigemId: null,
     despesaComissao: null,
+    importacao: null,
     tipoComissao: null,
     percentualComissao: null,
     valorComissaoPorViagem: null,
@@ -89,7 +91,149 @@ const baseDto = {
   valorUnitario: 10,
 };
 
+function historicalContext(): ContextoFrotaHistorica {
+  return {
+    cavalos: new Map([['horse-1', { id: 'horse-1', placa: 'ABC1D23' }]]),
+    conjuntos: [
+      {
+        id: 'historical-7', nome: 'Composição anterior', cavaloMecanicoId: 'horse-1',
+        tipo: TipoConjuntoOperacional.BITREM, quantidadeTotalEixos: 7, status: StatusGeral.INATIVO,
+        createdAt: new Date('2026-09-01T00:00:00.000Z'), justificativaSemImplemento: null, historicos: [],
+        implementos: ['trailer-1', 'trailer-2'].map((implementoId, ordem) => ({
+          implementoId, ordem: ordem + 1,
+          dataInicio: new Date('2026-09-01T00:00:00.000Z'), dataFim: new Date('2026-10-08T00:00:00.000Z'),
+        })),
+      },
+      {
+        id: 'current-9', nome: 'Composição atual', cavaloMecanicoId: 'horse-1',
+        tipo: TipoConjuntoOperacional.RODOTREM, quantidadeTotalEixos: 9, status: StatusGeral.ATIVO,
+        createdAt: new Date('2026-10-08T00:00:00.000Z'), justificativaSemImplemento: null, historicos: [],
+        implementos: ['trailer-3', 'trailer-4'].map((implementoId, ordem) => ({
+          implementoId, ordem: ordem + 1, dataInicio: new Date('2026-10-08T00:00:00.000Z'), dataFim: null,
+        })),
+      },
+    ],
+  };
+}
+
+const historicalBillingDto = {
+  ...baseDto,
+  data: new Date('2026-10-01T00:00:00.000Z'),
+  cavaloMecanicoId: 'horse-1',
+  tipoLancamento: TipoLancamento.FATURAMENTO,
+  clienteId: 'client-1',
+  quantidade: 32500,
+  valorUnitario: 4850,
+  multiplicarQuantidade: false,
+  tipoComissao: TipoComissao.PERCENTUAL,
+};
+
 describe('LancamentosFinanceirosService', () => {
+  it.each([
+    { data: '2026-10-01', eixos: 7, percentual: '12', comissao: '582' },
+    { data: '2026-10-09', eixos: 9, percentual: '11', comissao: '533.5' },
+  ])('valida comissão pelos $eixos eixos vigentes em $data sem consultar a frota atual', async ({ data, eixos, percentual, comissao }) => {
+    const { service, prisma, create, findUnique } = makeService(9);
+    const result = await service.validateInTransaction(prisma, {
+      ...historicalBillingDto, data: new Date(data + 'T00:00:00.000Z'),
+    }, historicalContext());
+
+    expect(result.quantidadeTotalEixos).toBe(eixos);
+    expect(String(result.valorTotal)).toBe('4850');
+    expect(String(result.comissao.percentualComissao)).toBe(percentual);
+    expect(String(result.comissao.valorComissao)).toBe(comissao);
+    expect(findUnique).not.toHaveBeenCalled();
+    expect(prisma.conjunto.findUnique).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+    expect(prisma.categoriaFinanceira.upsert).not.toHaveBeenCalled();
+    expect(prisma.auditoria.create).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('persiste composição histórica, snapshot de eixos e despesa líquida na transação recebida', async () => {
+    const { service, prisma, create, findUnique } = makeService(9);
+    const result = await service.createInTransaction(prisma, {
+      ...historicalBillingDto, conjuntoId: 'historical-7', descontoImpostos: true,
+    }, { id: 'admin-importacao' }, true, historicalContext());
+
+    expect(result).toMatchObject({ conjuntoId: 'historical-7', quantidadeEixosComissao: 7, cavaloMecanicoId: 'horse-1' });
+    expect(String(result.valorComissaoBruta)).toBe('582');
+    expect(String(result.valorDescontoImpostos)).toBe('69.84');
+    expect(String(result.valorComissao)).toBe('512.16');
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create.mock.calls[1][0].data).toMatchObject({ conjuntoId: 'historical-7', faturamentoOrigemId: result.id });
+    expect(String(create.mock.calls[1][0].data.valorTotal)).toBe('512.16');
+    expect(findUnique).not.toHaveBeenCalled();
+    expect(prisma.conjunto.findUnique).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.auditoria.create).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejeita conjunto explícito divergente da data antes de validar ou gravar a comissão', async () => {
+    const { service, prisma, create, findUnique } = makeService(9);
+    const dto = { ...historicalBillingDto, conjuntoId: 'current-9' };
+    const contexto = historicalContext();
+
+    await expect(service.validateInTransaction(prisma, dto, contexto)).rejects.toThrow('não corresponde ao histórico');
+    await expect(service.createInTransaction(prisma, dto, undefined, false, contexto)).rejects.toThrow('não corresponde ao histórico');
+
+    expect(findUnique).not.toHaveBeenCalled();
+    expect(prisma.conjunto.findUnique).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+    expect(prisma.categoriaFinanceira.upsert).not.toHaveBeenCalled();
+    expect(prisma.auditoria.create).not.toHaveBeenCalled();
+  });
+
+  it.each(['sem histórico', 'ambígua'])('recusa composição %s sem recorrer à composição atual', async (cenario) => {
+    const { service, prisma, create, findUnique } = makeService(9);
+    const contexto = historicalContext();
+    contexto.conjuntos = cenario === 'sem histórico' ? [] : [
+      ...contexto.conjuntos,
+      { ...contexto.conjuntos[0], id: 'overlapping-7' },
+    ];
+
+    await expect(service.validateInTransaction(prisma, historicalBillingDto, contexto)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.createInTransaction(prisma, historicalBillingDto, undefined, false, contexto)).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(findUnique).not.toHaveBeenCalled();
+    expect(prisma.conjunto.findUnique).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+    expect(prisma.categoriaFinanceira.upsert).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('recusa cavalo ausente do contexto histórico sem buscar uma composição atual', async () => {
+    const { service, prisma, findUnique, create } = makeService(9);
+
+    await expect(service.validateInTransaction(prisma, {
+      ...historicalBillingDto, cavaloMecanicoId: 'horse-2',
+    }, historicalContext())).rejects.toThrow('não encontrado no contexto da importação');
+
+    expect(findUnique).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('mantém a escolha obrigatória de comissão para a composição histórica elegível', async () => {
+    const { service, prisma, create } = makeService(6);
+
+    await expect(service.validateInTransaction(prisma, {
+      ...historicalBillingDto, tipoComissao: null,
+    }, historicalContext())).rejects.toThrow('Selecione o tipo de comissão');
+
+    expect(create).not.toHaveBeenCalled();
+    expect(prisma.categoriaFinanceira.upsert).not.toHaveBeenCalled();
+  });
+
+  it('preserva a resolução atual no cadastro manual sem contexto histórico', async () => {
+    const { service, prisma, findUnique } = makeService(9);
+
+    const result = await service.validateInTransaction(prisma, historicalBillingDto);
+
+    expect(result.quantidadeTotalEixos).toBe(9);
+    expect(String(result.comissao.percentualComissao)).toBe('11');
+    expect(findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'horse-1' } }));
+  });
+
   it('valida uma linha sem transação aninhada, gravações financeiras ou auditoria', async () => {
     const { service, prisma, create } = makeService(6);
     const result = await service.validateInTransaction(prisma, {
@@ -163,10 +307,98 @@ describe('LancamentosFinanceirosService', () => {
   });
 
   it('bloqueia exclusão de lançamento importado preservando a chave de idempotência', async () => {
-    const { service, prisma, remove } = makeService();
-    prisma.lancamentoImportado.findUnique.mockResolvedValueOnce({ id: 'import-1' });
+    const despesaComissao = { id: 'commission-1', valorTotal: 512.16, faturamentoOrigemId: 'launch-1' };
+    const { service, prisma, create, update, remove, current } = makeService(7, {
+      importacao: { id: 'import-1' }, despesaComissao,
+    });
+    const before = structuredClone(current);
     await expect(service.remove('launch-1')).rejects.toThrow('preservar a rastreabilidade');
+    expect(current).toEqual(before);
+    expect(create).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
     expect(remove).not.toHaveBeenCalled();
+    expect(prisma.auditoria.create).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { valorUnitario: 6000 },
+    { quantidade: 100 },
+    { data: new Date('2026-10-02T00:00:00.000Z') },
+    { cavaloMecanicoId: 'horse-2' },
+    { tipoComissao: TipoComissao.POR_VIAGEM, valorComissaoPorViagem: 1 },
+    { descricao: 'Tentativa de alteração manual' },
+  ])('recusa edição do importado sem alterar faturamento ou comissão: %o', async (dto) => {
+    const despesaComissao = { id: 'commission-1', valorTotal: 512.16, faturamentoOrigemId: 'launch-1' };
+    const { service, prisma, create, update, remove, findUnique, current } = makeService(7, {
+      tipoLancamento: TipoLancamento.FATURAMENTO,
+      fornecedorId: null,
+      clienteId: 'client-1',
+      valorUnitario: 4850,
+      quantidade: 32500,
+      multiplicarQuantidade: false,
+      tipoComissao: TipoComissao.PERCENTUAL,
+      percentualComissao: 12,
+      descontoImpostos: true,
+      valorComissaoBruta: 582,
+      valorDescontoImpostos: 69.84,
+      valorComissao: 512.16,
+      quantidadeEixosComissao: 7,
+      despesaComissao,
+      importacao: { id: 'import-1' },
+    });
+    const before = structuredClone(current);
+
+    await expect(service.update('launch-1', dto)).rejects.toThrow(new BadRequestException(
+      'Este lançamento foi importado e não pode ser editado diretamente para preservar a rastreabilidade. Utilize o fluxo específico de correção da importação.',
+    ));
+
+    expect(current).toEqual(before);
+    expect(create).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+    expect(findUnique).not.toHaveBeenCalled();
+    expect(prisma.categoriaFinanceira.upsert).not.toHaveBeenCalled();
+    expect(prisma.auditoria.create).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('mantém consulta e listagem dos importados e expõe somente o identificador da importação', async () => {
+    const { service, prisma, current, create, update, remove } = makeService(7, {
+      importacao: { id: 'import-1' },
+      despesaComissao: { id: 'commission-1', valorTotal: 512.16 },
+    });
+    jest.mocked(service.findOne).mockRestore();
+    prisma.lancamentoFinanceiro.findUnique.mockResolvedValue(current);
+    prisma.lancamentoFinanceiro.findMany.mockResolvedValue([current]);
+    prisma.lancamentoFinanceiro.count.mockResolvedValue(1);
+
+    await expect(service.findOne('launch-1')).resolves.toEqual(current);
+    await expect(service.findAll({ page: 1, limit: 10 })).resolves.toMatchObject({ data: [current], total: 1 });
+
+    const include = expect.objectContaining({ importacao: { select: { id: true } }, despesaComissao: true });
+    expect(prisma.lancamentoFinanceiro.findUnique).toHaveBeenCalledWith({ where: { id: 'launch-1' }, include });
+    expect(prisma.lancamentoFinanceiro.findMany).toHaveBeenCalledWith(expect.objectContaining({ include }));
+    expect(prisma.lancamentoImportado.findUnique).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it.each([TipoLancamento.DESPESA, TipoLancamento.FATURAMENTO])('continua editando %s manual sem vínculo de importação', async (tipoLancamento) => {
+    const { service, update, prisma } = makeService(6, {
+      tipoLancamento,
+      fornecedorId: tipoLancamento === TipoLancamento.DESPESA ? 'supplier-1' : null,
+      clienteId: tipoLancamento === TipoLancamento.FATURAMENTO ? 'client-1' : null,
+      importacao: null,
+    });
+
+    await service.update('launch-1', { descricao: 'Correção manual', valorUnitario: 20 });
+
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update.mock.calls[0][0].data).toMatchObject({ descricao: 'Correção manual', tipoComissao: null });
+    expect(String(update.mock.calls[0][0].data.valorTotal)).toBe('40');
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 
   it.each([TipoLancamento.DESPESA, TipoLancamento.FATURAMENTO])(

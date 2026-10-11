@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { Prisma, TipoEntidadeImportacao, TipoLancamento, UnidadeQuantidade } from '@prisma/client';
+import { composicaoHistoricaSelect, ContextoFrotaHistorica, resolverComposicaoHistorica } from '../caminhoes/composicao-historica';
 import { AuditActor, auditUserId } from '../common/audit/audit-context';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { normalizePlate } from '../common/validation/normalize-plate';
@@ -10,9 +11,10 @@ import { candidatosNome, hashDadosImportacao, identificadorPessoaExterna, Opcoes
 import { ArquivoImportacao, LinhaPlanilhaLancamento, PlanilhaLancamentos, PlanilhaLancamentosParser } from './planilha-lancamentos.parser';
 
 type Cadastro = { id: string; nome: string };
-type StatusLinha = 'PRONTO' | 'DUPLICADO' | 'DUPLICADO_ARQUIVO' | 'PENDENTE_MOTORISTA' | 'PENDENTE_CLIENTE' | 'PLACA_NAO_ENCONTRADA' | 'PENDENTE_COMISSAO' | 'DADOS_INVALIDOS' | 'CONFLITO';
+type StatusLinha = 'PRONTO' | 'DUPLICADO' | 'DUPLICADO_ARQUIVO' | 'PENDENTE_MOTORISTA' | 'PENDENTE_CLIENTE' | 'PLACA_NAO_ENCONTRADA' | 'PENDENTE_COMPOSICAO' | 'PENDENTE_COMISSAO' | 'DADOS_INVALIDOS' | 'CONFLITO';
 type LinhaPreview = Omit<LinhaPlanilhaLancamento, 'dadosOriginais' | 'erros'> & {
   cavalo: { id: string; placa: string } | null;
+  conjunto: { id: string; nome: string } | null;
   motorista: Cadastro | null;
   cliente: Cadastro | null;
   sugestoesMotorista: Cadastro[];
@@ -50,7 +52,7 @@ export class ImportacoesService {
     for (let tentativa = 0; ; tentativa++) {
       try {
         return await this.prisma.$transaction(async (tx) => {
-          const { preview, dados, hashes } = await this.prepararPreview(tx, planilha, opcoes);
+          const { preview, dados, hashes, frotaHistorica } = await this.prepararPreview(tx, planilha, opcoes);
           const selecionadas = new Set(opcoes.linhasSelecionadas!);
           const linhas = preview.linhas.filter((linha) => selecionadas.has(linha.linha));
           const bloqueadas = linhas.filter((linha) => !['PRONTO', 'DUPLICADO', 'DUPLICADO_ARQUIVO'].includes(linha.status));
@@ -64,7 +66,7 @@ export class ImportacoesService {
             }
             const dto = dados.get(linha.linha)!;
             await this.persistirMapeamentos(tx, linha, dto, actor);
-            const lancamento = await this.financeiros.createInTransaction(tx, dto, actor, true);
+            const lancamento = await this.financeiros.createInTransaction(tx, dto, actor, true, frotaHistorica);
             const original = planilha.linhas.find((item) => item.linha === linha.linha)!;
             const registro = await tx.lancamentoImportado.create({
               data: {
@@ -111,14 +113,18 @@ export class ImportacoesService {
 
   private async prepararPreview(tx: Prisma.TransactionClient, planilha: PlanilhaLancamentos, opcoes: OpcoesImportacao) {
     const chaves = planilha.linhas.flatMap((item) => item.chaveExterna ? [item.chaveExterna] : []);
-    const [cavalos, motoristas, clientes, mapeamentos, importados] = await Promise.all([
-      tx.cavaloMecanico.findMany({ include: { conjuntos: { where: { status: 'ATIVO' }, orderBy: { updatedAt: 'desc' }, take: 1 } } }),
+    const [cavalos, conjuntos, motoristas, clientes, mapeamentos, importados] = await Promise.all([
+      tx.cavaloMecanico.findMany({ select: { id: true, placa: true } }),
+      // Read preserved links and snapshots together in the transaction, including inactive versions.
+      tx.conjunto.findMany({ select: composicaoHistoricaSelect }),
       tx.motorista.findMany({ select: { id: true, nome: true } }),
       tx.cliente.findMany({ select: { id: true, nome: true } }),
       tx.mapeamentoImportacao.findMany({ where: { origem: ORIGEM_IMPORTACAO_CTRC } }),
       tx.lancamentoImportado.findMany({ where: { origem: ORIGEM_IMPORTACAO_CTRC, chaveExterna: { in: chaves } }, select: { chaveExterna: true, hashDados: true } }),
     ]);
     const porCavalo = new Map(cavalos.map((item) => [item.id, item]));
+    const porConjunto = new Map(conjuntos.map((item) => [item.id, item]));
+    const frotaHistorica: ContextoFrotaHistorica = { conjuntos, cavalos: porCavalo };
     const porMotorista = new Map(motoristas.map((item) => [item.id, item]));
     const porCliente = new Map(clientes.map((item) => [item.id, item]));
     const porMapeamento = new Map(mapeamentos.map((item) => [`${item.tipoEntidade}:${item.codigoExterno}`, item]));
@@ -174,7 +180,16 @@ export class ImportacoesService {
       };
       const motorista = resolverPessoa(TipoEntidadeImportacao.MOTORISTA, original.motoristaExterno, motoristas, porMotorista);
       const cliente = resolverPessoa(TipoEntidadeImportacao.CLIENTE, original.clienteExterno, clientes, porCliente);
-      const quantidadeEixos = cavalo?.conjuntos[0]?.quantidadeTotalEixos ?? null;
+      const composicao = cavalo && original.data
+        ? resolverComposicaoHistorica(conjuntos, original.data, cavalo.id)
+        : null;
+      if (composicao && composicao.status !== 'RESOLVIDA') {
+        bloquear('PENDENTE_COMPOSICAO', composicao.motivo);
+      }
+      const conjunto = composicao?.status === 'RESOLVIDA' && composicao.conjuntoId
+        ? porConjunto.get(composicao.conjuntoId) || null
+        : null;
+      const quantidadeEixos = composicao?.status === 'RESOLVIDA' ? composicao.quantidadeTotalEixos : null;
       const comissaoNecessaria = [4, 7, 9].includes(Number(quantidadeEixos));
       const comissao = {
         tipoComissao: selected.tipoComissao, percentualComissao: selected.percentualComissao,
@@ -197,6 +212,7 @@ export class ImportacoesService {
       if (status === 'PRONTO' && cavalo && motorista.cadastro && cliente.cadastro) {
         const dto: CreateLancamentoFinanceiroDto = {
           data: new Date(`${original.data}T00:00:00.000Z`), placa: cavalo.placa, cavaloMecanicoId: cavalo.id,
+          conjuntoId: conjunto?.id,
           motoristaId: motorista.cadastro.id, clienteId: cliente.cadastro.id,
           tipoLancamento: TipoLancamento.FATURAMENTO, quantidade: Number(original.peso), unidadeQuantidade: UnidadeQuantidade.KG,
           valorUnitario: Number(original.valor), multiplicarQuantidade: false,
@@ -204,7 +220,7 @@ export class ImportacoesService {
           observacoes: 'Importado do sistema externo.', ...comissao,
         };
         try {
-          await this.financeiros.validateInTransaction(tx, dto);
+          await this.financeiros.validateInTransaction(tx, dto, frotaHistorica);
           dados.set(original.linha, dto);
         } catch (error) {
           if (!(error instanceof BadRequestException)) throw error;
@@ -213,6 +229,7 @@ export class ImportacoesService {
       }
       linhas.push({
         ...source, cavalo: cavalo ? { id: cavalo.id, placa: cavalo.placa } : null,
+        conjunto: conjunto ? { id: conjunto.id, nome: conjunto.nome } : null,
         motorista: motorista.cadastro, cliente: cliente.cadastro,
         sugestoesMotorista: motorista.sugestoes, sugestoesCliente: cliente.sugestoes,
         quantidadeEixos, comissaoNecessaria, comissao, status, pendencias,
@@ -228,7 +245,7 @@ export class ImportacoesService {
           invalidas: linhas.filter((item) => item.status === 'DADOS_INVALIDOS').length,
           conflitos: linhas.filter((item) => item.status === 'CONFLITO').length,
         },
-      }, dados, hashes,
+      }, dados, hashes, frotaHistorica,
     };
   }
 

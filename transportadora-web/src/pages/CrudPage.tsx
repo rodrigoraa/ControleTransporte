@@ -12,6 +12,7 @@ import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import { api } from '../services/api';
 import { apiErrorMessage } from '../utils/apiError';
 import { buildColumnFilterParams } from '../utils/columnFilters';
+import { canMutateCrudRecord } from '../utils/crudPermissions';
 import { date, maskPlate, money } from '../utils/formatters';
 import { billingTotal, commissionAfterTaxDiscount, commissionDefaults, commissionValues, selectedCommissionValue } from '../utils/commission';
 import { nextTableSort, TableSort } from '../utils/tableSorting';
@@ -320,7 +321,7 @@ async function loadPaginatedRows(endpoint: string, params: Record<string, string
   return rows;
 }
 
-function FragmentRows({ group, grouped, tableFields, resource, canWrite, onConsumo, onHistorico, onView, onEdit, onDelete }: {
+export function FragmentRows({ group, grouped, tableFields, resource, canWrite, onConsumo, onHistorico, onView, onEdit, onDelete }: {
   group: { key: string; title: string; rows: any[] };
   grouped: boolean;
   tableFields: Field[];
@@ -350,8 +351,11 @@ function FragmentRows({ group, grouped, tableFields, resource, canWrite, onConsu
             {['caminhoes', 'motoristas'].includes(resource.path) && <button className="icon-button" title="Histórico" onClick={() => onHistorico(row)}><History size={17} /></button>}
             <button className="icon-button" title="Visualizar" onClick={() => onView(row)}><Eye size={17} /></button>
             {row.faturamentoOrigemId && <span className="generated-expense-label" title="Gerada automaticamente pelo faturamento de origem">Automática</span>}
-            {canWrite && !row.protegido && !row.faturamentoOrigemId && <button className="icon-button" title="Editar" onClick={() => onEdit(row)}><Pencil size={17} /></button>}
-            {canWrite && !row.protegido && !row.faturamentoOrigemId && <button className="icon-button danger" title={resource.path === 'caminhoes' ? 'Excluir cavalo mecânico' : 'Excluir'} onClick={() => onDelete(row)}><Trash2 size={17} /></button>}
+            {row.importacao?.id && <span className="generated-expense-label" title="Protegido para preservar a rastreabilidade da importação">Importado</span>}
+            {canMutateCrudRecord(row, canWrite) && <>
+              <button className="icon-button" title="Editar" onClick={() => onEdit(row)}><Pencil size={17} /></button>
+              <button className="icon-button danger" title={resource.path === 'caminhoes' ? 'Excluir cavalo mecânico' : 'Excluir'} onClick={() => onDelete(row)}><Trash2 size={17} /></button>
+            </>}
           </td>
         </tr>
       ))}

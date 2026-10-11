@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma, TipoComissao, TipoLancamento, UnidadeQuantidade } from '@prisma/client';
+import { ContextoFrotaHistorica, resolverComposicaoHistorica } from '../caminhoes/composicao-historica';
 import { AuditActor, auditUserId } from '../common/audit/audit-context';
 import { CrudService } from '../common/crud/crud.service';
 import { PaginationDto } from '../common/crud/pagination.dto';
@@ -20,6 +21,7 @@ const lancamentoInclude = {
   categoriaFinanceira: true,
   faturamentoOrigem: true,
   despesaComissao: true,
+  importacao: { select: { id: true } },
 };
 
 @Injectable()
@@ -37,8 +39,8 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
     return result;
   }
 
-  async validateInTransaction(transaction: Prisma.TransactionClient, dto: CreateLancamentoFinanceiroDto) {
-    const prepared = await this.prepareCreation(transaction, dto);
+  async validateInTransaction(transaction: Prisma.TransactionClient, dto: CreateLancamentoFinanceiroDto, contexto?: ContextoFrotaHistorica) {
+    const prepared = await this.prepareCreation(transaction, dto, contexto);
     return {
       quantidadeTotalEixos: prepared.quantidadeTotalEixos,
       valorTotal: prepared.data.valorTotal,
@@ -46,8 +48,8 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
     };
   }
 
-  async createInTransaction(transaction: Prisma.TransactionClient, dto: CreateLancamentoFinanceiroDto, actor?: AuditActor, auditar = false) {
-    const prepared = await this.prepareCreation(transaction, dto);
+  async createInTransaction(transaction: Prisma.TransactionClient, dto: CreateLancamentoFinanceiroDto, actor?: AuditActor, auditar = false, contexto?: ContextoFrotaHistorica) {
+    const prepared = await this.prepareCreation(transaction, dto, contexto);
     const created = await transaction.lancamentoFinanceiro.create({
       data: prepared.data,
       include: lancamentoInclude,
@@ -71,8 +73,8 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
     return { ...created, despesaComissao };
   }
 
-  private async prepareCreation(transaction: Prisma.TransactionClient, dto: CreateLancamentoFinanceiroDto) {
-    const prepared = await this.prepareData(this.cleanData(dto), transaction);
+  private async prepareCreation(transaction: Prisma.TransactionClient, dto: CreateLancamentoFinanceiroDto, contexto?: ContextoFrotaHistorica) {
+    const prepared = await this.prepareData(this.cleanData(dto), transaction, contexto);
     const multiplicarQuantidade = dto.multiplicarQuantidade ?? true;
     const valorTotal = this.calculateValorTotal(dto.quantidade, dto.valorUnitario, multiplicarQuantidade);
     const comissao = this.calculateCommission(prepared.data, valorTotal, prepared.quantidadeTotalEixos, true);
@@ -91,6 +93,9 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
     const current = await this.findOne(id);
     if (current.faturamentoOrigemId) {
       throw new BadRequestException('Esta despesa de comissão é automática. Altere o faturamento de origem para recalculá-la.');
+    }
+    if (current.importacao) {
+      throw new BadRequestException('Este lançamento foi importado e não pode ser editado diretamente para preservar a rastreabilidade. Utilize o fluxo específico de correção da importação.');
     }
     const quantidade = dto.quantidade ?? Number(current.quantidade);
     const valorUnitario = dto.valorUnitario ?? Number(current.valorUnitario);
@@ -162,9 +167,11 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
     return { ...result.updated, despesaComissao: result.despesaComissao };
   }
 
-  private async prepareData(dto: CreateLancamentoFinanceiroDto, database: PrismaService | Prisma.TransactionClient = this.prisma) {
+  private async prepareData(dto: CreateLancamentoFinanceiroDto, database: PrismaService | Prisma.TransactionClient = this.prisma, contexto?: ContextoFrotaHistorica) {
     const data = this.applyBusinessRules(dto);
-    const frota = await this.resolveFrotaFields(data, undefined, database);
+    const frota = contexto
+      ? this.resolveHistoricalFrotaFields(dto, contexto)
+      : await this.resolveFrotaFields(data, undefined, database);
     return {
       data: {
         ...data,
@@ -172,6 +179,26 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
         cavaloMecanicoId: frota.cavaloMecanicoId,
         conjuntoId: frota.conjuntoId,
       },
+      quantidadeTotalEixos: frota.quantidadeTotalEixos,
+    };
+  }
+
+  private resolveHistoricalFrotaFields(data: CreateLancamentoFinanceiroDto, contexto: ContextoFrotaHistorica) {
+    const cavalo = data.cavaloMecanicoId ? contexto.cavalos.get(data.cavaloMecanicoId) : undefined;
+    if (!cavalo) {
+      throw new BadRequestException('Cavalo mecânico não encontrado no contexto da importação. Atualize a prévia e selecione novamente.');
+    }
+    const frota = resolverComposicaoHistorica(contexto.conjuntos, data.data, cavalo.id);
+    if (frota.status !== 'RESOLVIDA' || !frota.conjuntoId || frota.quantidadeTotalEixos == null) {
+      throw new BadRequestException(frota.motivo);
+    }
+    if (data.conjuntoId && data.conjuntoId !== frota.conjuntoId) {
+      throw new BadRequestException('A composição selecionada não corresponde ao histórico da data do faturamento. Atualize a prévia.');
+    }
+    return {
+      placa: cavalo.placa,
+      cavaloMecanicoId: cavalo.id,
+      conjuntoId: frota.conjuntoId,
       quantidadeTotalEixos: frota.quantidadeTotalEixos,
     };
   }
@@ -293,8 +320,7 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
     if (current.faturamentoOrigemId) {
       throw new BadRequestException('Esta despesa de comissão é automática. Exclua o faturamento de origem para removê-la.');
     }
-    const importado = await this.prisma.lancamentoImportado.findUnique({ where: { lancamentoFinanceiroId: id }, select: { id: true } });
-    if (importado) {
+    if (current.importacao) {
       throw new BadRequestException('Este lançamento foi importado e não pode ser excluído para preservar a rastreabilidade e impedir importações duplicadas.');
     }
     const despesaComissao = current.despesaComissao;

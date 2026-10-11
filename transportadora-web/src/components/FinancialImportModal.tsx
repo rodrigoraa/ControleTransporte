@@ -150,6 +150,7 @@ export function FinancialImportModal({ onClose, onImported }: { onClose: () => v
       </> : confirming ? <>
         <p>Importar {selectedRows.length} lançamento(s) de <strong>{preview?.arquivo || file?.name}</strong>, no total de <strong>{money(selectedRows.reduce((total, row) => total + Number(row.valor), 0))}</strong>?</p>
         <p>O peso será registrado em KG. O valor de cada faturamento será o total da planilha, sem multiplicá-lo pelo peso.</p>
+        <p>A composição e a comissão de cada linha seguem a data do faturamento informada na planilha.</p>
         {withoutCommission > 0 && <div className="form-warning">{withoutCommission} lançamento(s) possui(em) composição fora da regra de 4, 7 ou 9 eixos e será(ão) importado(s) sem comissão de motorista.</div>}
         {Boolean(preview?.resumo.duplicadas) && <p>{preview?.resumo.duplicadas} linha(s) já existente(s) ou repetida(s) será(ão) ignorada(s) nesta importação.</p>}
         <p>Somente as linhas selecionadas serão importadas. Os lançamentos já existentes serão preservados.</p>
@@ -165,6 +166,7 @@ export function FinancialImportModal({ onClose, onImported }: { onClose: () => v
         {catalogError && <div className="form-warning">{catalogError}</div>}
         {preview && <>
           <p><strong>Arquivo: {preview.arquivo || file?.name}</strong> · Confira os dados e escolha as linhas que deseja importar.</p>
+          <p>A composição e os eixos são determinados pelo histórico na data do faturamento da planilha. Linhas com histórico insuficiente ou ambíguo precisam de revisão antes da importação.</p>
           <div className="import-stats">
             <ImportStat label="Registros encontrados" value={preview.resumo.total} /><ImportStat label="Prontos" value={preview.resumo.prontas} />
             <ImportStat label="Já existentes / repetidos" value={preview.resumo.duplicadas} /><ImportStat label="Pendentes" value={preview.resumo.pendentes} />
@@ -180,14 +182,15 @@ export function FinancialImportModal({ onClose, onImported }: { onClose: () => v
               <label className="check-row"><input type="checkbox" checked={Boolean(batchCommission.descontoImpostos)} onChange={(event) => setBatchCommission((current) => ({ ...current, descontoImpostos: event.target.checked }))} /><span>Desconto de impostos (12% sobre a comissão)</span></label>
               <button type="button" className="button" disabled={Boolean(busy) || !selected.length} onClick={applyBatchCommission}>Aplicar aos selecionados</button>
             </div>
-            <small>O tipo é escolhido por você. Campos vazios usam os mesmos valores padrão do cadastro manual, conforme os eixos de cada cavalo.</small>
+            <small>O tipo é escolhido por você. Campos vazios usam os mesmos valores padrão do cadastro manual, conforme os eixos da composição vigente na data de cada faturamento.</small>
           </details>
           <div className="import-selection"><strong>{selected.length} linha(s) selecionada(s)</strong><button type="button" className="button ghost" disabled={Boolean(busy)} onClick={() => setSelected(preview.linhas.filter((row) => row.status === 'PRONTO').map((row) => row.linha))}>Selecionar prontas</button><button type="button" className="button ghost" disabled={Boolean(busy)} onClick={() => setSelected([])}>Limpar seleção</button></div>
           <div className="table-wrap import-table"><table>
-            <thead><tr><th><input type="checkbox" aria-label="Selecionar todas as linhas disponíveis" disabled={Boolean(busy) || !eligibleRows.length} checked={Boolean(eligibleRows.length) && eligibleRows.every((row) => selected.includes(row.linha))} onChange={(event) => setSelected(event.target.checked ? eligibleRows.map((row) => row.linha) : [])} /></th><th>Linha</th><th>Data</th><th>Placa</th><th>Peso (KG)</th><th>Motorista</th><th>Pagador</th><th>Valor total</th><th>Situação</th><th>Ações</th></tr></thead>
+            <thead><tr><th><input type="checkbox" aria-label="Selecionar todas as linhas disponíveis" disabled={Boolean(busy) || !eligibleRows.length} checked={Boolean(eligibleRows.length) && eligibleRows.every((row) => selected.includes(row.linha))} onChange={(event) => setSelected(event.target.checked ? eligibleRows.map((row) => row.linha) : [])} /></th><th>Linha</th><th>Data</th><th>Placa</th><th>Composição na data</th><th>Peso (KG)</th><th>Motorista</th><th>Pagador</th><th>Valor total</th><th>Situação</th><th>Ações</th></tr></thead>
             <tbody>{preview.linhas.map((row) => <tr key={row.linha} className={row.linha === editingLine ? 'import-editing-row' : ''}>
               <td><input type="checkbox" aria-label={`Selecionar linha ${row.linha}`} disabled={Boolean(busy) || !canSelectImportRow(row)} checked={selected.includes(row.linha)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, row.linha] : current.filter((line) => line !== row.linha))} /></td>
               <td>{row.linha}</td><td>{importCalendarDate(row.data)}</td><td>{row.placa || '-'}{row.cavalo && row.cavalo.placa !== row.placa && <small>Associado: {row.cavalo.placa}</small>}</td>
+              <td><ImportCompositionDetails row={row} /></td>
               <td>{formatWeight(row.peso)}</td><td>{row.motorista?.nome || row.motoristaExterno?.nome || '-'}{row.motorista && <small>Planilha: {row.motoristaExterno?.nome}</small>}</td>
               <td>{row.cliente?.nome || row.clienteExterno?.nome || '-'}{row.cliente && <small>Planilha: {row.clienteExterno?.nome}</small>}</td><td>{row.valor != null && row.valor !== '' && Number.isFinite(Number(row.valor)) ? money(row.valor) : '-'}</td>
               <td><strong>{financialImportStatus(row.status)}</strong>{row.pendencias?.map((message, index) => <small key={index}>{message}</small>)}</td>
@@ -218,7 +221,14 @@ function formatWeight(value: string | null) {
   return Number(value).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
 }
 
-function ImportRowEditor({ row, selection, catalog, disabled, onChange, onReset }: { row: ImportRow; selection?: ImportSelection; catalog: Catalog; disabled: boolean; onChange: (changes: Partial<ImportSelection>) => void; onReset: () => void }) {
+export function ImportCompositionDetails({ row }: { row: ImportRow }) {
+  return <>
+    <span>{row.conjunto?.nome || 'Histórico pendente'}</span>
+    <small>{row.quantidadeEixos != null ? `${row.quantidadeEixos} eixos · ` : ''}{importCalendarDate(row.data)}</small>
+  </>;
+}
+
+export function ImportRowEditor({ row, selection, catalog, disabled, onChange, onReset }: { row: ImportRow; selection?: ImportSelection; catalog: Catalog; disabled: boolean; onChange: (changes: Partial<ImportSelection>) => void; onReset: () => void }) {
   const currentCommission = { ...row.comissao, ...selection };
   const changedHorse = Boolean(selection?.cavaloMecanicoId && selection.cavaloMecanicoId !== row.cavalo?.id);
   const defaults = commissionDefaults(row.quantidadeEixos || 0);
@@ -232,8 +242,8 @@ function ImportRowEditor({ row, selection, catalog, disabled, onChange, onReset 
       <label>Motorista<SearchableSelect value={selection?.motoristaId || row.motorista?.id || ''} options={importEntityOptions(catalog.motoristas, row.sugestoesMotorista, row.motorista)} disabled={disabled} ariaLabel={`Motorista da linha ${row.linha}`} onChange={(value) => { if (value) onChange({ motoristaId: value }); }} /><small>Motorista da planilha: {externalName(row.motoristaExterno)}</small></label>
       <label>Cliente / pagador<SearchableSelect value={selection?.clienteId || row.cliente?.id || ''} options={importEntityOptions(catalog.clientes, row.sugestoesCliente, row.cliente)} disabled={disabled} ariaLabel={`Cliente da linha ${row.linha}`} onChange={(value) => { if (value) onChange({ clienteId: value }); }} /><small>Pagador da planilha: {externalName(row.clienteExterno)}</small></label>
     </div>
-    {changedHorse || !row.cavalo ? <div className="form-warning">Associe o cavalo e atualize a prévia para verificar os eixos e a comissão.</div> : defaults ? <div className="commission-section">
-      <div className="commission-heading"><strong>Comissão de motorista</strong><span>Composição de {row.quantidadeEixos} eixos</span></div>
+    {changedHorse || !row.cavalo ? <div className="form-warning">Associe o cavalo e atualize a prévia para verificar a composição histórica, os eixos e a comissão na data do faturamento.</div> : !row.conjunto || row.quantidadeEixos == null || row.status === 'PENDENTE_COMPOSICAO' ? <div className="form-warning">Não foi possível determinar a composição em {importCalendarDate(row.data)}. Revise o histórico da frota ou a associação do cavalo e atualize a prévia. A importação desta linha permanece bloqueada.</div> : defaults ? <div className="commission-section">
+      <div className="commission-heading"><strong>Comissão de motorista</strong><span><ImportCompositionDetails row={row} /></span></div>
       <div className="form-grid">
         <label>Tipo de comissão<SearchableSelect value={currentCommission.tipoComissao || ''} options={commissionTypes} disabled={disabled} ariaLabel={`Comissão da linha ${row.linha}`} onChange={(value) => onChange(value ? importCommissionForType(row.quantidadeEixos, value as CommissionType, currentCommission) : { tipoComissao: undefined })} /></label>
         {currentCommission.tipoComissao === 'PERCENTUAL' && <label>Percentual (%)<input type="number" min="0.01" max="100" step="0.01" disabled={disabled} value={currentCommission.percentualComissao ?? ''} onChange={(event) => onChange({ percentualComissao: Number(event.target.value) })} /></label>}
@@ -241,7 +251,7 @@ function ImportRowEditor({ row, selection, catalog, disabled, onChange, onReset 
         <label className="check-row"><input type="checkbox" disabled={disabled || !currentCommission.tipoComissao} checked={Boolean(currentCommission.descontoImpostos)} onChange={(event) => onChange({ descontoImpostos: event.target.checked })} /><span>Desconto de impostos (12% sobre a comissão)</span></label>
       </div>
       {currentCommission.tipoComissao && <div className="commission-summary"><div><span>Comissão bruta</span><strong>{money(commission.gross)}</strong></div><div><span>Desconto de impostos</span><strong>{money(commission.taxDiscount)}</strong></div><div><span>Comissão líquida</span><strong>{money(commission.net)}</strong></div></div>}
-    </div> : <div className="form-warning">Composição com {row.quantidadeEixos ?? 'quantidade não identificada de'} eixos: este faturamento não gera comissão. Você confirmará essa condição antes de importar.</div>}
+    </div> : <div className="form-warning">Composição {row.conjunto.nome}, com {row.quantidadeEixos} eixos em {importCalendarDate(row.data)}: este faturamento não gera comissão. Você confirmará essa condição antes de importar.</div>}
     <small>Escolha cadastros existentes e atualize a prévia para conferir as associações. Nenhum cadastro será criado automaticamente.</small>
     {selection && <button type="button" className="button ghost" disabled={disabled} onClick={onReset}>Desfazer ajustes desta linha</button>}
   </div>;

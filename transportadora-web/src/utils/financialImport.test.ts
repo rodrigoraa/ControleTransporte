@@ -5,6 +5,7 @@ const row = (linha: number, changes: Partial<ImportRow> = {}): ImportRow => ({
   linha, chaveExterna: `ctrc:${linha}`, data: '2026-10-08', placa: 'QAX2H51', peso: '32500', valor: '4850.00',
   motoristaExterno: { codigo: '1031', nome: 'GLEISSON PEREIRA' }, clienteExterno: { codigo: '929', nome: 'EMPRESA EXEMPLO' },
   cavalo: { id: 'cavalo-1', placa: 'QAX2H51' }, motorista: { id: 'motorista-1', nome: 'GLEISON PEREIRA' }, cliente: { id: 'cliente-1', nome: 'EMPRESA EXEMPLO' },
+  conjunto: { id: 'historical-7', nome: 'Composição histórica de 7 eixos' },
   sugestoesMotorista: [], sugestoesCliente: [], quantidadeEixos: 7, comissaoNecessaria: true, comissao: {}, status: 'PRONTO', pendencias: [], ...changes,
 });
 
@@ -33,12 +34,21 @@ describe('importação financeira no frontend', () => {
   });
 
   it('permite resolver pendências mas impede selecionar conflitos e linhas inválidas ou duplicadas', () => {
-    for (const status of ['PRONTO', 'PENDENTE_MOTORISTA', 'PENDENTE_CLIENTE', 'PENDENTE_COMISSAO', 'PLACA_NAO_ENCONTRADA']) expect(canSelectImportRow({ status })).toBe(true);
+    for (const status of ['PRONTO', 'PENDENTE_MOTORISTA', 'PENDENTE_CLIENTE', 'PENDENTE_COMISSAO', 'PENDENTE_COMPOSICAO', 'PLACA_NAO_ENCONTRADA']) expect(canSelectImportRow({ status })).toBe(true);
     for (const status of ['DUPLICADO', 'DUPLICADO_ARQUIVO', 'DADOS_INVALIDOS', 'CONFLITO', 'DESCONHECIDO']) expect(canSelectImportRow({ status })).toBe(false);
     expect(financialImportStatus('DUPLICADO')).toBe('Já importado');
     expect(financialImportStatus('CONFLITO')).toContain('Conflito');
     expect(canEditImportRow({ status: 'CONFLITO' })).toBe(true);
     expect(canEditImportRow({ status: 'DUPLICADO' })).toBe(false);
+  });
+
+  it('permite revisar histórico pendente, mas bloqueia confirmação e aplicação de comissão', () => {
+    const pending = row(2, { status: 'PENDENTE_COMPOSICAO', conjunto: null, quantidadeEixos: null, comissaoNecessaria: false });
+    expect(financialImportStatus(pending.status)).toBe('Revisar composição histórica');
+    expect(canEditImportRow(pending)).toBe(true);
+    expect(canConfirmImport([pending], [2], false)).toBe(false);
+    expect(applyImportCommission([pending], [2], {}, { tipoComissao: 'PERCENTUAL' })).toEqual({});
+    expect(applyImportCommission([{ ...pending, quantidadeEixos: 7 }], [2], {}, { tipoComissao: 'PERCENTUAL' })).toEqual({});
   });
 
   it('confirma apenas o subconjunto pronto e exige atualizar a prévia após uma alteração', () => {

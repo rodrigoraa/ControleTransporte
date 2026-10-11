@@ -10,7 +10,7 @@
     "test": "npm run test --workspace transportadora-api && npm run test --workspace transportadora-web",
     "lint": "npm run lint --workspace transportadora-api && npm run lint --workspace transportadora-web",
     "check": "npm run lint && npm run test && npm run build",
-    "audit:prod": "npm audit --omit=dev --omit=optional --audit-level=high",
+    "audit:prod": "npm audit --offline=false --prefer-online --omit=dev --omit=optional --audit-level=high",
     "prisma:deploy": "npm run prisma:deploy --workspace transportadora-api",
     "install:all": "npm install --workspaces"
   },
@@ -19,8 +19,9 @@
     "transportadora-web"
   ],
   "overrides": {
-    "@nestjs/common": "11.1.27",
-    "@nestjs/core": "11.1.27",
+    "@nestjs/common": "11.2.7",
+    "@nestjs/core": "11.2.7",
+    "fastify": "5.12.5",
     "form-data": "4.0.6"
   },
   "devDependencies": {
