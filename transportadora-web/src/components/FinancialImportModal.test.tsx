@@ -1,8 +1,8 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { FinancialImportModal, ImportCompositionDetails, ImportRowEditor } from './FinancialImportModal';
+import { FinancialImportModal, ImportBatchCommissionAction, ImportCompositionDetails, ImportRowEditor } from './FinancialImportModal';
 import { api } from '../services/api';
-import { ImportRow } from '../utils/financialImport';
+import { batchImportCommissionAvailability, ImportRow, ImportSelection } from '../utils/financialImport';
 
 vi.mock('../services/api', () => ({ api: { get: vi.fn(), post: vi.fn() } }));
 
@@ -21,6 +21,10 @@ function renderEditor(importRow: ImportRow, cavaloMecanicoId?: string) {
     catalog={{ cavalos: [], motoristas: [], clientes: [] }} disabled={false} onChange={() => undefined} onReset={() => undefined} />);
 }
 
+function renderBatchAction(rows: ImportRow[], selected: number[], selections: Record<number, ImportSelection> = {}, disabled = false) {
+  return renderToStaticMarkup(<ImportBatchCommissionAction availability={batchImportCommissionAvailability(rows, selected, selections)} disabled={disabled} onApply={() => undefined} />);
+}
+
 describe('modal de importação financeira', () => {
   it('inicia selecionando Excel, sem importar ou confirmar antes da prévia', () => {
     const html = renderToStaticMarkup(<FinancialImportModal onClose={() => undefined} onImported={() => undefined} />);
@@ -31,6 +35,37 @@ describe('modal de importação financeira', () => {
     expect(html).not.toContain('Confirmar importação');
     expect(html).not.toContain('Importação concluída');
     expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('desabilita comissão em lote e explica o histórico pendente das linhas selecionadas', () => {
+    const pending = { ...row, status: 'PENDENTE_COMPOSICAO', conjunto: null, quantidadeEixos: null };
+    const html = renderBatchAction([pending], [2]);
+    expect(html).toContain('disabled=""');
+    expect(html).toContain('Comissão aplicável a 0 de 1 linha(s)');
+    expect(html).toContain('carretas e os eixos conferidos na data do frete');
+    expect(html).toContain('Escolher comissão não resolve essa pendência');
+    expect(html).not.toContain('Se alterou um cavalo');
+  });
+
+  it('habilita aplicação parcial e informa a contagem quando existe linha elegível', () => {
+    const pending = { ...row, linha: 3, status: 'PENDENTE_COMPOSICAO', conjunto: null, quantidadeEixos: null };
+    const html = renderBatchAction([{ ...row, status: 'PENDENTE_COMISSAO' }, pending], [2, 3]);
+    expect(html).not.toContain('disabled=""');
+    expect(html).toContain('Comissão aplicável a 1 de 2 linha(s)');
+    expect(html).toContain('1 linha(s) precisam ter as carretas e os eixos conferidos');
+  });
+
+  it('desabilita aplicação em cavalo alterado e pede revalidar a composição na prévia', () => {
+    const html = renderBatchAction([row], [2], { 2: { linha: 2, cavaloMecanicoId: 'horse-2' } });
+    expect(html).toContain('disabled=""');
+    expect(html).toContain('Atualizar prévia para conferir as carretas');
+  });
+
+  it('orienta seleção vazia e mantém indisponível durante uma requisição', () => {
+    const empty = renderBatchAction([row], []);
+    expect(empty).toContain('disabled=""');
+    expect(empty).toContain('Selecione linhas para aplicar comissão');
+    expect(renderBatchAction([row], [2], {}, true)).toContain('disabled=""');
   });
 
   it('mostra a composição, os eixos históricos e a data do faturamento na prévia', () => {
@@ -54,7 +89,7 @@ describe('modal de importação financeira', () => {
 
   it('explica histórico pendente e não apresenta ausência de histórico como faturamento sem comissão', () => {
     const html = renderEditor({ ...row, conjunto: null, quantidadeEixos: null, status: 'PENDENTE_COMPOSICAO', comissaoNecessaria: false });
-    expect(html).toContain('Não foi possível determinar a composição em');
+    expect(html).toContain('Não foi possível confirmar quais carretas estavam com o cavalo');
     expect(html).toContain('01/10/2026');
     expect(html).toContain('A importação desta linha permanece bloqueada.');
     expect(html).not.toContain('aria-label="Comissão da linha 2"');
@@ -63,7 +98,8 @@ describe('modal de importação financeira', () => {
 
   it('exige atualizar a composição histórica depois de selecionar outro cavalo', () => {
     const html = renderEditor(row, 'horse-2');
-    expect(html).toContain('atualize a prévia para verificar a composição histórica');
+    expect(html).toContain('Você alterou o cavalo');
+    expect(html).toContain('Atualizar prévia para conferir as carretas');
     expect(html).not.toContain('aria-label="Comissão da linha 2"');
     expect(html).not.toContain('Bitrem anterior à transferência');
   });

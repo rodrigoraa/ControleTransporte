@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { Toast } from '../components/Toast';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { FinancialImportModal } from '../components/FinancialImportModal';
+import { HistoricoOperacionalModal } from '../components/OperationalHistoryModal';
 import { useAuth } from '../contexts/AuthContext';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import { api } from '../services/api';
@@ -19,6 +20,8 @@ import { nextTableSort, TableSort } from '../utils/tableSorting';
 import { financialImportVisible } from '../utils/financialImport';
 import { buildImplementoOwnership, existingImplementoOptions, ImplementoOwnership, implementoTransferConfirmation, implementoTransferNotice, selectedImplementoTransfers } from '../utils/compositionTransfers';
 import { carrocerias, crudResources, Field, Resource, resourceListPath, tiposImplemento } from './resources';
+
+export { buildTimeline } from '../components/OperationalHistoryModal';
 
 type Mode = 'create' | 'edit' | 'view';
 const relationPageLimit = 100;
@@ -362,95 +365,6 @@ export function FragmentRows({ group, grouped, tableFields, resource, canWrite, 
     </>
   );
 }
-
-type TimelineEvent = { id: string; when: string; kind: string; title: string; description: string; amount?: number };
-
-function HistoricoOperacionalModal({ resource, item, onClose }: { resource: Resource; item: any; onClose: () => void }) {
-  const [data, setData] = useState<any>(null);
-  const [error, setError] = useState('');
-  const isCavalo = resource.path === 'caminhoes';
-  useEscapeToClose(onClose);
-
-  useEffect(() => {
-    api.get(`${resource.endpoint}/${item.id}/historico`)
-      .then((response) => setData(response.data))
-      .catch(async (requestError) => setError(await apiErrorMessage(requestError, 'Não foi possível carregar o histórico.')));
-  }, [resource.endpoint, item.id]);
-
-  const events = useMemo(() => data ? buildTimeline(data, isCavalo) : [], [data, isCavalo]);
-  const title = isCavalo ? [item.placa, item.marca, item.modelo].filter(Boolean).join(' - ') : [item.nome, item.cpf].filter(Boolean).join(' - ');
-
-  return <div className="modal-backdrop">
-    <div className="modal large-modal historico-modal">
-      <div className="modal-header"><div><h2>Histórico {isCavalo ? 'do cavalo' : 'do motorista'}</h2><span>{title}</span></div><button type="button" className="icon-button" onClick={onClose}><X size={18} /></button></div>
-      {data && <div className="historico-stats">
-        <HistoricoStat label="Eventos" value={String(events.length)} />
-        <HistoricoStat label="Despesas" value={money(data.totais?.totalDespesas || 0)} />
-        <HistoricoStat label="Faturamento" value={money(data.totais?.totalFaturamento || 0)} />
-        <HistoricoStat label="Saldo" value={money(data.totais?.saldo || 0)} />
-      </div>}
-      {error && <div className="form-error">{error}</div>}
-      {!data && !error && <div className="empty-inline">Carregando histórico...</div>}
-      {data && <>
-        <div className="historico-current"><strong>Situação atual</strong><span>{isCavalo ? `${data.conjuntosAtuais?.length || 0} composição(ões) registrada(s)` : `${data.cavalosAtuais?.length || 0} cavalo(s) atualmente vinculado(s)`}</span></div>
-        <div className="section-title"><h3>Linha do tempo</h3><span>Mais recentes primeiro</span></div>
-        <div className="timeline">
-          {events.map((event) => <article className="timeline-event" key={`${event.kind}-${event.id}`}><div className="timeline-marker" /><div className="timeline-content"><div className="timeline-heading"><strong>{event.title}</strong><time>{dateTime(event.when)}</time></div><span className="timeline-kind">{event.kind}</span><p>{event.description}</p>{event.amount !== undefined && <b>{money(event.amount)}</b>}</div></article>)}
-          {!events.length && <div className="empty-inline">Ainda não há eventos históricos para este cadastro.</div>}
-        </div>
-      </>}
-    </div>
-  </div>;
-}
-
-export function buildTimeline(data: any, isCavalo: boolean): TimelineEvent[] {
-  const motoristas = new Map((data.motoristasHistoricos || []).map((motorista: any) => [motorista.id, motorista.nome]));
-  const alteracoes = (data.alteracoes || []).map((registro: any) => {
-    const antes = registro.dadosAntes?.cavalo || registro.dadosAntes || {};
-    const depois = registro.dadosDepois?.cavalo || registro.dadosDepois || {};
-    let description = registro.observacoes || historyAction(registro.acao);
-    if (isCavalo && antes.motoristaId !== depois.motoristaId) {
-      const anterior = motoristas.get(antes.motoristaId) || (antes.motoristaId ? 'Motorista anterior' : 'Sem motorista');
-      const atual = motoristas.get(depois.motoristaId) || (depois.motoristaId ? 'Novo motorista' : 'Sem motorista');
-      description = `Motorista alterado de ${anterior} para ${atual}.`;
-    }
-    return { id: registro.id, when: registro.createdAt, kind: 'Cadastro e vínculo', title: historyAction(registro.acao), description };
-  });
-  const vinculos = (isCavalo ? data.historicoEngates || [] : data.historicoCavalos || []).map((registro: any) => ({
-    id: registro.id,
-    when: registro.createdAt,
-    kind: isCavalo ? 'Composição' : 'Vínculo com cavalo',
-    title: historyAction(registro.acao),
-    description: historyRelationDescription(registro, isCavalo),
-  }));
-  const financeiros = (data.lancamentos || []).map((registro: any) => {
-    const party = registro.tipoLancamento === 'DESPESA' ? registro.fornecedor?.nome : registro.cliente?.nome;
-    const relation = isCavalo ? registro.motorista?.nome : registro.cavaloMecanico?.placa;
-    return {
-      id: registro.id,
-      when: registro.data,
-      kind: 'Financeiro',
-      title: registro.tipoLancamento === 'DESPESA' ? 'Despesa' : 'Faturamento',
-      description: [registro.descricao, registro.categoriaFinanceira?.nome, party, relation && `${isCavalo ? 'Motorista' : 'Cavalo'}: ${relation}`].filter(Boolean).join(' • ') || 'Lançamento financeiro',
-      amount: Number(registro.valorTotal || 0),
-    };
-  });
-  return [...alteracoes, ...vinculos, ...financeiros].sort((left, right) => new Date(right.when).getTime() - new Date(left.when).getTime());
-}
-
-function historyAction(action: string) {
-  const labels: Record<string, string> = { ATUALIZACAO: 'Cadastro atualizado', VINCULO_CAVALO: 'Motorista vinculado', REMOCAO_CAVALO: 'Motorista removido', CRIACAO_COM_CONJUNTO: 'Cavalo e composição cadastrados', ATUALIZACAO_COMPOSICAO: 'Composição atualizada', ENGATE_CONJUNTO: 'Conjunto engatado', DESENGATE_CONJUNTO: 'Conjunto desengatado', ATUALIZACAO_ENGATE: 'Engate atualizado', CRIACAO_COMPOSICAO: 'Composição criada' };
-  return labels[action] || String(action || 'Evento').replace(/_/g, ' ').toLowerCase().replace(/^./, (letter: string) => letter.toUpperCase());
-}
-
-function historyRelationDescription(registro: any, isCavalo: boolean) {
-  const snapshot = registro.dadosDepois || registro.dadosAntes || {};
-  if (isCavalo) return [snapshot.nome, snapshot.tipo, snapshot.quantidadeTotalEixos != null ? `${snapshot.quantidadeTotalEixos} eixos` : null].filter(Boolean).join(' • ') || registro.observacoes || 'Alteração na composição do cavalo.';
-  return [snapshot.placa, snapshot.marca, snapshot.modelo].filter(Boolean).join(' • ') || registro.observacoes || 'Alteração no vínculo do motorista com o cavalo.';
-}
-
-function HistoricoStat({ label, value }: { label: string; value: string }) { return <div><span>{label}</span><strong>{value}</strong></div>; }
-function dateTime(value: string) { const parsed = new Date(value); return Number.isNaN(parsed.getTime()) ? '-' : parsed.toLocaleString('pt-BR'); }
 
 type ConsumoForm = { id?: string; data: string; kmAnterior: string; kmAtual: string; litros: string; observacoes: string };
 

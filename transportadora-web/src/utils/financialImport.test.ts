@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyImportCommission, buildImportFormData, canConfirmImport, canEditImportRow, canSelectImportRow, confirmedImportLines, financialImportStatus, financialImportVisible, importCalendarDate, importCommissionForType, importEntityOptions, importFileError, ImportRow, selectImportHorse } from './financialImport';
+import { applyImportCommission, batchImportCommissionAvailability, buildImportFormData, canConfirmImport, canEditImportRow, canSelectImportRow, confirmedImportLines, financialImportStatus, financialImportVisible, importCalendarDate, importCommissionEligibility, importCommissionForType, importEntityOptions, importFileError, ImportRow, selectImportHorse } from './financialImport';
 
 const row = (linha: number, changes: Partial<ImportRow> = {}): ImportRow => ({
   linha, chaveExterna: `ctrc:${linha}`, data: '2026-10-08', placa: 'QAX2H51', peso: '32500', valor: '4850.00',
@@ -44,11 +44,78 @@ describe('importação financeira no frontend', () => {
 
   it('permite revisar histórico pendente, mas bloqueia confirmação e aplicação de comissão', () => {
     const pending = row(2, { status: 'PENDENTE_COMPOSICAO', conjunto: null, quantidadeEixos: null, comissaoNecessaria: false });
-    expect(financialImportStatus(pending.status)).toBe('Revisar composição histórica');
+    expect(financialImportStatus(pending.status)).toBe('Conferir carretas na data do frete');
     expect(canEditImportRow(pending)).toBe(true);
     expect(canConfirmImport([pending], [2], false)).toBe(false);
     expect(applyImportCommission([pending], [2], {}, { tipoComissao: 'PERCENTUAL' })).toEqual({});
     expect(applyImportCommission([{ ...pending, quantidadeEixos: 7 }], [2], {}, { tipoComissao: 'PERCENTUAL' })).toEqual({});
+  });
+
+  it('orienta os casos sem histórico ou ambíguos sem sugerir que escolher comissão resolve', () => {
+    const rows = [
+      row(2, { placa: 'NSC1I98', data: '2026-10-11' }),
+      row(3, { placa: 'NSC1I98', data: '2026-10-09' }),
+      row(4, { placa: 'GEM8J07', data: '2026-10-09' }),
+    ].map((item) => ({ ...item, status: 'PENDENTE_COMPOSICAO', conjunto: null, quantidadeEixos: null, comissaoNecessaria: false }));
+    const availability = batchImportCommissionAvailability(rows, [2, 3, 4], {});
+
+    expect(availability).toMatchObject({ elegiveis: 0, selecionadas: 3 });
+    expect(availability.mensagem).toContain('3 linha(s) precisam ter as carretas e os eixos conferidos na data do frete');
+    expect(availability.mensagem).toContain('Escolher comissão não resolve essa pendência');
+    expect(availability.mensagem).not.toContain('Se alterou um cavalo');
+    expect(applyImportCommission(rows, [2, 3, 4], {}, { tipoComissao: 'PERCENTUAL' })).toEqual({});
+    expect(canConfirmImport(rows, [2, 3, 4], false)).toBe(false);
+    expect(rows.every(canEditImportRow)).toBe(true);
+    expect(rows.every(canSelectImportRow)).toBe(true);
+  });
+
+  it.each(['PENDENTE_MOTORISTA', 'PENDENTE_CLIENTE', 'PENDENTE_COMISSAO'])(
+    'reconhece histórico ausente mesmo quando o status principal é %s', (status) => {
+      const pending = row(2, { status, conjunto: null, quantidadeEixos: 7 });
+      expect(importCommissionEligibility(pending)).toBe('HISTORICO_PENDENTE');
+      expect(batchImportCommissionAvailability([pending], [2], {}).mensagem).toContain('carretas e os eixos conferidos');
+      expect(applyImportCommission([pending], [2], {}, { tipoComissao: 'POR_VIAGEM' })).toEqual({});
+    },
+  );
+
+  it.each([4, 7, 9])('permite escolher comissão pendente para composição histórica confirmada de %s eixos', (eixos) => {
+    const pending = row(2, { status: 'PENDENTE_COMISSAO', quantidadeEixos: eixos });
+    expect(importCommissionEligibility(pending)).toBe('ELEGIVEL');
+    expect(batchImportCommissionAvailability([pending], [2], {}).elegiveis).toBe(1);
+    expect(applyImportCommission([pending], [2], {}, { tipoComissao: 'PERCENTUAL' })[2].tipoComissao).toBe('PERCENTUAL');
+    expect(canConfirmImport([pending], [2], false)).toBe(false);
+  });
+
+  it('conta e aplica apenas às elegíveis em lote misto preservando as demais seleções', () => {
+    const rows = [
+      row(2, { status: 'PENDENTE_COMISSAO' }),
+      row(3, { status: 'PENDENTE_COMPOSICAO', conjunto: null, quantidadeEixos: null }),
+      row(4, { quantidadeEixos: 6, comissaoNecessaria: false }),
+      row(5),
+    ];
+    const selections = { 3: { linha: 3, motoristaId: 'motorista-2' }, 5: { linha: 5, cavaloMecanicoId: 'cavalo-alterado' } };
+    const availability = batchImportCommissionAvailability(rows, [2, 3, 4, 5], selections);
+    const applied = applyImportCommission(rows, [2, 3, 4, 5], selections, { tipoComissao: 'POR_VIAGEM' });
+
+    expect(availability).toMatchObject({ elegiveis: 1, selecionadas: 4 });
+    expect(availability.mensagem).toContain('Comissão aplicável a 1 de 4 linha(s)');
+    expect(availability.mensagem).toContain('composição histórica fora da regra');
+    expect(availability.mensagem).toContain('Atualizar prévia');
+    expect(applied[2]).toMatchObject({ tipoComissao: 'POR_VIAGEM', valorComissaoPorViagem: 240 });
+    expect(applied[3]).toBe(selections[3]);
+    expect(applied[4]).toBeUndefined();
+    expect(applied[5]).toBe(selections[5]);
+    expect(canConfirmImport(rows, [2, 3, 4, 5], false)).toBe(false);
+  });
+
+  it('exige atualizar a prévia quando a associação do cavalo mudou, sem reutilizar os eixos antigos', () => {
+    const rows = [row(2)];
+    const selections = { 2: { linha: 2, cavaloMecanicoId: 'novo-cavalo' } };
+    const availability = batchImportCommissionAvailability(rows, [2], selections);
+    expect(importCommissionEligibility(rows[0], selections[2])).toBe('CAVALO_ALTERADO');
+    expect(availability.elegiveis).toBe(0);
+    expect(availability.mensagem).toContain('Atualizar prévia para conferir as carretas');
+    expect(applyImportCommission(rows, [2], selections, { tipoComissao: 'PERCENTUAL' })).toEqual(selections);
   });
 
   it('confirma apenas o subconjunto pronto e exige atualizar a prévia após uma alteração', () => {

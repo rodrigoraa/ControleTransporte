@@ -55,6 +55,94 @@ function assinaturaImplementos(links: readonly { implementoId: string; ordem: nu
     .map((link) => [link.implementoId, link.ordem]);
 }
 
+function membrosDoSnapshot(conjunto: ComposicaoHistorica, registro: ObjetoJson) {
+  if (registro.id !== conjunto.id || !Array.isArray(registro.implementos)
+    || registro.implementos.length !== conjunto.implementos.length) return null;
+  const links = registro.implementos.map(objeto);
+  if (links.some((link) => !link || typeof link.implementoId !== 'string' || !Number.isInteger(link.ordem))) return null;
+  const membros = links as Array<ObjetoJson & { implementoId: string; ordem: number }>;
+  return JSON.stringify(assinaturaImplementos(membros)) === JSON.stringify(assinaturaImplementos(conjunto.implementos)) ? membros : null;
+}
+
+function mesmaEstruturaCompleta(conjunto: ComposicaoHistorica, registro: ObjetoJson) {
+  return registro.id === conjunto.id && registro.cavaloMecanicoId === conjunto.cavaloMecanicoId
+    && registro.tipo === conjunto.tipo && registro.quantidadeTotalEixos === conjunto.quantidadeTotalEixos;
+}
+
+function snapshotConfirmaEncerramento(conjunto: ComposicaoHistorica, depois: ObjetoJson) {
+  const membros = membrosDoSnapshot(conjunto, depois);
+  if (!membros) return false;
+  return membros.every((link) => {
+    const atual = conjunto.implementos.find((item) => item.implementoId === link.implementoId);
+    const fim = timestamp(link.dataFim);
+    return Boolean(atual && atual.dataFim !== null && fim !== null && fim === timestamp(atual.dataFim)
+      && timestamp(link.dataInicio) === timestamp(atual.dataInicio));
+  });
+}
+
+function inicioDoSnapshotAtivo(conjunto: ComposicaoHistorica, value: unknown): number | null {
+  const registro = objeto(value);
+  if (!registro || registro.status !== 'ATIVO' || !mesmaEstruturaCompleta(conjunto, registro)) return null;
+  const membros = membrosDoSnapshot(conjunto, registro);
+  if (!membros?.length || membros.some((link) => link.dataFim !== null)) return null;
+  const inicios = membros.map((link) => timestamp(link.dataInicio));
+  return inicios[0] !== null && inicios.every((inicio) => inicio === inicios[0]) ? inicios[0] : null;
+}
+
+function inicioAnteriorComprovado(conjunto: ComposicaoHistorica, inicioAtual: number, fimAtual: number) {
+  const atual = { inicio: inicioAtual, seguro: true };
+  const resets = conjunto.historicos.filter((historico) => {
+    if (historico.acao !== 'ATUALIZACAO_COMPOSICAO') return false;
+    const antes = objeto(historico.dadosAntes);
+    const depois = objeto(historico.dadosDepois);
+    // Different IDs represent a new version, not a legacy reset of this composition's links.
+    return !(antes?.id != null && depois?.id != null && antes.id !== depois.id);
+  });
+  if (!resets.length) return atual;
+  const possiveis = resets.map((historico) => {
+    const antes = objeto(historico.dadosAntes);
+    return Array.isArray(antes?.implementos) ? antes.implementos.map(objeto)
+      .map((link) => timestamp(link?.dataInicio)).filter((inicio): inicio is number => inicio !== null) : [];
+  });
+  // Failed proof still leaves an earlier possible composition; it must block arbitrary alternatives.
+  const incerto = { inicio: possiveis.some((inicios) => !inicios.length) ? -Infinity : Math.min(inicioAtual, ...possiveis.flat()), seguro: false };
+  const pares: Array<{ antes: number; depois: number; registro: number }> = [];
+  for (const historico of resets) {
+    const inicioAntes = inicioDoSnapshotAtivo(conjunto, historico.dadosAntes);
+    const inicioDepois = inicioDoSnapshotAtivo(conjunto, historico.dadosDepois);
+    const registro = timestamp(historico.createdAt);
+    if (inicioAntes === null || inicioDepois === null || registro === null
+      || inicioAntes > inicioDepois || inicioDepois > registro || registro > fimAtual) return incerto;
+    // An unchanged timestamp proves no earlier interval and must never create a cycle.
+    if (inicioAntes !== inicioDepois) pares.push({ antes: inicioAntes, depois: inicioDepois, registro });
+  }
+  if (!pares.length) return atual;
+  if (Number.isFinite(fimAtual)) {
+    const fechamentoComprovado = conjunto.status !== 'ATIVO' && conjunto.historicos.some((historico) => {
+      const depois = objeto(historico.dadosDepois);
+      return historico.acao === 'ENCERRAMENTO_COMPOSICAO' && depois && depois.status !== 'ATIVO'
+        && mesmaEstruturaCompleta(conjunto, depois) && snapshotConfirmaEncerramento(conjunto, depois)
+        && inicioDoSnapshotAtivo(conjunto, historico.dadosAntes) === inicioAtual;
+    });
+    if (!fechamentoComprovado) return incerto;
+  } else if (conjunto.status !== 'ATIVO') return incerto;
+
+  let inicio = inicioAtual;
+  let limiteRegistro = fimAtual;
+  const usados = new Set<number>();
+  while (usados.size < pares.length) {
+    const candidatos = pares.map((par, indice) => ({ par, indice }))
+      .filter(({ par, indice }) => !usados.has(indice) && par.depois === inicio);
+    // Missing anchors, forks and gaps must not extend the currently proven period.
+    if (candidatos.length !== 1 || candidatos[0].par.registro > limiteRegistro) return incerto;
+    const { par, indice } = candidatos[0];
+    usados.add(indice);
+    inicio = par.antes;
+    limiteRegistro = par.registro;
+  }
+  return { inicio, seguro: true };
+}
+
 function estruturaAlterada(conjunto: ComposicaoHistorica, registros: ObjetoJson[]) {
   const atual = JSON.stringify(assinaturaImplementos(conjunto.implementos));
   return registros.some((registro) => {
@@ -115,9 +203,18 @@ function intervalo(conjunto: ComposicaoHistorica): Intervalo | null {
   const fim = Math.max(...ends);
   const datasIguais = starts.every((value) => value === starts[0]) && ends.every((value) => value === ends[0]);
   const encerramentoCoerente = Number.isFinite(fim) || conjunto.status === 'ATIVO';
-  const eventosCoerentes = (fimHistorico === null || ends.every((value) => value === fimHistorico))
-    && criacoes.every((criacao) => criacao.createdAt.getTime() <= inicio);
-  if (!alterada) return { inicio, fim, seguro: datasIguais && encerramentoCoerente && eventosCoerentes };
+  const encerramentosCoerentes = encerramentos.every((encerramento) => {
+    const depois = objeto(encerramento.dadosDepois);
+    if (depois?.id != null && depois.id !== conjunto.id) return false;
+    if (depois?.status === 'ATIVO') return false;
+    // Legacy writers used a separate default timestamp for the audit event.
+    // Its own complete snapshot can prove the operational link dates without a time tolerance.
+    if (depois && 'implementos' in depois) return snapshotConfirmaEncerramento(conjunto, depois);
+    return ends.every((value) => value === encerramento.createdAt.getTime());
+  });
+  const comprovado = !alterada ? inicioAnteriorComprovado(conjunto, inicio, fim) : { inicio, seguro: false };
+  const eventosCoerentes = encerramentosCoerentes && criacoes.every((criacao) => criacao.createdAt.getTime() <= comprovado.inicio);
+  if (!alterada) return { inicio: comprovado.inicio, fim, seguro: comprovado.seguro && datasIguais && encerramentoCoerente && eventosCoerentes };
 
   const iniciosAnteriores = registros.flatMap((registro) => Array.isArray(registro.implementos)
     ? registro.implementos.map(objeto).flatMap((link) => {

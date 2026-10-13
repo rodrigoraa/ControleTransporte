@@ -1,11 +1,14 @@
 import { Upload, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import { api } from '../services/api';
 import { apiErrorMessage } from '../utils/apiError';
 import { commissionAfterTaxDiscount, commissionDefaults, commissionValues, CommissionType, selectedCommissionValue } from '../utils/commission';
-import { applyImportCommission, buildImportFormData, canConfirmImport, canEditImportRow, canSelectImportRow, confirmedImportLines, financialImportStatus, importCalendarDate, importCommissionForType, importEntityOptions, importFileError, ImportCommission, ImportEntity, ImportHorse, ImportPreview, ImportResult, ImportRow, ImportSelection, selectImportHorse } from '../utils/financialImport';
+import { applyImportCommission, batchImportCommissionAvailability, buildImportFormData, canConfirmImport, canEditImportRow, canSelectImportRow, confirmedImportLines, financialImportStatus, importCalendarDate, importCommissionForType, importEntityOptions, importFileError, ImportCommission, ImportEntity, ImportHorse, ImportPreview, ImportResult, ImportRow, ImportSelection, selectImportHorse } from '../utils/financialImport';
 import { money } from '../utils/formatters';
+import { financialImportIssues } from '../utils/financialImportIssues';
+import { FinancialImportIssuePanel, ImportErrorNotice, ImportRowProblemHelp, type ImportErrorContext } from './FinancialImportIssues';
+import { HistoricoOperacionalModal } from './OperationalHistoryModal';
 import { SearchableSelect } from './SearchableSelect';
 
 type Catalog = { cavalos: ImportHorse[]; motoristas: ImportEntity[]; clientes: ImportEntity[] };
@@ -34,12 +37,39 @@ export function FinancialImportModal({ onClose, onImported }: { onClose: () => v
   const [catalog, setCatalog] = useState<Catalog>({ cavalos: [], motoristas: [], clientes: [] });
   const [catalogError, setCatalogError] = useState('');
   const [error, setError] = useState('');
+  const [errorContext, setErrorContext] = useState<ImportErrorContext>('arquivo');
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState<'' | 'preview' | 'confirm'>('');
   const [confirming, setConfirming] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [batchCommission, setBatchCommission] = useState<ImportCommission>({ descontoImpostos: false });
-  useEscapeToClose(() => confirming ? setConfirming(false) : onClose(), !busy);
+  const [historyRow, setHistoryRow] = useState<ImportRow | null>(null);
+  const [reviewRequest, setReviewRequest] = useState(0);
+  const errorRef = useRef<HTMLDivElement>(null);
+  const issuePanelRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
+  const importBackdropRef = useRef<HTMLDivElement>(null);
+  const lastFocusedPreview = useRef<ImportPreview | null>(null);
+  useEscapeToClose(() => confirming ? setConfirming(false) : onClose(), !busy && !historyRow);
+
+  useEffect(() => {
+    importBackdropRef.current?.toggleAttribute('inert', Boolean(historyRow));
+  }, [historyRow]);
+
+  useEffect(() => {
+    if (busy || historyRow || confirming || result) return;
+    if (!error && preview === lastFocusedPreview.current) return;
+    if (!error) lastFocusedPreview.current = preview;
+    const target = error ? errorRef.current : issuePanelRef.current;
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView({ block: 'start' });
+  }, [error, preview, busy, historyRow, confirming, result]);
+
+  useEffect(() => {
+    if (!reviewRequest || historyRow) return;
+    editorRef.current?.focus({ preventScroll: true });
+    editorRef.current?.scrollIntoView({ block: 'start' });
+  }, [reviewRequest, historyRow]);
 
   useEffect(() => {
     let mounted = true;
@@ -57,6 +87,8 @@ export function FinancialImportModal({ onClose, onImported }: { onClose: () => v
     setDirty(false);
     setConfirming(false);
     setResult(null);
+    setReviewRequest(0);
+    setErrorContext('arquivo');
     const validation = next ? importFileError(next) : '';
     setFile(next && !validation ? next : null);
     setError(validation);
@@ -72,6 +104,7 @@ export function FinancialImportModal({ onClose, onImported }: { onClose: () => v
     if (!file || busy) return;
     setBusy('preview');
     setError('');
+    setErrorContext('previa');
     try {
       const { data } = await api.post<ImportPreview>('/importacoes/lancamentos/preview', buildImportFormData(file, {
         hashArquivo: preview?.hashArquivo,
@@ -95,6 +128,7 @@ export function FinancialImportModal({ onClose, onImported }: { onClose: () => v
     if (!file || !preview || busy || !canConfirmImport(preview.linhas, selected, dirty)) return;
     setBusy('confirm');
     setError('');
+    setErrorContext('confirmacao');
     try {
       const { data } = await api.post<ImportResult>('/importacoes/lancamentos/confirmar', buildImportFormData(file, {
         hashArquivo: preview.hashArquivo, selecoes: Object.values(selections), linhasSelecionadas: confirmedImportLines(preview.linhas, selected),
@@ -112,18 +146,29 @@ export function FinancialImportModal({ onClose, onImported }: { onClose: () => v
   }
 
   function applyBatchCommission() {
-    if (!preview || !batchCommission.tipoComissao) {
+    if (!preview) return;
+    setErrorContext('comissao');
+    const availability = batchImportCommissionAvailability(preview.linhas, selected, selections);
+    if (!availability.elegiveis) {
+      setError(availability.mensagem);
+      return;
+    }
+    if (!batchCommission.tipoComissao) {
       setError('Escolha o tipo de comissão que será aplicado aos selecionados.');
       return;
     }
-    const next = applyImportCommission(preview.linhas, selected, selections, batchCommission);
-    if (Object.keys(next).every((key) => next[Number(key)] === selections[Number(key)])) {
-      setError('Selecione linhas com composição de 4, 7 ou 9 eixos. Se alterou um cavalo, atualize a prévia primeiro.');
-      return;
-    }
-    setSelections(next);
+    setSelections(applyImportCommission(preview.linhas, selected, selections, batchCommission));
     setDirty(true);
     setError('');
+  }
+
+  function reviewRow(row: ImportRow) {
+    setEditingLine(row.linha);
+    setReviewRequest((value) => value + 1);
+  }
+
+  function showHistory(row: ImportRow) {
+    if (!busy && !dirty && row.cavalo) setHistoryRow(row);
   }
 
   const selectedRows = preview?.linhas.filter((row) => selected.includes(row.linha)) || [];
@@ -131,13 +176,16 @@ export function FinancialImportModal({ onClose, onImported }: { onClose: () => v
   const editingRow = preview?.linhas.find((row) => row.linha === editingLine);
   const ready = preview && canConfirmImport(preview.linhas, selected, dirty);
   const withoutCommission = selectedRows.filter((row) => !row.comissaoNecessaria).length;
+  const batchAvailability = batchImportCommissionAvailability(preview?.linhas || [], selected, selections);
 
-  return <div className="modal-backdrop">
+  return <><div className="modal-backdrop" ref={importBackdropRef} aria-hidden={historyRow ? true : undefined}>
     <div className="modal large-modal import-modal" role="dialog" aria-modal="true" aria-label="Importar planilha de faturamento" aria-busy={Boolean(busy)}>
       <div className="modal-header">
         <div><h2>{result ? 'Importação concluída' : confirming ? 'Confirmar importação' : 'Importar planilha'}</h2><span>Faturamentos do sistema do cliente</span></div>
         <button type="button" className="icon-button" aria-label="Fechar importação" onClick={onClose} disabled={Boolean(busy)}><X size={18} /></button>
       </div>
+
+      {error && <ImportErrorNotice context={errorContext} message={error} noticeRef={errorRef} />}
 
       {result ? <>
         <div className="import-stats">
@@ -166,13 +214,14 @@ export function FinancialImportModal({ onClose, onImported }: { onClose: () => v
         {catalogError && <div className="form-warning">{catalogError}</div>}
         {preview && <>
           <p><strong>Arquivo: {preview.arquivo || file?.name}</strong> · Confira os dados e escolha as linhas que deseja importar.</p>
-          <p>A composição e os eixos são determinados pelo histórico na data do faturamento da planilha. Linhas com histórico insuficiente ou ambíguo precisam de revisão antes da importação.</p>
+          <p>Para cada frete, conferimos quais carretas estavam ligadas ao cavalo na data da planilha. Essa informação define os eixos e a comissão.</p>
           <div className="import-stats">
             <ImportStat label="Registros encontrados" value={preview.resumo.total} /><ImportStat label="Prontos" value={preview.resumo.prontas} />
             <ImportStat label="Já existentes / repetidos" value={preview.resumo.duplicadas} /><ImportStat label="Pendentes" value={preview.resumo.pendentes} />
             <ImportStat label="Inválidos" value={preview.resumo.invalidas} /><ImportStat label="Conflitos" value={preview.resumo.conflitos || 0} />
           </div>
-          {dirty && <div className="form-warning">As associações ou comissões foram alteradas. Atualize a prévia para validar as alterações antes de importar.</div>}
+          <FinancialImportIssuePanel rows={preview.linhas} selected={selected} dirty={dirty} disabled={Boolean(busy)} panelRef={issuePanelRef}
+            onReview={reviewRow} onHistory={showHistory} onSelectReady={() => setSelected(preview.linhas.filter((row) => row.status === 'PRONTO').map((row) => row.linha))} onRefresh={() => void refreshPreview()} />
           <details className="import-batch">
             <summary>Aplicar comissão aos selecionados</summary>
             <div className="form-grid">
@@ -180,9 +229,9 @@ export function FinancialImportModal({ onClose, onImported }: { onClose: () => v
               {batchCommission.tipoComissao === 'PERCENTUAL' && <label>Percentual (%)<input type="number" min="0.01" max="100" step="0.01" placeholder="Usar padrão dos eixos" value={batchCommission.percentualComissao ?? ''} onChange={(event) => setBatchCommission((current) => ({ ...current, percentualComissao: event.target.value ? Number(event.target.value) : undefined }))} /></label>}
               {batchCommission.tipoComissao === 'POR_VIAGEM' && <label>Valor por viagem<input type="number" min="0.01" step="0.01" placeholder="Usar padrão dos eixos" value={batchCommission.valorComissaoPorViagem ?? ''} onChange={(event) => setBatchCommission((current) => ({ ...current, valorComissaoPorViagem: event.target.value ? Number(event.target.value) : undefined }))} /></label>}
               <label className="check-row"><input type="checkbox" checked={Boolean(batchCommission.descontoImpostos)} onChange={(event) => setBatchCommission((current) => ({ ...current, descontoImpostos: event.target.checked }))} /><span>Desconto de impostos (12% sobre a comissão)</span></label>
-              <button type="button" className="button" disabled={Boolean(busy) || !selected.length} onClick={applyBatchCommission}>Aplicar aos selecionados</button>
             </div>
             <small>O tipo é escolhido por você. Campos vazios usam os mesmos valores padrão do cadastro manual, conforme os eixos da composição vigente na data de cada faturamento.</small>
+            <ImportBatchCommissionAction availability={batchAvailability} disabled={Boolean(busy)} onApply={applyBatchCommission} />
           </details>
           <div className="import-selection"><strong>{selected.length} linha(s) selecionada(s)</strong><button type="button" className="button ghost" disabled={Boolean(busy)} onClick={() => setSelected(preview.linhas.filter((row) => row.status === 'PRONTO').map((row) => row.linha))}>Selecionar prontas</button><button type="button" className="button ghost" disabled={Boolean(busy)} onClick={() => setSelected([])}>Limpar seleção</button></div>
           <div className="table-wrap import-table"><table>
@@ -193,24 +242,36 @@ export function FinancialImportModal({ onClose, onImported }: { onClose: () => v
               <td><ImportCompositionDetails row={row} /></td>
               <td>{formatWeight(row.peso)}</td><td>{row.motorista?.nome || row.motoristaExterno?.nome || '-'}{row.motorista && <small>Planilha: {row.motoristaExterno?.nome}</small>}</td>
               <td>{row.cliente?.nome || row.clienteExterno?.nome || '-'}{row.cliente && <small>Planilha: {row.clienteExterno?.nome}</small>}</td><td>{row.valor != null && row.valor !== '' && Number.isFinite(Number(row.valor)) ? money(row.valor) : '-'}</td>
-              <td><strong>{financialImportStatus(row.status)}</strong>{row.pendencias?.map((message, index) => <small key={index}>{message}</small>)}</td>
-              <td>{canEditImportRow(row) && <button type="button" className="button ghost" disabled={Boolean(busy)} onClick={() => setEditingLine(row.linha)}>Conferir / resolver</button>}</td>
+              <td><strong>{financialImportStatus(row.status)}</strong>{financialImportIssues(row).length ? financialImportIssues(row).map((issue) => <small className="import-row-issue" key={issue.code}>{issue.title}</small>) : row.pendencias?.map((message, index) => <small key={index}>{message}</small>)}</td>
+              <td>{(canEditImportRow(row) || financialImportIssues(row).length > 0) && <button type="button" className="button ghost" disabled={Boolean(busy)} onClick={() => reviewRow(row)}>{row.status === 'PRONTO' ? 'Conferir linha' : 'Como resolver'}</button>}</td>
             </tr>)}</tbody>
           </table></div>
-          {editingRow && canEditImportRow(editingRow) && <ImportRowEditor row={editingRow} selection={selections[editingRow.linha]} catalog={catalog} disabled={Boolean(busy)} onChange={(changes) => updateSelection(editingRow.linha, changes)} onReset={() => {
+          {editingRow && (canEditImportRow(editingRow) || financialImportIssues(editingRow).length > 0) && <div ref={editorRef} tabIndex={-1} className="import-review-target" aria-label={`Conferir linha ${editingRow.linha}`}><ImportRowEditor row={editingRow} selection={selections[editingRow.linha]} catalog={catalog} disabled={Boolean(busy) || !canEditImportRow(editingRow)} historyDisabled={dirty} onHistory={showHistory} onChange={(changes) => updateSelection(editingRow.linha, changes)} onReset={() => {
             setSelections((current) => Object.fromEntries(Object.entries(current).filter(([line]) => Number(line) !== editingRow.linha)));
             setDirty(true);
-          }} />}
+          }} /></div>}
           <div className="modal-actions"><button type="button" className="button ghost" disabled={Boolean(busy)} onClick={onClose}>Cancelar</button><button type="button" className="button" disabled={Boolean(busy) || !file} onClick={() => void refreshPreview()}>Atualizar prévia</button><button type="button" className="button primary" disabled={!ready || Boolean(busy)} onClick={() => setConfirming(true)}>{ready && !selected.length ? 'Concluir conferência' : `Importar ${selected.length} selecionado(s)`}</button></div>
-          {!dirty && selectedRows.some((row) => row.status !== 'PRONTO') && <small>Resolva as pendências selecionadas ou selecione apenas as linhas prontas.</small>}
+          {!dirty && selectedRows.some((row) => row.status !== 'PRONTO') && <p className="import-footer-help">A importação está bloqueada pelas linhas selecionadas com pendência. Use <strong>Como resolver</strong> ou <strong>Selecionar apenas as prontas</strong> no aviso acima.</p>}
         </>}
       </>}
-      {error && <div className="form-error" role="alert">{error}</div>}
     </div>
-  </div>;
+  </div>{historyRow?.cavalo && <HistoricoOperacionalModal resource={{ path: 'caminhoes', endpoint: '/caminhoes' }} item={historyRow.cavalo}
+    notice={`Confira quais carretas estavam ligadas ao cavalo ${historyRow.cavalo.placa} em ${importCalendarDate(historyRow.data)}. O cadastro atual pode ser diferente. Esta consulta não altera os registros; a planilha continua aberta para você voltar e atualizar a prévia.`}
+    closeLabel="Voltar para a importação" onClose={() => { setHistoryRow(null); reviewRow(historyRow); }} />}</>;
 }
 
 const commissionTypes = [{ value: 'PERCENTUAL', label: 'Percentual' }, { value: 'POR_VIAGEM', label: 'Por viagem' }];
+
+export function ImportBatchCommissionAction({ availability, disabled, onApply }: {
+  availability: ReturnType<typeof batchImportCommissionAvailability>;
+  disabled: boolean;
+  onApply: () => void;
+}) {
+  return <div className="import-selection">
+    <button type="button" className="button" disabled={disabled || !availability.elegiveis} onClick={onApply}>Aplicar aos selecionados</button>
+    <span role="status">{availability.mensagem}</span>
+  </div>;
+}
 
 function ImportStat({ label, value }: { label: string; value: number }) {
   return <div><strong>{value}</strong><span>{label}</span></div>;
@@ -223,12 +284,12 @@ function formatWeight(value: string | null) {
 
 export function ImportCompositionDetails({ row }: { row: ImportRow }) {
   return <>
-    <span>{row.conjunto?.nome || 'Histórico pendente'}</span>
+    <span>{row.conjunto?.nome || 'Carretas nesta data: a conferir'}</span>
     <small>{row.quantidadeEixos != null ? `${row.quantidadeEixos} eixos · ` : ''}{importCalendarDate(row.data)}</small>
   </>;
 }
 
-export function ImportRowEditor({ row, selection, catalog, disabled, onChange, onReset }: { row: ImportRow; selection?: ImportSelection; catalog: Catalog; disabled: boolean; onChange: (changes: Partial<ImportSelection>) => void; onReset: () => void }) {
+export function ImportRowEditor({ row, selection, catalog, disabled, historyDisabled = false, onHistory, onChange, onReset }: { row: ImportRow; selection?: ImportSelection; catalog: Catalog; disabled: boolean; historyDisabled?: boolean; onHistory?: (row: ImportRow) => void; onChange: (changes: Partial<ImportSelection>) => void; onReset: () => void }) {
   const currentCommission = { ...row.comissao, ...selection };
   const changedHorse = Boolean(selection?.cavaloMecanicoId && selection.cavaloMecanicoId !== row.cavalo?.id);
   const defaults = commissionDefaults(row.quantidadeEixos || 0);
@@ -237,12 +298,13 @@ export function ImportRowEditor({ row, selection, catalog, disabled, onChange, o
   const horseOptions = new Map([...catalog.cavalos, ...(row.cavalo ? [row.cavalo] : [])].map((cavalo) => [cavalo.id, { value: cavalo.id, label: cavalo.placa }]));
   return <div className="import-editor">
     <div className="section-title"><h3>Conferir linha {row.linha}</h3><span>{row.placa} · {importCalendarDate(row.data)}</span></div>
+    <ImportRowProblemHelp row={row} disabled={disabled || historyDisabled || changedHorse} onHistory={onHistory} />
     <div className="form-grid">
       <label>Cavalo mecânico<SearchableSelect value={selection?.cavaloMecanicoId || row.cavalo?.id || ''} options={[...horseOptions.values()]} disabled={disabled} ariaLabel={`Cavalo da linha ${row.linha}`} onChange={(value) => { if (value) onChange(selectImportHorse(row, selection, value)); }} /><small>Placa na planilha: {row.placa || '-'}</small></label>
       <label>Motorista<SearchableSelect value={selection?.motoristaId || row.motorista?.id || ''} options={importEntityOptions(catalog.motoristas, row.sugestoesMotorista, row.motorista)} disabled={disabled} ariaLabel={`Motorista da linha ${row.linha}`} onChange={(value) => { if (value) onChange({ motoristaId: value }); }} /><small>Motorista da planilha: {externalName(row.motoristaExterno)}</small></label>
       <label>Cliente / pagador<SearchableSelect value={selection?.clienteId || row.cliente?.id || ''} options={importEntityOptions(catalog.clientes, row.sugestoesCliente, row.cliente)} disabled={disabled} ariaLabel={`Cliente da linha ${row.linha}`} onChange={(value) => { if (value) onChange({ clienteId: value }); }} /><small>Pagador da planilha: {externalName(row.clienteExterno)}</small></label>
     </div>
-    {changedHorse || !row.cavalo ? <div className="form-warning">Associe o cavalo e atualize a prévia para verificar a composição histórica, os eixos e a comissão na data do faturamento.</div> : !row.conjunto || row.quantidadeEixos == null || row.status === 'PENDENTE_COMPOSICAO' ? <div className="form-warning">Não foi possível determinar a composição em {importCalendarDate(row.data)}. Revise o histórico da frota ou a associação do cavalo e atualize a prévia. A importação desta linha permanece bloqueada.</div> : defaults ? <div className="commission-section">
+    {changedHorse ? <div className="form-warning">Você alterou o cavalo. Clique em Atualizar prévia para conferir as carretas, os eixos e a comissão do cavalo escolhido.</div> : !row.cavalo || !row.conjunto || row.quantidadeEixos == null || row.status === 'PENDENTE_COMPOSICAO' ? null : defaults ? <div className="commission-section">
       <div className="commission-heading"><strong>Comissão de motorista</strong><span><ImportCompositionDetails row={row} /></span></div>
       <div className="form-grid">
         <label>Tipo de comissão<SearchableSelect value={currentCommission.tipoComissao || ''} options={commissionTypes} disabled={disabled} ariaLabel={`Comissão da linha ${row.linha}`} onChange={(value) => onChange(value ? importCommissionForType(row.quantidadeEixos, value as CommissionType, currentCommission) : { tipoComissao: undefined })} /></label>

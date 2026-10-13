@@ -213,6 +213,67 @@ describePostgres('Importação financeira - PostgreSQL temporário (POSTGRES_TES
     expect(manual.quantidadeEixosComissao).toBeNull();
   });
 
+  it('importa datas anteriores à recriação legada dos mesmos vínculos quando os snapshots comprovam continuidade', async () => {
+    const seeded = await cadastros(7);
+    await prisma.cavaloMecanico.update({ where: { id: seeded.cavalo.id }, data: { placa: 'NSC1I98' } });
+    const include = { implementos: { orderBy: { ordem: 'asc' as const } } };
+    await prisma.$transaction(async (tx) => {
+      const antes = await tx.conjunto.findUniqueOrThrow({ where: { id: seeded.conjunto.id }, include });
+      // O writer antigo recriava os vínculos até ao salvar as mesmas carretas.
+      await tx.conjuntoImplemento.deleteMany({ where: { conjuntoId: seeded.conjunto.id } });
+      const depois = await tx.conjunto.update({
+        where: { id: seeded.conjunto.id },
+        data: { implementos: { create: seeded.implementos.map((implemento, index) => ({
+          implementoId: implemento.id, ordem: index + 1, dataInicio: new Date('2026-10-12T10:00:00Z'),
+        })) } },
+        include,
+      });
+      await tx.historicoConjuntoOperacional.create({ data: {
+        conjuntoId: seeded.conjunto.id, acao: 'ATUALIZACAO_COMPOSICAO',
+        dadosAntes: JSON.parse(JSON.stringify(antes)), dadosDepois: JSON.parse(JSON.stringify(depois)),
+        createdAt: new Date('2026-10-12T10:00:00.010Z'),
+      } });
+    });
+    const file = arquivo([
+      sourceRow({ ds_placa: 'NSC1I98', dt_emissao: '09/10/2026', cd_ctrc: 'legado-09' }),
+      sourceRow({ ds_placa: 'NSC1I98', dt_emissao: '11/10/2026', cd_ctrc: 'legado-11' }),
+    ]);
+    const selecoes = [2, 3].map((linha) => ({ linha, tipoComissao: TipoComissao.PERCENTUAL, descontoImpostos: true }));
+    const before = await snapshot();
+    const preview = await service.preview(file, { selecoes });
+    expect(await snapshot()).toEqual(before);
+    expect(preview.linhas).toHaveLength(2);
+    for (const linha of preview.linhas) {
+      expect(linha).toMatchObject({ status: 'PRONTO', conjunto: { id: seeded.conjunto.id }, quantidadeEixos: 7 });
+    }
+    expect(await service.confirmar(file, { hashArquivo: preview.hashArquivo, linhasSelecionadas: [2, 3], selecoes }))
+      .toEqual({ importados: 2, duplicadosIgnorados: 0, erros: 0 });
+    const faturamentos = await prisma.lancamentoFinanceiro.findMany({ where: { tipoLancamento: 'FATURAMENTO' }, include: { despesaComissao: true } });
+    expect(faturamentos).toHaveLength(2);
+    for (const faturamento of faturamentos) {
+      expect(faturamento).toMatchObject({ conjuntoId: seeded.conjunto.id, quantidadeEixosComissao: 7 });
+      expect(Number(faturamento.valorComissao)).toBe(512.16);
+      expect(Number(faturamento.despesaComissao!.valorTotal)).toBe(512.16);
+    }
+  });
+
+  it('usa datas operacionais preservadas quando o encerramento legado foi gravado alguns milissegundos depois', async () => {
+    const seeded = await transferirComposicao();
+    await prisma.historicoConjuntoOperacional.updateMany({
+      where: { conjuntoId: seeded.conjunto.id, acao: 'ENCERRAMENTO_COMPOSICAO' },
+      data: { createdAt: new Date('2026-10-08T00:00:00.031Z') },
+    });
+    const file = arquivo([sourceRow({ dt_emissao: '07/10/2026' })]);
+    const selecoes = [{ linha: 2, tipoComissao: TipoComissao.PERCENTUAL }];
+    const before = await snapshot();
+    const preview = await service.preview(file, { selecoes });
+    expect(await snapshot()).toEqual(before);
+    expect(preview.linhas[0]).toMatchObject({ status: 'PRONTO', conjunto: { id: seeded.conjunto.id }, quantidadeEixos: 7 });
+    await service.confirmar(file, { hashArquivo: preview.hashArquivo, linhasSelecionadas: [2], selecoes });
+    expect(await prisma.lancamentoFinanceiro.findFirstOrThrow({ where: { tipoLancamento: 'FATURAMENTO' } }))
+      .toMatchObject({ conjuntoId: seeded.conjunto.id, quantidadeEixosComissao: 7 });
+  });
+
   it.each(['08/10/2026', '09/10/2026'])('usa a nova composição em %s, respeitando o fim exclusivo do vínculo anterior', async (data) => {
     const seeded = await transferirComposicao();
     const file = arquivo([sourceRow({ dt_emissao: data })]);

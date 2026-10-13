@@ -17,6 +17,13 @@ function snapshot(value: unknown): Prisma.JsonValue { return JSON.parse(JSON.str
 function evento(acao: string, data: string, antes: unknown = null, depois: unknown = null) {
   return { acao, createdAt: dia(data), dadosAntes: snapshot(antes), dadosDepois: snapshot(depois) };
 }
+function recriacao(conjunto: ComposicaoHistorica, antes: string, depois: string) {
+  const ativo = (inicio: string) => ({
+    ...conjunto, status: StatusGeral.ATIVO, historicos: [],
+    implementos: conjunto.implementos.map((link) => ({ ...link, dataInicio: dia(inicio), dataFim: null })),
+  });
+  return evento('ATUALIZACAO_COMPOSICAO', new Date(dia(depois).getTime() + 10).toISOString(), ativo(antes), ativo(depois));
+}
 const resolver = (conjuntos: ComposicaoHistorica[], data = '2026-10-04', cavalo = 'cavalo-a') => resolverComposicaoHistorica(conjuntos, data, cavalo);
 
 describe('resolução da composição histórica da frota', () => {
@@ -61,6 +68,76 @@ describe('resolução da composição histórica da frota', () => {
   it('não recua a composição atual a uma data anterior ao primeiro vínculo conhecido', () => {
     const atual = composicao('atual', '2026-10-08', null);
     expect(resolver([atual], '2026-10-01')).toMatchObject({ status: 'SEM_HISTORICO', conjuntoId: null, quantidadeTotalEixos: null });
+  });
+
+  it('recupera notas 9/11 de outubro após recriação legada dos mesmos vínculos em 12 de outubro', () => {
+    const atual = composicao('reset', '2026-10-12', null);
+    atual.historicos = [
+      evento('CRIACAO_COMPOSICAO', '2026-10-01', null, { id: atual.id, status: 'ATIVO' }),
+      recriacao(atual, '2026-10-01', '2026-10-12'),
+    ];
+    for (const data of ['2026-10-09', '2026-10-11', '2026-10-13']) {
+      expect(resolver([atual], data)).toMatchObject({ status: 'RESOLVIDA', conjuntoId: atual.id, quantidadeTotalEixos: 7 });
+    }
+    expect(resolver([atual], '2026-09-30').status).toBe('SEM_HISTORICO');
+  });
+
+  it('segue cadeia exata e mantém o dia inteiro quando o reset intradia não muda a composição', () => {
+    const atual = composicao('cadeia', '2026-10-12T12:00:00Z', null);
+    atual.historicos = [
+      recriacao(atual, '2026-10-01', '2026-10-05T10:00:00Z'),
+      recriacao(atual, '2026-10-05T10:00:00Z', '2026-10-12T12:00:00Z'),
+    ];
+    expect(resolver([atual], '2026-10-05').status).toBe('RESOLVIDA');
+    expect(resolver([atual], '2026-10-12').status).toBe('RESOLVIDA');
+  });
+
+  it('ancora a cadeia em fechamento posterior comprovado e conserva o fim exclusivo', () => {
+    const encerrada = composicao('fechada', '2026-10-12', '2026-10-15');
+    const aberta = composicao('fechada', '2026-10-12', null);
+    encerrada.historicos = [
+      recriacao(encerrada, '2026-10-01', '2026-10-12'),
+      evento('ENCERRAMENTO_COMPOSICAO', '2026-10-15T00:00:00.031Z', aberta, encerrada),
+    ];
+    expect(resolver([encerrada], '2026-10-09').status).toBe('RESOLVIDA');
+    expect(resolver([encerrada], '2026-10-14').status).toBe('RESOLVIDA');
+    expect(resolver([encerrada], '2026-10-15').status).toBe('SEM_HISTORICO');
+    encerrada.historicos[1].dadosAntes = null;
+    expect(resolver([encerrada], '2026-10-09').status).toBe('AMBIGUA');
+  });
+
+  it.each([
+    ['sem âncora', [['2026-10-01', '2026-10-10']], 'AMBIGUA'],
+    ['bifurcação', [['2026-10-01', '2026-10-12'], ['2026-10-05', '2026-10-12']], 'AMBIGUA'],
+    ['lacuna', [['2026-10-01', '2026-10-05'], ['2026-10-06', '2026-10-12']], 'AMBIGUA'],
+    ['ciclo sem avanço', [['2026-10-12', '2026-10-12']], 'SEM_HISTORICO'],
+  ])('não resolve período anterior com %s', (_descricao, datas, status) => {
+    const atual = composicao('insegura', '2026-10-12', null);
+    atual.historicos = (datas as string[][]).map(([antes, depois]) => recriacao(atual, antes, depois));
+    expect(resolver([atual], '2026-10-09').status).toBe(status);
+    if (status === 'AMBIGUA') {
+      expect(resolver([atual, composicao('alternativa', '2026-10-01', null)], '2026-10-09').status).toBe('AMBIGUA');
+    }
+  });
+
+  it('recusa snapshots parciais e vínculos anteriores fechados sem preencher a lacuna', () => {
+    const atual = composicao('incompleta', '2026-10-12', null);
+    const reset = recriacao(atual, '2026-10-01', '2026-10-12');
+    delete (reset.dadosAntes as Prisma.JsonObject).tipo;
+    atual.historicos = [reset];
+    expect(resolver([atual], '2026-10-09').status).toBe('AMBIGUA');
+    const fechado = composicao('incompleta', '2026-10-01', '2026-10-08', { status: StatusGeral.ATIVO });
+    atual.historicos = [evento('ATUALIZACAO_COMPOSICAO', '2026-10-12T00:00:00.010Z', fechado, atual)];
+    expect(resolver([atual], '2026-10-09').status).toBe('AMBIGUA');
+  });
+
+  it('preserva bloqueio para mudança estrutural e sobreposição mesmo com reset ancorado', () => {
+    const atual = composicao('reset', '2026-10-12', null);
+    const reset = recriacao(atual, '2026-10-01', '2026-10-12');
+    atual.historicos = [reset];
+    expect(resolver([atual, composicao('sobreposta', '2026-10-01', null)], '2026-10-09').status).toBe('AMBIGUA');
+    (reset.dadosAntes as Prisma.JsonObject).quantidadeTotalEixos = 9;
+    expect(resolver([atual], '2026-10-09').status).toBe('AMBIGUA');
   });
 
   it('considera INATIVO historicamente vigente e ignora createdAt posterior às datas operacionais', () => {
@@ -122,6 +199,31 @@ describe('resolução da composição histórica da frota', () => {
     const criacao = composicao();
     criacao.historicos = [evento('CRIACAO_COMPOSICAO', '2026-10-05', null, { id: criacao.id, status: 'ATIVO' })];
     expect(resolver([criacao]).status).toBe('AMBIGUA');
+  });
+
+  it('aceita fechamento legado comprovado pelo snapshot mesmo com timestamp de gravação diferente', () => {
+    const encerrada = composicao();
+    for (const registro of ['2026-10-07T23:59:59.990Z', '2026-10-08T00:00:00.031Z']) {
+      encerrada.historicos = [evento('ENCERRAMENTO_COMPOSICAO', registro, null, encerrada)];
+      expect(resolver([encerrada], '2026-10-07')).toMatchObject({ status: 'RESOLVIDA', conjuntoId: encerrada.id, quantidadeTotalEixos: 7 });
+      expect(resolver([encerrada], '2026-10-08').status).toBe('SEM_HISTORICO');
+    }
+  });
+
+  it.each<[string, (depois: ComposicaoHistorica) => void]>([
+    ['outro conjunto', (depois) => { depois.id = 'outro'; }],
+    ['fim diferente', (depois) => { depois.implementos[0].dataFim = dia('2026-10-08T00:00:00.001Z'); }],
+    ['vínculo ainda aberto', (depois) => { depois.implementos[0].dataFim = null; }],
+    ['início diferente', (depois) => { depois.implementos[0].dataInicio = dia('2026-10-02'); }],
+    ['snapshot parcial', (depois) => { depois.implementos.pop(); }],
+    ['snapshot ainda ativo', (depois) => { depois.status = StatusGeral.ATIVO; }],
+  ])('recusa prova de fechamento incoerente: %s', (_descricao, alterar) => {
+    const encerrada = composicao();
+    const depois = composicao();
+    alterar(depois);
+    // A matching event timestamp must not hide a contradictory operational snapshot.
+    encerrada.historicos = [evento('ENCERRAMENTO_COMPOSICAO', '2026-10-08', null, depois)];
+    expect(resolver([encerrada]).status).toBe('AMBIGUA');
   });
 
   it('ignora vínculos de duração zero de uma composição criada inativa', () => {

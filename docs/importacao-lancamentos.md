@@ -28,7 +28,13 @@ O período operacional é `[dataInicio, dataFim)`: início inclusivo, fim exclus
 
 Conjuntos sem implementos dependem dos registros de criação e encerramento no histórico operacional. Não se usa `updatedAt` como término de operação nem se recalculam eixos antigos pelos cadastros atuais dos implementos. As consultas históricas são carregadas em lote dentro da transação e a confirmação relê esses dados.
 
+Cadastros antigos podiam gravar o histórico de encerramento alguns milissegundos depois do desengate. Nesse caso, um snapshot completo do próprio conjunto, com os mesmos vínculos e datas operacionais, comprova o encerramento; não se exige que o horário de gravação seja igual ao horário da operação. Snapshots contraditórios ou parciais continuam bloqueados.
+
+O cadastro antigo também podia apagar e recriar os vínculos ao salvar as mesmas carretas. A continuidade anterior só é recuperada por uma cadeia de snapshots completos, ambos ativos, com o mesmo cavalo, tipo, eixos, implementos e ordem, conectada exatamente aos vínculos preservados. Não se preenchem lacunas nem se recuperam composições diferentes por suposição. A ausência real de cadastro histórico continua pendente.
+
 Para 4, 7 e 9 eixos históricos, o usuário precisa escolher o tipo de comissão. Os valores padrão existentes continuam disponíveis, sem escolher automaticamente entre percentual e por viagem. A comissão e sua despesa automática seguem os mesmos cálculos do cadastro manual. Linhas fora dessas regras são explicitadas na confirmação como lançamentos sem comissão automática.
+
+A aplicação de comissão em lote informa quantas linhas selecionadas podem recebê-la. Sem composição histórica identificada, ou depois de alterar o cavalo sem atualizar a prévia, a linha não recebe comissão. O botão fica desabilitado quando nenhuma linha é elegível e mostra o motivo; informar comissão não resolve uma pendência histórica. As linhas pendentes continuam disponíveis para conferência das associações, e a confirmação exige linhas prontas.
 
 ## Duplicidade e transação
 
@@ -39,6 +45,25 @@ O fingerprint usa os dados financeiros normalizados e as pessoas externas. Reimp
 Na confirmação, o arquivo é reenviado e seu SHA-256 deve coincidir com o da prévia. O servidor relê o arquivo e revalida as linhas, associações, comissão e duplicidade. As linhas selecionadas, comissões, mapeamentos, rastreamento e auditorias são gravados na mesma transação `Serializable`. Falhas revertem o lote. Conflitos concorrentes provocam repetição completa e nova leitura de duplicados.
 
 Os vínculos de importação impedem editar ou excluir um faturamento importado pelo CRUD comum, preservando a consistência entre financeiro, dados originais e hash. A API recusa essas ações antes de recalcular comissão ou gravar dados; a listagem informa `importacao: { id }` e a interface oferece apenas visualização para esses registros. Lançamentos manuais continuam editáveis pelas regras anteriores, e despesas automáticas de comissão mantêm sua proteção própria. Uma correção de CTRC importado ou de mapeamento conflitante precisa de um fluxo específico de revisão, fora deste importador.
+
+## Como resolver pendências na tela
+
+Erros de arquivo, conferência ou confirmação aparecem no alto do modal com título, motivo e próximo passo. Depois de uma conferência com pendências, o foco vai para um painel persistente que identifica linha, placa e data. O botão **Como resolver** leva ao formulário e mostra instruções para aquela linha, incluindo pendências adicionais que antes ficavam escondidas pelo status principal.
+
+| Problema | Orientação apresentada |
+| --- | --- |
+| Cavalo não encontrado | Conferir a placa e escolher o cavalo correto no campo da linha; depois atualizar a prévia. |
+| Motorista ou cliente sem associação | Escolher o cadastro correto no campo indicado e atualizar a prévia. |
+| Carretas não confirmadas na data do frete | Abrir **Ver histórico do cavalo** sem sair da importação; conferir placas e datas registradas. Se faltarem registros ou houver duas composições ao mesmo tempo, o responsável pela frota ou suporte precisa corrigir o período antes de atualizar a prévia. |
+| Comissão pendente | Escolher percentual ou por viagem, conferir o valor e os impostos e atualizar a prévia. |
+| Dados inválidos da planilha | Conferir os detalhes da linha, corrigir o arquivo original e selecionar a versão corrigida. |
+| Conflito | Conferir CTRC, valores e associações com o responsável financeiro; preservar o registro já confirmado. |
+
+A consulta de histórico mostra as carretas e as datas de início/fim registradas, na mesma referência UTC da conferência da planilha. **Voltar para a importação** mantém o arquivo e os ajustes. A consulta não regulariza os dados automaticamente; alterar somente a composição atual não comprova uma viagem antiga.
+
+Quando há linhas prontas, **Selecionar apenas N linhas prontas** permite continuar com elas, mantendo a confirmação explícita. Quando nenhuma linha está pronta, o painel informa isso. Alterações ainda não conferidas exigem **Atualizar prévia**. Os detalhes técnicos originais continuam disponíveis em **Ver detalhes da conferência**.
+
+A validação dessas melhorias em 13/10/2026 acrescentou 41 testes de orientações e componentes. `npm run check` passou: lint, **521 testes** (378 API e 143 frontend) e os dois builds. A verificação de navegação/foco em navegador real ficou pendente porque nenhum navegador estava conectado; os componentes, instruções, alertas acessíveis, estados dos botões e datas UTC foram verificados nos testes disponíveis. A publicação no ambiente em uso não foi realizada.
 
 ## API
 
@@ -66,7 +91,7 @@ Os testes de integração criam um PostgreSQL temporário isolado, confirmam sua
 
 A migration foi validada em banco temporário. A comparação completa entre migrations antigas e schema revelou diferenças preexistentes em índices/defaults da frota. Elas foram preservadas; os modelos novos de importação correspondem à migration. O fluxo habitual de migração deve continuar sendo usado, sem `db push` para corrigir essas diferenças.
 
-As fixtures exercitam os formatos de planilha e o layout informado. A validação com um arquivo real do sistema de origem deve ser repetida quando esse arquivo estiver disponível.
+As fixtures exercitam os formatos de planilha e o layout informado. Em 13/10/2026, o leitor real da aplicação também foi executado sobre uma exportação XLS BIFF8 fornecida pelo usuário: 15 lançamentos nas linhas 3 a 17, cabeçalho na linha 2, datas de 09 a 11/10/2026, sem erros de leitura ou CTRCs repetidos dentro do arquivo. O total calculado pelas linhas conferiu com o subtotal da planilha. Os nomes externos já estavam abreviados no conteúdo das células, exigindo associação aos cadastros corretos. A planilha não continha os vínculos históricos das carretas; essa conferência continua dependendo do banco do ambiente em uso. O arquivo foi preservado e nenhum lançamento foi gravado nessa validação. Os dados financeiros reais não foram incorporados aos fixtures do repositório.
 
 ## Resultado da revisão de 11/10/2026
 
@@ -112,3 +137,11 @@ Arquivos alterados ou criados nesta revisão:
 | [financialImport.test.ts](../transportadora-web/src/utils/financialImport.test.ts) | Seleção e comissão em lote respeitando pendências. |
 | [importacao-lancamentos.md](importacao-lancamentos.md) | Comportamento, limitações e resultados desta revisão. |
 | [dependencias-producao.md](dependencias-producao.md) | Versões, advisories, instalação limpa e limitações restantes. |
+
+## Correção de compatibilidade de 13/10/2026
+
+Foram corrigidos dois falsos bloqueios possíveis em dados legados: horários distintos de gravação/encerramento e recriação dos mesmos vínculos ao editar uma composição. A recuperação depende das provas operacionais descritas acima; snapshots incompletos, cadeias contraditórias e sobreposições permanecem pendentes. A comissão em lote agora usa o mesmo critério de elegibilidade no botão e na aplicação, mostrando a quantidade de linhas aptas e o motivo das demais pendências.
+
+Foram acrescentados 31 testes nesta correção: 16 do helper histórico, 2 integrações em PostgreSQL temporário e 13 do frontend. `npm run check` passou com lint, **480 testes** (378 API e 102 frontend) e os builds da API e da interface. A integração reproduziu notas de 09/10 e 11/10 anteriores à recriação dos mesmos vínculos em 12/10, verificando conjunto, eixos e despesa de comissão. Os registros dos cavalos exibidos nas imagens não foram consultados no banco do ambiente em uso; os cenários foram reproduzidos em banco temporário isolado.
+
+Esta correção alterou o helper histórico e seu spec, o spec de integração da importação, o modal de importação e seu teste, os utilitários de importação e seus testes e este documento. Não houve mudanças de dependências, schema, migrations ou dados de produção. As alterações precisam ser publicadas na API e no frontend antes de atualizar a prévia no ambiente em uso.
