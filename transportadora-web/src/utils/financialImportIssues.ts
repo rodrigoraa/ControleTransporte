@@ -51,7 +51,7 @@ export function financialImportIssues(row: ImportRow): FinancialImportIssue[] {
   if (!row.cavalo?.id || row.status === 'PLACA_NAO_ENCONTRADA') issues.push({
     code: 'CAVALO', title: 'Escolha o cavalo correto para esta linha',
     summary: row.placa ? `A placa ${row.placa} da planilha ainda precisa ser associada ao cavalo correto.` : 'A placa da planilha não foi identificada nesta linha.',
-    steps: ['Confira a placa na planilha. Se estiver incorreta, corrija o arquivo original.', 'No campo Cavalo mecânico desta linha, selecione o cavalo correto.', 'Clique em Atualizar prévia para verificar a associação e as carretas usadas na data do faturamento.'],
+    steps: ['Confira a placa na planilha. Se estiver incorreta, corrija o arquivo original.', 'No campo Cavalo mecânico desta linha, selecione o cavalo correto.', row.modoComposicao === 'CADASTRO_MANUAL' ? 'Clique em Atualizar prévia para conferir a composição atual e a comissão, como no cadastro manual.' : 'Clique em Atualizar prévia para verificar a associação e as carretas usadas na data do faturamento.'],
     actionLabel: 'Conferir associações',
   });
   if (!row.motorista?.id || row.status === 'PENDENTE_MOTORISTA') issues.push({
@@ -67,10 +67,11 @@ export function financialImportIssues(row: ImportRow): FinancialImportIssue[] {
     actionLabel: 'Conferir associações',
   });
 
-  const historyResolved = Boolean(row.cavalo?.id && dateValid && row.conjunto?.id
+  const manual = row.modoComposicao === 'CADASTRO_MANUAL';
+  const compositionResolved = Boolean(row.cavalo?.id && dateValid && (manual || row.conjunto?.id
     && row.quantidadeEixos != null && Number.isInteger(row.quantidadeEixos) && row.quantidadeEixos >= 0
-    && row.status !== 'PENDENTE_COMPOSICAO');
-  if (row.cavalo?.id && dateValid && !historyResolved) {
+    ) && row.status !== 'PENDENTE_COMPOSICAO');
+  if (row.cavalo?.id && dateValid && !compositionResolved) {
     const placa = row.cavalo.placa;
     const data = importCalendarDate(row.data);
     issues.push({
@@ -84,10 +85,10 @@ export function financialImportIssues(row: ImportRow): FinancialImportIssue[] {
   const commissionInvalid = !['PERCENTUAL', 'POR_VIAGEM'].includes(commission.tipoComissao || '')
     || invalidCommissionValue(commission.percentualComissao, 100)
     || invalidCommissionValue(commission.valorComissaoPorViagem);
-  if (historyResolved && row.comissaoNecessaria && commissionDefaults(row.quantidadeEixos || 0)
+  if (compositionResolved && row.comissaoNecessaria && commissionDefaults(row.quantidadeEixos || 0)
     && (row.status === 'PENDENTE_COMISSAO' || commissionInvalid)) issues.push({
     code: 'COMISSAO', title: 'Informe como a comissão será calculada',
-    summary: `As carretas confirmadas para esta data formam ${row.quantidadeEixos} eixos. Falta escolher ou corrigir a comissão do motorista.`,
+    summary: `A composição usada neste cadastro tem ${row.quantidadeEixos} eixos. Falta escolher ou corrigir a comissão do motorista.`,
     steps: ['Na própria linha, escolha o tipo de comissão: percentual ou por viagem.', 'Confira o percentual ou o valor por viagem. Use um valor positivo, com até duas casas decimais; o percentual deve ser de até 100%.', 'Confira a opção de desconto de impostos e clique em Atualizar prévia.'],
     actionLabel: 'Informar comissão',
   });

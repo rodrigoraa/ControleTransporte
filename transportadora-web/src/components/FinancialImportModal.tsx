@@ -214,7 +214,7 @@ export function FinancialImportModal({ onClose, onImported }: { onClose: () => v
         {catalogError && <div className="form-warning">{catalogError}</div>}
         {preview && <>
           <p><strong>Arquivo: {preview.arquivo || file?.name}</strong> · Confira os dados e escolha as linhas que deseja importar.</p>
-          <p>Para cada frete, conferimos quais carretas estavam ligadas ao cavalo na data da planilha. Essa informação define os eixos e a comissão.</p>
+          <p>Como no cadastro manual, cada frete usa a composição atual do cavalo para definir os eixos e a comissão. A data do frete é a informada na planilha. Confira a composição antes de importar.</p>
           <div className="import-stats">
             <ImportStat label="Registros encontrados" value={preview.resumo.total} /><ImportStat label="Prontos" value={preview.resumo.prontas} />
             <ImportStat label="Já existentes / repetidos" value={preview.resumo.duplicadas} /><ImportStat label="Pendentes" value={preview.resumo.pendentes} />
@@ -230,12 +230,12 @@ export function FinancialImportModal({ onClose, onImported }: { onClose: () => v
               {batchCommission.tipoComissao === 'POR_VIAGEM' && <label>Valor por viagem<input type="number" min="0.01" step="0.01" placeholder="Usar padrão dos eixos" value={batchCommission.valorComissaoPorViagem ?? ''} onChange={(event) => setBatchCommission((current) => ({ ...current, valorComissaoPorViagem: event.target.value ? Number(event.target.value) : undefined }))} /></label>}
               <label className="check-row"><input type="checkbox" checked={Boolean(batchCommission.descontoImpostos)} onChange={(event) => setBatchCommission((current) => ({ ...current, descontoImpostos: event.target.checked }))} /><span>Desconto de impostos (12% sobre a comissão)</span></label>
             </div>
-            <small>O tipo é escolhido por você. Campos vazios usam os mesmos valores padrão do cadastro manual, conforme os eixos da composição vigente na data de cada faturamento.</small>
+            <small>O tipo é escolhido por você. Campos vazios usam os mesmos valores padrão do cadastro manual, conforme os eixos da composição apresentada na prévia.</small>
             <ImportBatchCommissionAction availability={batchAvailability} disabled={Boolean(busy)} onApply={applyBatchCommission} />
           </details>
           <div className="import-selection"><strong>{selected.length} linha(s) selecionada(s)</strong><button type="button" className="button ghost" disabled={Boolean(busy)} onClick={() => setSelected(preview.linhas.filter((row) => row.status === 'PRONTO').map((row) => row.linha))}>Selecionar prontas</button><button type="button" className="button ghost" disabled={Boolean(busy)} onClick={() => setSelected([])}>Limpar seleção</button></div>
           <div className="table-wrap import-table"><table>
-            <thead><tr><th><input type="checkbox" aria-label="Selecionar todas as linhas disponíveis" disabled={Boolean(busy) || !eligibleRows.length} checked={Boolean(eligibleRows.length) && eligibleRows.every((row) => selected.includes(row.linha))} onChange={(event) => setSelected(event.target.checked ? eligibleRows.map((row) => row.linha) : [])} /></th><th>Linha</th><th>Data</th><th>Placa</th><th>Composição na data</th><th>Peso (KG)</th><th>Motorista</th><th>Pagador</th><th>Valor total</th><th>Situação</th><th>Ações</th></tr></thead>
+            <thead><tr><th><input type="checkbox" aria-label="Selecionar todas as linhas disponíveis" disabled={Boolean(busy) || !eligibleRows.length} checked={Boolean(eligibleRows.length) && eligibleRows.every((row) => selected.includes(row.linha))} onChange={(event) => setSelected(event.target.checked ? eligibleRows.map((row) => row.linha) : [])} /></th><th>Linha</th><th>Data</th><th>Placa</th><th>Composição usada no cadastro</th><th>Peso (KG)</th><th>Motorista</th><th>Pagador</th><th>Valor total</th><th>Situação</th><th>Ações</th></tr></thead>
             <tbody>{preview.linhas.map((row) => <tr key={row.linha} className={row.linha === editingLine ? 'import-editing-row' : ''}>
               <td><input type="checkbox" aria-label={`Selecionar linha ${row.linha}`} disabled={Boolean(busy) || !canSelectImportRow(row)} checked={selected.includes(row.linha)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, row.linha] : current.filter((line) => line !== row.linha))} /></td>
               <td>{row.linha}</td><td>{importCalendarDate(row.data)}</td><td>{row.placa || '-'}{row.cavalo && row.cavalo.placa !== row.placa && <small>Associado: {row.cavalo.placa}</small>}</td>
@@ -284,7 +284,8 @@ function formatWeight(value: string | null) {
 
 export function ImportCompositionDetails({ row }: { row: ImportRow }) {
   return <>
-    <span>{row.conjunto?.nome || 'Carretas nesta data: a conferir'}</span>
+    <span>{row.conjunto?.nome || (row.modoComposicao === 'CADASTRO_MANUAL' ? 'Sem composição ativa — sem comissão automática' : 'Carretas nesta data: a conferir')}</span>
+    {row.modoComposicao === 'CADASTRO_MANUAL' && row.conjunto && <small>Composição atual, como no cadastro manual</small>}
     <small>{row.quantidadeEixos != null ? `${row.quantidadeEixos} eixos · ` : ''}{importCalendarDate(row.data)}</small>
   </>;
 }
@@ -304,7 +305,7 @@ export function ImportRowEditor({ row, selection, catalog, disabled, historyDisa
       <label>Motorista<SearchableSelect value={selection?.motoristaId || row.motorista?.id || ''} options={importEntityOptions(catalog.motoristas, row.sugestoesMotorista, row.motorista)} disabled={disabled} ariaLabel={`Motorista da linha ${row.linha}`} onChange={(value) => { if (value) onChange({ motoristaId: value }); }} /><small>Motorista da planilha: {externalName(row.motoristaExterno)}</small></label>
       <label>Cliente / pagador<SearchableSelect value={selection?.clienteId || row.cliente?.id || ''} options={importEntityOptions(catalog.clientes, row.sugestoesCliente, row.cliente)} disabled={disabled} ariaLabel={`Cliente da linha ${row.linha}`} onChange={(value) => { if (value) onChange({ clienteId: value }); }} /><small>Pagador da planilha: {externalName(row.clienteExterno)}</small></label>
     </div>
-    {changedHorse ? <div className="form-warning">Você alterou o cavalo. Clique em Atualizar prévia para conferir as carretas, os eixos e a comissão do cavalo escolhido.</div> : !row.cavalo || !row.conjunto || row.quantidadeEixos == null || row.status === 'PENDENTE_COMPOSICAO' ? null : defaults ? <div className="commission-section">
+    {changedHorse ? <div className="form-warning">Você alterou o cavalo. Clique em Atualizar prévia para conferir as carretas, os eixos e a comissão do cavalo escolhido.</div> : row.modoComposicao === 'CADASTRO_MANUAL' && row.cavalo && !row.conjunto ? <div className="form-warning">Este cavalo não tem composição ativa. Como no cadastro manual, o frete será registrado sem comissão automática. Confira essa condição antes de importar.</div> : !row.cavalo || !row.conjunto || row.quantidadeEixos == null || row.status === 'PENDENTE_COMPOSICAO' ? null : defaults ? <div className="commission-section">
       <div className="commission-heading"><strong>Comissão de motorista</strong><span><ImportCompositionDetails row={row} /></span></div>
       <div className="form-grid">
         <label>Tipo de comissão<SearchableSelect value={currentCommission.tipoComissao || ''} options={commissionTypes} disabled={disabled} ariaLabel={`Comissão da linha ${row.linha}`} onChange={(value) => onChange(value ? importCommissionForType(row.quantidadeEixos, value as CommissionType, currentCommission) : { tipoComissao: undefined })} /></label>

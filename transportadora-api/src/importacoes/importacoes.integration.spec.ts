@@ -7,6 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaClient, TipoComissao, TipoEntidadeImportacao } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import { ComposicoesCavaloService } from '../caminhoes/composicoes-cavalo.service';
+import { CaminhoesService } from '../caminhoes/caminhoes.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { LancamentosFinanceirosService } from '../lancamentos-financeiros/lancamentos-financeiros.service';
 import { ORIGEM_IMPORTACAO_CTRC } from './importacao.constants';
@@ -188,20 +189,19 @@ describePostgres('Importação financeira - PostgreSQL temporário (POSTGRES_TES
     return { ...seeded, atual, destino };
   }
 
-  it('usa a composição histórica de 7 eixos e sua comissão após transferência real dos implementos', async () => {
+  it('usa a mesma composição atual do cadastro manual para um frete antigo e preserva o histórico da transferência', async () => {
     const seeded = await transferirComposicao();
     const file = arquivo([sourceRow({ dt_emissao: '01/10/2026' })]);
     const selecoes = [{ linha: 2, tipoComissao: TipoComissao.PERCENTUAL, descontoImpostos: true }];
     const before = await snapshot();
     const preview = await service.preview(file, { selecoes });
     expect(await snapshot()).toEqual(before);
-    expect(preview.linhas[0]).toMatchObject({ status: 'PRONTO', conjunto: { id: seeded.conjunto.id }, quantidadeEixos: 7, comissaoNecessaria: true });
+    expect(preview.linhas[0]).toMatchObject({ status: 'PRONTO', conjunto: { id: seeded.atual.id }, quantidadeEixos: 6, comissaoNecessaria: false, modoComposicao: 'CADASTRO_MANUAL' });
     expect(seeded.atual.quantidadeTotalEixos).toBe(6);
     await service.confirmar(file, { hashArquivo: preview.hashArquivo, linhasSelecionadas: [2], selecoes });
     const faturamento = await prisma.lancamentoFinanceiro.findFirstOrThrow({ where: { tipoLancamento: 'FATURAMENTO' }, include: { despesaComissao: true } });
-    expect(faturamento).toMatchObject({ conjuntoId: seeded.conjunto.id, quantidadeEixosComissao: 7 });
-    expect(Number(faturamento.valorComissao)).toBe(512.16);
-    expect(Number(faturamento.despesaComissao!.valorTotal)).toBe(512.16);
+    expect(faturamento).toMatchObject({ conjuntoId: seeded.atual.id, quantidadeEixosComissao: null, despesaComissao: null });
+    expect((await snapshot()).slice(7)).toEqual(before.slice(7));
     expect(await prisma.conjunto.findUniqueOrThrow({ where: { id: seeded.conjunto.id } })).toMatchObject({ status: 'INATIVO', quantidadeTotalEixos: 7 });
     // O cadastro manual mantém a seleção da composição atual, mesmo com uma data antiga.
     const manual = await financeiros.create({
@@ -213,7 +213,7 @@ describePostgres('Importação financeira - PostgreSQL temporário (POSTGRES_TES
     expect(manual.quantidadeEixosComissao).toBeNull();
   });
 
-  it('importa datas anteriores à recriação legada dos mesmos vínculos quando os snapshots comprovam continuidade', async () => {
+  it('importa fretes do NSC1I98 anteriores ao cadastro dos vínculos atuais, usando as mesmas regras do manual', async () => {
     const seeded = await cadastros(7);
     await prisma.cavaloMecanico.update({ where: { id: seeded.cavalo.id }, data: { placa: 'NSC1I98' } });
     const include = { implementos: { orderBy: { ordem: 'asc' as const } } };
@@ -257,7 +257,7 @@ describePostgres('Importação financeira - PostgreSQL temporário (POSTGRES_TES
     }
   });
 
-  it('usa datas operacionais preservadas quando o encerramento legado foi gravado alguns milissegundos depois', async () => {
+  it('não exige reconstruir o encerramento legado para criar o lançamento como no cadastro manual', async () => {
     const seeded = await transferirComposicao();
     await prisma.historicoConjuntoOperacional.updateMany({
       where: { conjuntoId: seeded.conjunto.id, acao: 'ENCERRAMENTO_COMPOSICAO' },
@@ -268,10 +268,10 @@ describePostgres('Importação financeira - PostgreSQL temporário (POSTGRES_TES
     const before = await snapshot();
     const preview = await service.preview(file, { selecoes });
     expect(await snapshot()).toEqual(before);
-    expect(preview.linhas[0]).toMatchObject({ status: 'PRONTO', conjunto: { id: seeded.conjunto.id }, quantidadeEixos: 7 });
+    expect(preview.linhas[0]).toMatchObject({ status: 'PRONTO', conjunto: { id: seeded.atual.id }, quantidadeEixos: 6 });
     await service.confirmar(file, { hashArquivo: preview.hashArquivo, linhasSelecionadas: [2], selecoes });
     expect(await prisma.lancamentoFinanceiro.findFirstOrThrow({ where: { tipoLancamento: 'FATURAMENTO' } }))
-      .toMatchObject({ conjuntoId: seeded.conjunto.id, quantidadeEixosComissao: 7 });
+      .toMatchObject({ conjuntoId: seeded.atual.id, quantidadeEixosComissao: null });
   });
 
   it.each(['08/10/2026', '09/10/2026'])('usa a nova composição em %s, respeitando o fim exclusivo do vínculo anterior', async (data) => {
@@ -283,28 +283,34 @@ describePostgres('Importação financeira - PostgreSQL temporário (POSTGRES_TES
     expect(await prisma.lancamentoFinanceiro.findFirstOrThrow()).toMatchObject({ conjuntoId: seeded.atual.id, quantidadeEixosComissao: null });
   });
 
-  it('mantém pendente uma troca intradia porque a planilha não informa o horário do faturamento', async () => {
-    await transferirComposicao('2026-10-08T10:30:00Z');
+  it('segue o cadastro manual mesmo quando houve troca de composição no dia do frete', async () => {
+    const seeded = await transferirComposicao('2026-10-08T10:30:00Z');
     const file = arquivo();
     const before = await snapshot();
     const preview = await service.preview(file);
-    expect(preview.linhas[0]).toMatchObject({ status: 'PENDENTE_COMPOSICAO', conjunto: null, quantidadeEixos: null });
-    await expect(service.confirmar(file, { hashArquivo: preview.hashArquivo, linhasSelecionadas: [2] })).rejects.toThrow();
+    expect(preview.linhas[0]).toMatchObject({ status: 'PRONTO', conjunto: { id: seeded.atual.id }, quantidadeEixos: 6 });
     expect(await snapshot()).toEqual(before);
+    await service.confirmar(file, { hashArquivo: preview.hashArquivo, linhasSelecionadas: [2] });
+    expect((await snapshot()).slice(7)).toEqual(before.slice(7));
   });
 
-  it('não usa a composição atual como fallback antes do primeiro vínculo conhecido', async () => {
-    await cadastros(7);
+  it('permite data anterior ao primeiro vínculo conhecido e calcula a comissão como no manual', async () => {
+    const seeded = await cadastros(7);
     const file = arquivo([sourceRow({ dt_emissao: '30/09/2026' })]);
     const before = await snapshot();
-    const preview = await service.preview(file);
-    expect(preview.linhas[0]).toMatchObject({ status: 'PENDENTE_COMPOSICAO', conjunto: null, quantidadeEixos: null });
-    expect(preview.resumo.pendentes).toBe(1);
-    await expect(service.confirmar(file, { hashArquivo: preview.hashArquivo, linhasSelecionadas: [2] })).rejects.toThrow();
+    const selecoes = [{ linha: 2, tipoComissao: TipoComissao.POR_VIAGEM }];
+    const preview = await service.preview(file, { selecoes });
+    expect(preview.linhas[0]).toMatchObject({ status: 'PRONTO', conjunto: { id: seeded.conjunto.id }, quantidadeEixos: 7 });
+    expect(preview.resumo.pendentes).toBe(0);
     expect(await snapshot()).toEqual(before);
+    await service.confirmar(file, { hashArquivo: preview.hashArquivo, linhasSelecionadas: [2], selecoes });
+    const faturamento = await prisma.lancamentoFinanceiro.findFirstOrThrow({ where: { tipoLancamento: 'FATURAMENTO' } });
+    expect(faturamento).toMatchObject({ conjuntoId: seeded.conjunto.id, quantidadeEixosComissao: 7 });
+    expect(Number(faturamento.valorComissao)).toBe(240);
+    expect((await snapshot()).slice(7)).toEqual(before.slice(7));
   });
 
-  it('revalida sobreposição histórica na confirmação e não escolhe um conjunto arbitrário', async () => {
+  it('relê a composição atual na confirmação e não usa a composição antiga da prévia', async () => {
     const seeded = await cadastros(7);
     const file = arquivo();
     const selecoes = [{ linha: 2, tipoComissao: TipoComissao.POR_VIAGEM }];
@@ -318,9 +324,52 @@ describePostgres('Importação financeira - PostgreSQL temporário (POSTGRES_TES
     });
     const before = await snapshot();
     const preview = await service.preview(file, { selecoes });
-    expect(preview.linhas[0]).toMatchObject({ status: 'PENDENTE_COMPOSICAO', conjunto: null, quantidadeEixos: null });
-    await expect(service.confirmar(file, { hashArquivo: original.hashArquivo, linhasSelecionadas: [2], selecoes })).rejects.toThrow();
+    expect(preview.linhas[0]).toMatchObject({ status: 'PRONTO', quantidadeEixos: 9 });
     expect(await snapshot()).toEqual(before);
+    await service.confirmar(file, { hashArquivo: original.hashArquivo, linhasSelecionadas: [2], selecoes });
+    const faturamento = await prisma.lancamentoFinanceiro.findFirstOrThrow({ where: { tipoLancamento: 'FATURAMENTO' } });
+    expect(faturamento).toMatchObject({ conjuntoId: preview.linhas[0].conjunto!.id, quantidadeEixosComissao: 9 });
+    expect(Number(faturamento.valorComissao)).toBe(330);
+    expect((await snapshot()).slice(7)).toEqual(before.slice(7));
+  });
+
+  it('preserva o conjunto, os eixos, a comissão e a consulta no histórico após uma transferência posterior à importação', async () => {
+    const seeded = await cadastros(7);
+    const file = arquivo();
+    const selecoes = [{ linha: 2, tipoComissao: TipoComissao.PERCENTUAL, descontoImpostos: true }];
+    const preview = await service.preview(file, { selecoes });
+    await service.confirmar(file, { hashArquivo: preview.hashArquivo, linhasSelecionadas: [2], selecoes });
+    const before = await prisma.lancamentoFinanceiro.findMany({ orderBy: { id: 'asc' } });
+    const imported = await prisma.lancamentoImportado.findFirstOrThrow();
+    const target = await prisma.cavaloMecanico.create({ data: { placa: 'NSC1I98', tipoCavalo: 'TRUCADO_6X2' } });
+    await prisma.$transaction(async (tx) => {
+      const instante = new Date('2026-10-13T12:00:00Z');
+      const transfers = await composicoes.resolverTransferencias(tx, target.id, seeded.implementos.map((item) => item.id), instante);
+      const novo = await composicoes.createConjunto(tx, target, seeded.implementos, 'ATIVO', null, instante);
+      await composicoes.registrarTransferencias(tx, transfers, novo, instante);
+    });
+    expect(await prisma.lancamentoFinanceiro.findMany({ orderBy: { id: 'asc' } })).toEqual(before);
+    const financeiro = await financeiros.findOne(imported.lancamentoFinanceiroId);
+    expect(financeiro).toMatchObject({ cavaloMecanicoId: seeded.cavalo.id, conjuntoId: seeded.conjunto.id, quantidadeEixosComissao: 7 });
+    expect(financeiro.conjunto.status).toBe('INATIVO');
+    expect(financeiro.conjunto.implementos).toHaveLength(2);
+    expect(Number(financeiro.valorComissao)).toBe(512.16);
+    expect(await prisma.historicoConjuntoOperacional.count({ where: { conjuntoId: seeded.conjunto.id } })).toBeGreaterThan(1);
+    const historico = await new CaminhoesService(prisma as PrismaService, composicoes).historico(seeded.cavalo.id);
+    expect(historico.lancamentos).toContainEqual(expect.objectContaining({ id: imported.lancamentoFinanceiroId, conjuntoId: seeded.conjunto.id }));
+    expect(historico.conjuntosAtuais).toContainEqual(expect.objectContaining({ id: seeded.conjunto.id, status: 'INATIVO' }));
+  });
+
+  it('permite cavalo sem composição ativa, sem comissão, exatamente como o cadastro manual', async () => {
+    const seeded = await cadastros(7);
+    await prisma.$transaction((tx) => composicoes.encerrarConjunto(tx, seeded.conjunto, new Date('2026-10-12T00:00:00Z'), 'Desengate'));
+    const before = await snapshot();
+    const file = arquivo();
+    const preview = await service.preview(file);
+    expect(preview.linhas[0]).toMatchObject({ status: 'PRONTO', conjunto: null, quantidadeEixos: null, comissaoNecessaria: false });
+    await service.confirmar(file, { hashArquivo: preview.hashArquivo, linhasSelecionadas: [2] });
+    expect(await prisma.lancamentoFinanceiro.findFirstOrThrow()).toMatchObject({ conjuntoId: null, quantidadeEixosComissao: null, valorComissao: null });
+    expect((await snapshot()).slice(7)).toEqual(before.slice(7));
   });
 
   it('protege o importado e sua comissão contra edição/exclusão comuns e permite consultar os dados', async () => {

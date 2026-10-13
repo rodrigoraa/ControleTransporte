@@ -26,6 +26,15 @@ function renderBatchAction(rows: ImportRow[], selected: number[], selections: Re
 }
 
 describe('modal de importação financeira', () => {
+  it('apresenta a composição atual como regra do manual e diferencia cavalo sem composição de histórico pendente', () => {
+    const manual = { ...row, modoComposicao: 'CADASTRO_MANUAL' as const };
+    expect(renderToStaticMarkup(<ImportCompositionDetails row={manual} />)).toContain('Composição atual, como no cadastro manual');
+    const html = renderEditor({ ...manual, conjunto: null, quantidadeEixos: null, comissaoNecessaria: false });
+    expect(html).toContain('Como no cadastro manual, o frete será registrado sem comissão automática');
+    expect(html).not.toContain('A importação desta linha permanece bloqueada');
+    expect(html).not.toContain('aria-label="Comissão da linha 2"');
+    expect(html).not.toContain('Ver histórico do cavalo');
+  });
   it('inicia selecionando Excel, sem importar ou confirmar antes da prévia', () => {
     const html = renderToStaticMarkup(<FinancialImportModal onClose={() => undefined} onImported={() => undefined} />);
     expect(html).toContain('Importar planilha');

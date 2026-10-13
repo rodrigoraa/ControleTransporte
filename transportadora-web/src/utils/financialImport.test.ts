@@ -10,6 +10,13 @@ const row = (linha: number, changes: Partial<ImportRow> = {}): ImportRow => ({
 });
 
 describe('importação financeira no frontend', () => {
+  it('permite a linha sem composição ativa como no manual, sem criar pendência histórica ou aplicar comissão', () => {
+    const pending = row(2, { modoComposicao: 'CADASTRO_MANUAL', conjunto: null, quantidadeEixos: null, comissaoNecessaria: false });
+    expect(importCommissionEligibility(pending)).toBe('FORA_REGRA');
+    expect(batchImportCommissionAvailability([pending], [2], {}).mensagem).not.toContain('data do frete');
+    expect(canConfirmImport([pending], [2], false)).toBe(true);
+    expect(applyImportCommission([pending], [2], {}, { tipoComissao: 'PERCENTUAL' })).toEqual({});
+  });
   it('exibe a importação somente para Admin no faturamento com escrita habilitada', () => {
     expect(financialImportVisible({ path: 'faturamento' }, 'ADMIN')).toBe(true);
     expect(financialImportVisible({ path: 'faturamento' }, 'USUARIO')).toBe(false);
@@ -99,7 +106,7 @@ describe('importação financeira no frontend', () => {
 
     expect(availability).toMatchObject({ elegiveis: 1, selecionadas: 4 });
     expect(availability.mensagem).toContain('Comissão aplicável a 1 de 4 linha(s)');
-    expect(availability.mensagem).toContain('composição histórica fora da regra');
+    expect(availability.mensagem).toContain('não têm composição de 4, 7 ou 9 eixos');
     expect(availability.mensagem).toContain('Atualizar prévia');
     expect(applied[2]).toMatchObject({ tipoComissao: 'POR_VIAGEM', valorComissaoPorViagem: 240 });
     expect(applied[3]).toBe(selections[3]);

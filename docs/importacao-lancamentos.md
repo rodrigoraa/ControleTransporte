@@ -22,19 +22,19 @@ Quando existe código numérico no padrão `CODIGO / NOME`, esse código identif
 
 Cada linha importada cria `FATURAMENTO`, quantidade em `KG`, `valorUnitario = vl_total` e `multiplicarQuantidade = false`. Assim, o peso nunca multiplica o valor do frete.
 
-Preview e confirmação reutilizam `LancamentosFinanceirosService`. Na importação, a composição é determinada pela data de emissão do faturamento, consultando os vínculos e snapshots históricos existentes, inclusive de conjuntos atualmente inativos. `conjuntoId`, eixos e comissão usam essa mesma resolução. O cadastro e a edição manuais mantêm seu comportamento anterior.
+Preview e confirmação reutilizam `LancamentosFinanceirosService` com as mesmas regras do cadastro manual. Ao escolher um cavalo, utiliza-se sua composição atualmente ativa, ordenada por `updatedAt`, como no formulário manual. A data do frete continua sendo a da planilha; ela não exige comprovar vínculos antigos nem cadastrar engates retroativos. A prévia identifica a composição que será usada, os eixos e a comissão.
 
-O período operacional é `[dataInicio, dataFim)`: início inclusivo, fim exclusivo; fim nulo representa vínculo vigente. Encerramento e novo engate usam o mesmo instante na transferência. Como a planilha informa somente a data, a resolução exige uma composição inequívoca durante o dia calendário UTC inteiro. Uma transferência exatamente à meia-noite permite usar a nova composição nesse dia. Trocas intradia, períodos sobrepostos, vínculos incompletos e alterações estruturais legadas que impeçam reconstruir o conjunto com segurança geram `PENDENTE_COMPOSICAO`, sem criação financeira. A composição atual só é usada quando seu histórico comprova a vigência na data informada; ela não preenche lacunas anteriores ao primeiro vínculo conhecido.
+A composição apresentada deve ser conferida antes da confirmação, especialmente em fretes antigos: usar a composição atual para uma data antiga reproduz o cadastro manual, mas não comprova que aquelas carretas foram usadas naquela viagem. A confirmação relê a frota dentro da transação. O conjunto usado fica vinculado ao lançamento e as comissões guardam seus eixos e valores calculados.
 
-Conjuntos sem implementos dependem dos registros de criação e encerramento no histórico operacional. Não se usa `updatedAt` como término de operação nem se recalculam eixos antigos pelos cadastros atuais dos implementos. As consultas históricas são carregadas em lote dentro da transação e a confirmação relê esses dados.
+A importação não altera conjuntos, vínculos, datas de engate/desengate ou eventos da frota. Transferências posteriores preservam o conjunto anterior e seus lançamentos. O histórico do cavalo continua mostrando os faturamentos, composições e transferências. A auditoria financeira e o rastreamento do CTRC são gravados junto com o lote.
 
-Cadastros antigos podiam gravar o histórico de encerramento alguns milissegundos depois do desengate. Nesse caso, um snapshot completo do próprio conjunto, com os mesmos vínculos e datas operacionais, comprova o encerramento; não se exige que o horário de gravação seja igual ao horário da operação. Snapshots contraditórios ou parciais continuam bloqueados.
+Se o cavalo não tiver composição ativa, o lançamento pode ser criado sem comissão automática, como no cadastro manual. Essa condição aparece na prévia e na confirmação. A falta de um registro histórico antigo, por si só, não bloqueia a importação. Cavalos, motoristas e pagadores continuam exigindo associações válidas.
 
-O cadastro antigo também podia apagar e recriar os vínculos ao salvar as mesmas carretas. A continuidade anterior só é recuperada por uma cadeia de snapshots completos, ambos ativos, com o mesmo cavalo, tipo, eixos, implementos e ordem, conectada exatamente aos vínculos preservados. Não se preenchem lacunas nem se recuperam composições diferentes por suposição. A ausência real de cadastro histórico continua pendente.
+O contexto da frota é carregado uma vez por lote e passado ao mesmo serviço financeiro usado no cadastro manual, evitando consultas de composição por linha. A resolução histórica existente permanece disponível para consultas e seus testes; a importação usa explicitamente o modo `CADASTRO_MANUAL`.
 
-Para 4, 7 e 9 eixos históricos, o usuário precisa escolher o tipo de comissão. Os valores padrão existentes continuam disponíveis, sem escolher automaticamente entre percentual e por viagem. A comissão e sua despesa automática seguem os mesmos cálculos do cadastro manual. Linhas fora dessas regras são explicitadas na confirmação como lançamentos sem comissão automática.
+Para composições de 4, 7 e 9 eixos, o usuário precisa escolher o tipo de comissão. Os valores padrão existentes continuam disponíveis, sem escolher automaticamente entre percentual e por viagem. A comissão e sua despesa automática seguem os mesmos cálculos do cadastro manual. Linhas fora dessas regras são explicitadas na confirmação como lançamentos sem comissão automática.
 
-A aplicação de comissão em lote informa quantas linhas selecionadas podem recebê-la. Sem composição histórica identificada, ou depois de alterar o cavalo sem atualizar a prévia, a linha não recebe comissão. O botão fica desabilitado quando nenhuma linha é elegível e mostra o motivo; informar comissão não resolve uma pendência histórica. As linhas pendentes continuam disponíveis para conferência das associações, e a confirmação exige linhas prontas.
+A aplicação de comissão em lote informa quantas linhas selecionadas podem recebê-la. Depois de alterar o cavalo, é necessário atualizar a prévia para conferir sua composição e os eixos. O botão fica desabilitado quando nenhuma linha é elegível e informa o motivo. Sem composição ativa, a linha não recebe comissão, mas pode ser importada se as demais associações estiverem prontas.
 
 ## Duplicidade e transação
 
@@ -54,16 +54,16 @@ Erros de arquivo, conferência ou confirmação aparecem no alto do modal com t�
 | --- | --- |
 | Cavalo não encontrado | Conferir a placa e escolher o cavalo correto no campo da linha; depois atualizar a prévia. |
 | Motorista ou cliente sem associação | Escolher o cadastro correto no campo indicado e atualizar a prévia. |
-| Carretas não confirmadas na data do frete | Abrir **Ver histórico do cavalo** sem sair da importação; conferir placas e datas registradas. Se faltarem registros ou houver duas composições ao mesmo tempo, o responsável pela frota ou suporte precisa corrigir o período antes de atualizar a prévia. |
+| Composição usada no cadastro | Conferir a composição atual do cavalo na prévia. Sem composição ativa, o frete segue sem comissão automática, como no cadastro manual; não é exigido registrar vínculos retroativos. |
 | Comissão pendente | Escolher percentual ou por viagem, conferir o valor e os impostos e atualizar a prévia. |
 | Dados inválidos da planilha | Conferir os detalhes da linha, corrigir o arquivo original e selecionar a versão corrigida. |
 | Conflito | Conferir CTRC, valores e associações com o responsável financeiro; preservar o registro já confirmado. |
 
-A consulta de histórico mostra as carretas e as datas de início/fim registradas, na mesma referência UTC da conferência da planilha. **Voltar para a importação** mantém o arquivo e os ajustes. A consulta não regulariza os dados automaticamente; alterar somente a composição atual não comprova uma viagem antiga.
+A consulta de histórico continua mostrando as carretas e as datas de início/fim registradas. A importação não muda esses períodos nem registra uma composição antiga como se estivesse comprovada. O lançamento usa o vínculo selecionado pelas regras do cadastro manual.
 
 Quando há linhas prontas, **Selecionar apenas N linhas prontas** permite continuar com elas, mantendo a confirmação explícita. Quando nenhuma linha está pronta, o painel informa isso. Alterações ainda não conferidas exigem **Atualizar prévia**. Os detalhes técnicos originais continuam disponíveis em **Ver detalhes da conferência**.
 
-A validação dessas melhorias em 13/10/2026 acrescentou 41 testes de orientações e componentes. `npm run check` passou: lint, **521 testes** (378 API e 143 frontend) e os dois builds. A verificação de navegação/foco em navegador real ficou pendente porque nenhum navegador estava conectado; os componentes, instruções, alertas acessíveis, estados dos botões e datas UTC foram verificados nos testes disponíveis. A publicação no ambiente em uso não foi realizada.
+A validação inclui a equivalência financeira entre importação e cadastro manual, datas anteriores ao primeiro vínculo, trocas no dia do frete, ausência de composição ativa e preservação de faturamentos/comissões após transferências posteriores. A verificação de navegação/foco em navegador real permanece pendente porque nenhum navegador estava conectado. A publicação no ambiente em uso não foi realizada.
 
 ## API
 
@@ -72,7 +72,7 @@ As rotas exigem JWT e perfil `ADMIN`:
 - `POST /api/importacoes/lancamentos/preview`
 - `POST /api/importacoes/lancamentos/confirmar`
 
-Ambas recebem multipart com `arquivo` e `opcoes` JSON. As opções aceitam `hashArquivo`, `selecoes` por número físico da linha e `linhasSelecionadas`. A confirmação exige o hash e a seleção explícita. Seleções permitem `cavaloMecanicoId`, `motoristaId`, `clienteId`, `tipoComissao`, `percentualComissao`, `valorComissaoPorViagem` e `descontoImpostos`. Outros campos são recusados.
+Ambas recebem multipart com `arquivo` e `opcoes` JSON. As opções aceitam `hashArquivo`, `selecoes` por número físico da linha e `linhasSelecionadas`. A confirmação exige o hash e a seleção explícita. Seleções permitem `cavaloMecanicoId`, `motoristaId`, `clienteId`, `tipoComissao`, `percentualComissao`, `valorComissaoPorViagem` e `descontoImpostos`. Outros campos são recusados. Cada linha da resposta informa `modoComposicao: CADASTRO_MANUAL`, diferenciando o uso da composição atual de uma comprovação histórica da viagem.
 
 ## Preparação do ambiente e testes
 
@@ -93,7 +93,9 @@ A migration foi validada em banco temporário. A comparação completa entre mig
 
 As fixtures exercitam os formatos de planilha e o layout informado. Em 13/10/2026, o leitor real da aplicação também foi executado sobre uma exportação XLS BIFF8 fornecida pelo usuário: 15 lançamentos nas linhas 3 a 17, cabeçalho na linha 2, datas de 09 a 11/10/2026, sem erros de leitura ou CTRCs repetidos dentro do arquivo. O total calculado pelas linhas conferiu com o subtotal da planilha. Os nomes externos já estavam abreviados no conteúdo das células, exigindo associação aos cadastros corretos. A planilha não continha os vínculos históricos das carretas; essa conferência continua dependendo do banco do ambiente em uso. O arquivo foi preservado e nenhum lançamento foi gravado nessa validação. Os dados financeiros reais não foram incorporados aos fixtures do repositório.
 
-## Resultado da revisão de 11/10/2026
+## Registro de verificações anteriores
+
+Os resultados abaixo documentam revisões anteriores. A regra de composição vigente é a equivalência com o cadastro manual descrita acima; a exigência de comprovação histórica na importação foi substituída.
 
 A revisão foi realizada sobre a importação já existente. O problema corrigido era o uso do conjunto atualmente ativo para um faturamento antigo, inclusive depois da transferência dos implementos. A resolução compartilhada agora consulta a vigência na data do faturamento e fornece o mesmo conjunto e os mesmos eixos ao preview, à confirmação e ao cálculo financeiro. Histórico insuficiente ou ambíguo bloqueia a linha; não existe seleção arbitrária nem substituição silenciosa pela composição atual.
 
@@ -145,3 +147,9 @@ Foram corrigidos dois falsos bloqueios possíveis em dados legados: horários di
 Foram acrescentados 31 testes nesta correção: 16 do helper histórico, 2 integrações em PostgreSQL temporário e 13 do frontend. `npm run check` passou com lint, **480 testes** (378 API e 102 frontend) e os builds da API e da interface. A integração reproduziu notas de 09/10 e 11/10 anteriores à recriação dos mesmos vínculos em 12/10, verificando conjunto, eixos e despesa de comissão. Os registros dos cavalos exibidos nas imagens não foram consultados no banco do ambiente em uso; os cenários foram reproduzidos em banco temporário isolado.
 
 Esta correção alterou o helper histórico e seu spec, o spec de integração da importação, o modal de importação e seu teste, os utilitários de importação e seus testes e este documento. Não houve mudanças de dependências, schema, migrations ou dados de produção. As alterações precisam ser publicadas na API e no frontend antes de atualizar a prévia no ambiente em uso.
+
+## Validação da equivalência com o cadastro manual
+
+Em 13/10/2026, os testes foram ajustados à regra de composição atual do cadastro manual. Foram mantidas as verificações de duplicidade, conflitos de CTRC, rollback, concorrência, auditoria, associação de pessoas, comissão e proteção dos importados. A integração verifica que um faturamento importado continua consultável no histórico do cavalo com o mesmo conjunto, eixos e valores de comissão depois de transferir suas carretas para outro cavalo.
+
+Resultado: **526 testes aprovados**, sendo 380 da API e 146 do frontend; lint e builds aprovados. O audit de produção aprovou o nível HIGH, com zero HIGH/CRITICAL e duas entradas MODERATE já documentadas. Nenhuma dependência, schema, migration ou dado de produção foi alterado. O fluxo de cadastro retroativo proposto durante a análise não faz parte desta implementação. A publicação e a validação visual em navegador real continuam pendentes.

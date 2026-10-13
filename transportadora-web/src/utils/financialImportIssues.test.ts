@@ -15,6 +15,12 @@ function row(changes: Partial<ImportRow> = {}): ImportRow {
 }
 
 describe('orientações para resolver linhas da importação', () => {
+  it('não pede prova histórica quando o cadastro manual exige apenas associar motorista e pagador', () => {
+    const issues = financialImportIssues(row({ modoComposicao: 'CADASTRO_MANUAL', conjunto: null, quantidadeEixos: null,
+      comissaoNecessaria: false, status: 'PENDENTE_MOTORISTA', motorista: null, cliente: null }));
+    expect(issues.map((issue) => issue.code)).toEqual(['MOTORISTA', 'CLIENTE']);
+    expect(issues.map((issue) => issue.steps.join(' ')).join(' ')).not.toContain('histórico');
+  });
   it.each(['PRONTO', 'DUPLICADO', 'DUPLICADO_ARQUIVO'])('não cria problemas para uma linha %s', (status) => {
     expect(financialImportIssues(row({ status, conjunto: null, quantidadeEixos: null }))).toEqual([]);
   });

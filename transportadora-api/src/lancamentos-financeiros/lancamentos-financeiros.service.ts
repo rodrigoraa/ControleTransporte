@@ -11,6 +11,14 @@ import { UpdateLancamentoFinanceiroDto } from './dto/update-lancamento-financeir
 const CATEGORIA_COMISSAO = 'COMISSAO_MOTORISTA';
 const PERCENTUAL_DESCONTO_IMPOSTOS = 12;
 
+type CavaloCadastro = { id: string; placa: string; conjuntos?: readonly { id: string; nome: string; quantidadeTotalEixos: number }[] };
+export type ContextoFrotaCadastro = {
+  modo: 'CADASTRO_MANUAL';
+  cavalos: ReadonlyMap<string, CavaloCadastro>;
+  conjuntos: ReadonlyMap<string, { id: string; nome: string; quantidadeTotalEixos: number; cavaloMecanicoId: string; cavaloMecanico: { id: string; placa: string } }>;
+};
+type ContextoFrota = ContextoFrotaHistorica | ContextoFrotaCadastro;
+
 const lancamentoInclude = {
   motorista: true,
   fornecedor: true,
@@ -39,7 +47,7 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
     return result;
   }
 
-  async validateInTransaction(transaction: Prisma.TransactionClient, dto: CreateLancamentoFinanceiroDto, contexto?: ContextoFrotaHistorica) {
+  async validateInTransaction(transaction: Prisma.TransactionClient, dto: CreateLancamentoFinanceiroDto, contexto?: ContextoFrota) {
     const prepared = await this.prepareCreation(transaction, dto, contexto);
     return {
       quantidadeTotalEixos: prepared.quantidadeTotalEixos,
@@ -48,7 +56,7 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
     };
   }
 
-  async createInTransaction(transaction: Prisma.TransactionClient, dto: CreateLancamentoFinanceiroDto, actor?: AuditActor, auditar = false, contexto?: ContextoFrotaHistorica) {
+  async createInTransaction(transaction: Prisma.TransactionClient, dto: CreateLancamentoFinanceiroDto, actor?: AuditActor, auditar = false, contexto?: ContextoFrota) {
     const prepared = await this.prepareCreation(transaction, dto, contexto);
     const created = await transaction.lancamentoFinanceiro.create({
       data: prepared.data,
@@ -73,7 +81,7 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
     return { ...created, despesaComissao };
   }
 
-  private async prepareCreation(transaction: Prisma.TransactionClient, dto: CreateLancamentoFinanceiroDto, contexto?: ContextoFrotaHistorica) {
+  private async prepareCreation(transaction: Prisma.TransactionClient, dto: CreateLancamentoFinanceiroDto, contexto?: ContextoFrota) {
     const prepared = await this.prepareData(this.cleanData(dto), transaction, contexto);
     const multiplicarQuantidade = dto.multiplicarQuantidade ?? true;
     const valorTotal = this.calculateValorTotal(dto.quantidade, dto.valorUnitario, multiplicarQuantidade);
@@ -167,11 +175,12 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
     return { ...result.updated, despesaComissao: result.despesaComissao };
   }
 
-  private async prepareData(dto: CreateLancamentoFinanceiroDto, database: PrismaService | Prisma.TransactionClient = this.prisma, contexto?: ContextoFrotaHistorica) {
+  private async prepareData(dto: CreateLancamentoFinanceiroDto, database: PrismaService | Prisma.TransactionClient = this.prisma, contexto?: ContextoFrota) {
     const data = this.applyBusinessRules(dto);
-    const frota = contexto
+    const cadastro = contexto && 'modo' in contexto ? contexto : undefined;
+    const frota = contexto && !('modo' in contexto)
       ? this.resolveHistoricalFrotaFields(dto, contexto)
-      : await this.resolveFrotaFields(data, undefined, database);
+      : await this.resolveFrotaFields(data, undefined, database, cadastro);
     return {
       data: {
         ...data,
@@ -213,9 +222,14 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
     ) as T;
   }
 
-  private async resolveFrotaFields(data: any, current?: any, database: PrismaService | Prisma.TransactionClient = this.prisma) {
+  frotaDoCavalo(cavalo: CavaloCadastro) {
+    const conjunto = cavalo.conjuntos?.[0] || null;
+    return { placa: cavalo.placa, cavaloMecanicoId: cavalo.id, conjuntoId: conjunto?.id || null, quantidadeTotalEixos: conjunto?.quantidadeTotalEixos ?? null };
+  }
+
+  private async resolveFrotaFields(data: any, current?: any, database: PrismaService | Prisma.TransactionClient = this.prisma, cadastro?: ContextoFrotaCadastro) {
     if (data.conjuntoId) {
-      const conjunto = await database.conjunto.findUnique({
+      const conjunto = cadastro ? cadastro.conjuntos.get(data.conjuntoId) : await database.conjunto.findUnique({
         where: { id: data.conjuntoId },
         include: { cavaloMecanico: true },
       });
@@ -262,7 +276,7 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
     }
 
     if (data.cavaloMecanicoId) {
-      const cavalo = await database.cavaloMecanico.findUnique({
+      const cavalo = cadastro ? cadastro.cavalos.get(data.cavaloMecanicoId) : await database.cavaloMecanico.findUnique({
         where: { id: data.cavaloMecanicoId },
         include: {
           conjuntos: {
@@ -273,13 +287,7 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
         },
       });
       if (!cavalo) throw new BadRequestException('Cavalo mecânico não encontrado. Atualize a página e selecione novamente.');
-      const conjunto = cavalo.conjuntos?.[0] || null;
-      return {
-        placa: cavalo.placa,
-        cavaloMecanicoId: cavalo.id,
-        conjuntoId: conjunto?.id || null,
-        quantidadeTotalEixos: conjunto?.quantidadeTotalEixos ?? null,
-      };
+      return this.frotaDoCavalo(cavalo);
     }
 
     if (data.placa) {

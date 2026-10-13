@@ -32,6 +32,7 @@ export type ImportRow = {
   sugestoesMotorista: ImportEntity[];
   sugestoesCliente: ImportEntity[];
   quantidadeEixos: number | null;
+  modoComposicao?: 'CADASTRO_MANUAL';
   comissaoNecessaria: boolean;
   comissao: ImportCommission;
   status: string;
@@ -128,6 +129,8 @@ export function selectImportHorse(row: ImportRow, current: ImportSelection | und
 export function importCommissionEligibility(row: ImportRow, selection?: ImportSelection) {
   if (!canSelectImportRow(row)) return 'INDISPONIVEL';
   if (selection?.cavaloMecanicoId && selection.cavaloMecanicoId !== row.cavalo?.id) return 'CAVALO_ALTERADO';
+  if (row.modoComposicao === 'CADASTRO_MANUAL' && row.cavalo && row.status !== 'PENDENTE_COMPOSICAO'
+    && (!row.conjunto?.id || row.quantidadeEixos == null)) return 'FORA_REGRA';
   if (!row.cavalo || !row.conjunto?.id || row.quantidadeEixos == null || row.status === 'PENDENTE_COMPOSICAO') return 'HISTORICO_PENDENTE';
   return commissionDefaults(row.quantidadeEixos) ? 'ELEGIVEL' : 'FORA_REGRA';
 }
@@ -143,7 +146,7 @@ export function batchImportCommissionAvailability(rows: ImportRow[], selected: n
     : 'Selecione linhas para aplicar comissão.'];
   if (count('HISTORICO_PENDENTE')) mensagens.push(`${count('HISTORICO_PENDENTE')} linha(s) precisam ter as carretas e os eixos conferidos na data do frete. Use Como resolver nessas linhas. Escolher comissão não resolve essa pendência.`);
   if (count('CAVALO_ALTERADO')) mensagens.push(`${count('CAVALO_ALTERADO')} linha(s) tiveram o cavalo alterado. Clique em Atualizar prévia para conferir as carretas antes de aplicar comissão.`);
-  if (count('FORA_REGRA')) mensagens.push(`${count('FORA_REGRA')} linha(s) têm composição histórica fora da regra de 4, 7 ou 9 eixos e não geram comissão.`);
+  if (count('FORA_REGRA')) mensagens.push(`${count('FORA_REGRA')} linha(s) não têm composição de 4, 7 ou 9 eixos para este cadastro e não geram comissão.`);
   if (count('INDISPONIVEL')) mensagens.push(`${count('INDISPONIVEL')} linha(s) estão indisponíveis para comissão. Confira a situação na prévia.`);
   return { elegiveis, selecionadas: reasons.length, mensagem: mensagens.join(' ') };
 }
