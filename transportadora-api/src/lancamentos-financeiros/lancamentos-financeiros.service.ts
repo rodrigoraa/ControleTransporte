@@ -1,5 +1,7 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, TipoComissao, TipoLancamento, UnidadeQuantidade } from '@prisma/client';
+import { plainToInstance } from 'class-transformer';
+import { validateSync } from 'class-validator';
 import { ContextoFrotaHistorica, resolverComposicaoHistorica } from '../caminhoes/composicao-historica';
 import { AuditActor, auditUserId } from '../common/audit/audit-context';
 import { CrudService } from '../common/crud/crud.service';
@@ -7,6 +9,7 @@ import { PaginationDto } from '../common/crud/pagination.dto';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateLancamentoFinanceiroDto } from './dto/create-lancamento-financeiro.dto';
 import { UpdateLancamentoFinanceiroDto } from './dto/update-lancamento-financeiro.dto';
+import { UpdateCategoriaImportadoDto } from './dto/update-categoria-importado.dto';
 
 const CATEGORIA_COMISSAO = 'COMISSAO_MOTORISTA';
 const PERCENTUAL_DESCONTO_IMPOSTOS = 12;
@@ -82,6 +85,7 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
   }
 
   private async prepareCreation(transaction: Prisma.TransactionClient, dto: CreateLancamentoFinanceiroDto, contexto?: ContextoFrota) {
+    this.validateFinancialInput(dto, false);
     const prepared = await this.prepareData(this.cleanData(dto), transaction, contexto);
     const multiplicarQuantidade = dto.multiplicarQuantidade ?? true;
     const valorTotal = this.calculateValorTotal(dto.quantidade, dto.valorUnitario, multiplicarQuantidade);
@@ -97,82 +101,167 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
     return dto;
   }
 
-  async update(id: string, dto: UpdateLancamentoFinanceiroDto, actor?: AuditActor) {
-    const current = await this.findOne(id);
-    if (current.faturamentoOrigemId) {
-      throw new BadRequestException('Esta despesa de comissão é automática. Altere o faturamento de origem para recalculá-la.');
+  async atualizarCategoriaImportado(id: string, input: UpdateCategoriaImportadoDto, actor?: AuditActor) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BadRequestException('Informe somente a categoria do faturamento.');
+    const dto = plainToInstance(UpdateCategoriaImportadoDto, input);
+    if (validateSync(dto, { whitelist: true, forbidNonWhitelisted: true, forbidUnknownValues: true }).length) {
+      throw new BadRequestException('Informe somente categoriaId, com uma categoria cadastrada ou null para remover a classificação.');
     }
-    if (current.importacao) {
-      throw new BadRequestException('Este lançamento foi importado e não pode ser editado diretamente para preservar a rastreabilidade. Utilize o fluxo específico de correção da importação.');
-    }
-    const quantidade = dto.quantidade ?? Number(current.quantidade);
-    const valorUnitario = dto.valorUnitario ?? Number(current.valorUnitario);
-    const multiplicarQuantidade = dto.multiplicarQuantidade ?? current.multiplicarQuantidade ?? true;
-    const data = this.cleanData(dto);
-    const partyFields = this.applyBusinessRules({
-      tipoLancamento: data.tipoLancamento ?? current.tipoLancamento,
-      fornecedorId: data.fornecedorId ?? current.fornecedorId,
-      clienteId: data.clienteId ?? current.clienteId,
-    });
-    const frota = await this.resolveFrotaFields(data, current);
-    const valorTotal = this.calculateValorTotal(quantidade, valorUnitario, multiplicarQuantidade);
-    const commissionAxlesChanged = current.quantidadeEixosComissao != null
-      && Number(current.quantidadeEixosComissao) !== Number(frota.quantidadeTotalEixos || 0);
-    const commissionInput = {
-      tipoLancamento: data.tipoLancamento ?? current.tipoLancamento,
-      tipoComissao: data.tipoComissao === undefined ? current.tipoComissao : data.tipoComissao,
-      percentualComissao: data.percentualComissao === undefined
-        ? (commissionAxlesChanged ? undefined : current.percentualComissao)
-        : data.percentualComissao,
-      valorComissaoPorViagem: data.valorComissaoPorViagem === undefined
-        ? (commissionAxlesChanged ? undefined : current.valorComissaoPorViagem)
-        : data.valorComissaoPorViagem,
-      descontoImpostos: data.descontoImpostos === undefined
-        ? Boolean(current.descontoImpostos)
-        : data.descontoImpostos,
-    };
-    const shouldApplyCommission = Boolean(current.tipoComissao || commissionInput.tipoComissao);
-    const comissao = this.calculateCommission(commissionInput, valorTotal, frota.quantidadeTotalEixos, shouldApplyCommission);
-
-    const result = await this.prisma.$transaction(async (transaction) => {
-      const updated = await transaction.lancamentoFinanceiro.update({
-        where: { id },
-        data: {
-          ...data,
-          ...comissao,
-          placa: frota.placa,
-          fornecedorId: partyFields.fornecedorId,
-          clienteId: partyFields.clienteId,
-          cavaloMecanicoId: frota.cavaloMecanicoId,
-          conjuntoId: frota.conjuntoId,
-          multiplicarQuantidade,
-          valorTotal,
-        },
-        include: lancamentoInclude,
-      });
-
-      let despesaComissao = null;
-      if (comissao.valorComissao) {
-        despesaComissao = current.despesaComissao
-          ? await this.updateCommissionExpense(transaction, current.despesaComissao.id, updated, comissao.valorComissao)
-          : await this.createCommissionExpense(transaction, updated, comissao.valorComissao);
-      } else if (current.despesaComissao) {
-        await transaction.lancamentoFinanceiro.delete({ where: { id: current.despesaComissao.id } });
+    const usuarioId = auditUserId(actor);
+    if (!usuarioId?.trim()) throw new BadRequestException('Não foi possível identificar o usuário. Entre novamente no sistema.');
+    for (let tentativa = 0; ; tentativa++) {
+      try {
+        return await this.prisma.$transaction(async (tx) => {
+          const current = await tx.lancamentoFinanceiro.findUnique({ where: { id }, include: lancamentoInclude });
+          if (!current) throw new NotFoundException('Faturamento não encontrado.');
+          if (!current.importacao || current.tipoLancamento !== TipoLancamento.FATURAMENTO || current.faturamentoOrigemId) {
+            throw new BadRequestException('Esta ação permite classificar somente faturamentos importados.');
+          }
+          if (dto.categoriaId === current.categoriaId) return current;
+          if (dto.categoriaId !== null) {
+            const categoria = await tx.categoriaFinanceira.findUnique({ where: { id: dto.categoriaId } });
+            if (!categoria) throw new BadRequestException('Categoria não encontrada. Atualize a lista e selecione novamente.');
+            if (!categoria.ativo || (categoria.tipoLancamento !== null && categoria.tipoLancamento !== TipoLancamento.FATURAMENTO)) {
+              throw new BadRequestException('Escolha uma categoria ativa de faturamento ou uma categoria sem tipo específico.');
+            }
+          }
+          // Classification is internal metadata; preserve source hashes, fleet and commission snapshots.
+          const updated = await tx.lancamentoFinanceiro.update({ where: { id }, data: { categoriaId: dto.categoriaId }, include: lancamentoInclude });
+          await tx.auditoria.create({ data: {
+            entidade: 'lancamentoFinanceiro', entidadeId: id, acao: 'CLASSIFICACAO_FATURAMENTO_IMPORTADO', usuarioId,
+            dadosAntes: { categoriaId: current.categoriaId },
+            dadosDepois: { categoriaId: updated.categoriaId, importacaoId: current.importacao.id },
+          } });
+          return updated;
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 20_000 });
+      } catch (error: any) {
+        if (error?.code === 'P2034') {
+          if (tentativa < 3) continue;
+          throw new ConflictException('A categoria foi alterada por outra operação. Atualize o faturamento e tente novamente.');
+        }
+        if (['P2003', 'P2025'].includes(error?.code)) throw new BadRequestException('O faturamento ou a categoria mudou. Atualize a lista e tente novamente.');
+        throw error;
       }
-      return { updated, despesaComissao };
-    });
-
-    await this.audit('ATUALIZACAO', id, current, result.updated, actor);
-    if (current.despesaComissao || result.despesaComissao) {
-      await this.audit(
-        current.despesaComissao ? (result.despesaComissao ? 'ATUALIZACAO_COMISSAO' : 'EXCLUSAO_COMISSAO') : 'CRIACAO_COMISSAO',
-        result.despesaComissao?.id || current.despesaComissao?.id,
-        current.despesaComissao || null,
-        result.despesaComissao || null,
-        actor,
-      );
     }
-    return { ...result.updated, despesaComissao: result.despesaComissao };
+  }
+
+  async update(id: string, dto: UpdateLancamentoFinanceiroDto, actor?: AuditActor) {
+    this.validateFinancialInput(dto, true);
+    for (let tentativa = 0; ; tentativa++) {
+      try {
+        return await this.prisma.$transaction(async (transaction) => {
+          const current = await transaction.lancamentoFinanceiro.findUnique({ where: { id }, include: lancamentoInclude });
+          if (!current) throw new NotFoundException('Faturamento ou despesa n\u00e3o encontrado.');
+          if (current.faturamentoOrigemId) {
+            throw new BadRequestException('Esta despesa de comissão é automática. Altere o faturamento de origem para recalculá-la.');
+          }
+          if (current.importacao && !auditUserId(actor)?.trim()) {
+            throw new BadRequestException('Entre novamente no sistema para registrar a altera\u00e7\u00e3o.');
+          }
+          if (current.importacao && dto.tipoLancamento && dto.tipoLancamento !== TipoLancamento.FATURAMENTO) {
+            throw new BadRequestException('Um faturamento importado deve continuar sendo faturamento.');
+          }
+          if (dto.categoriaId && dto.categoriaId !== current.categoriaId) {
+            const categoria = await transaction.categoriaFinanceira.findUnique({ where: { id: dto.categoriaId } });
+            const tipo = dto.tipoLancamento ?? current.tipoLancamento;
+            if (!categoria || !categoria.ativo || (categoria.tipoLancamento && categoria.tipoLancamento !== tipo)) {
+              throw new BadRequestException('Escolha uma categoria ativa compat\u00edvel com este lan\u00e7amento.');
+            }
+          }
+          const quantidade = dto.quantidade ?? Number(current.quantidade);
+          const valorUnitario = dto.valorUnitario ?? Number(current.valorUnitario);
+          const multiplicarQuantidade = dto.multiplicarQuantidade ?? current.multiplicarQuantidade ?? true;
+          const data = this.cleanData(dto);
+          const partyFields = this.applyBusinessRules({
+            tipoLancamento: data.tipoLancamento ?? current.tipoLancamento,
+            fornecedorId: data.fornecedorId === undefined ? current.fornecedorId : data.fornecedorId,
+            clienteId: data.clienteId === undefined ? current.clienteId : data.clienteId,
+          });
+          const frota = await this.resolveFrotaFields(data, current, transaction);
+          const valorTotal = this.calculateValorTotal(quantidade, valorUnitario, multiplicarQuantidade);
+          const commissionAxlesChanged = current.quantidadeEixosComissao != null
+            && Number(current.quantidadeEixosComissao) !== Number(frota.quantidadeTotalEixos || 0);
+          const commissionInput = {
+            tipoLancamento: data.tipoLancamento ?? current.tipoLancamento,
+            tipoComissao: data.tipoComissao === undefined ? current.tipoComissao : data.tipoComissao,
+            percentualComissao: data.percentualComissao === undefined
+              ? (commissionAxlesChanged ? undefined : current.percentualComissao)
+              : data.percentualComissao,
+            valorComissaoPorViagem: data.valorComissaoPorViagem === undefined
+              ? (commissionAxlesChanged ? undefined : current.valorComissaoPorViagem)
+              : data.valorComissaoPorViagem,
+            descontoImpostos: data.descontoImpostos === undefined
+              ? Boolean(current.descontoImpostos)
+              : data.descontoImpostos,
+          };
+          const shouldApplyCommission = Boolean(current.tipoComissao || commissionInput.tipoComissao);
+          const comissao = this.calculateCommission(commissionInput, valorTotal, frota.quantidadeTotalEixos, shouldApplyCommission);
+          const updated = await transaction.lancamentoFinanceiro.update({
+            where: { id },
+            data: {
+              ...data,
+              ...comissao,
+              placa: frota.placa,
+              fornecedorId: partyFields.fornecedorId,
+              clienteId: partyFields.clienteId,
+              cavaloMecanicoId: frota.cavaloMecanicoId,
+              conjuntoId: frota.conjuntoId,
+              multiplicarQuantidade,
+              valorTotal,
+            },
+            include: lancamentoInclude,
+          });
+
+          let despesaComissao = null;
+          if (comissao.valorComissao) {
+            despesaComissao = current.despesaComissao
+              ? await this.updateCommissionExpense(transaction, current.despesaComissao.id, updated, comissao.valorComissao)
+              : await this.createCommissionExpense(transaction, updated, comissao.valorComissao);
+          } else if (current.despesaComissao) {
+            await transaction.lancamentoFinanceiro.delete({ where: { id: current.despesaComissao.id } });
+          }
+          const registros = [{ acao: 'ATUALIZACAO', id, antes: current, depois: { ...updated, despesaComissao } }];
+          if (current.despesaComissao || despesaComissao) {
+            registros.push({
+              acao: current.despesaComissao ? (despesaComissao ? 'ATUALIZACAO_COMISSAO' : 'EXCLUSAO_COMISSAO') : 'CRIACAO_COMISSAO',
+              id: despesaComissao?.id || current.despesaComissao!.id,
+              antes: current.despesaComissao as any, depois: despesaComissao as any,
+            });
+          }
+          for (const registro of registros) {
+            await transaction.auditoria.create({ data: {
+              entidade: 'lancamentoFinanceiro', entidadeId: registro.id, acao: registro.acao, usuarioId: auditUserId(actor),
+              ...(registro.antes ? { dadosAntes: JSON.parse(JSON.stringify(registro.antes)) } : {}),
+              ...(registro.depois ? { dadosDepois: JSON.parse(JSON.stringify(registro.depois)) } : {}),
+            } });
+          }
+          return { ...updated, despesaComissao };
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 20_000 });
+      } catch (error: any) {
+        if (error?.code === 'P2034') {
+          if (tentativa < 3) continue;
+          throw new ConflictException('Outra opera\u00e7\u00e3o alterou o faturamento. Atualize a lista e tente novamente.');
+        }
+        if (['P2003', 'P2025'].includes(error?.code)) throw new BadRequestException('Um cadastro vinculado mudou. Atualize a lista e selecione novamente.');
+        throw error;
+      }
+    }
+  }
+
+  private validateFinancialInput(input: object, partial: boolean) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) {
+      throw new BadRequestException('Informe os campos do faturamento ou da despesa.');
+    }
+    if (['data', 'tipoLancamento', 'quantidade', 'unidadeQuantidade', 'valorUnitario', 'multiplicarQuantidade', 'descontoImpostos']
+      .some((key) => key in input && (input as Record<string, unknown>)[key] === null)) {
+      throw new BadRequestException('Data, tipo, quantidade, unidade, valor e opções de cálculo não podem ficar vazios.');
+    }
+    const dto = partial ? plainToInstance(UpdateLancamentoFinanceiroDto, input) : plainToInstance(CreateLancamentoFinanceiroDto, input);
+    if (validateSync(dto, {
+      whitelist: true, forbidNonWhitelisted: true, forbidUnknownValues: true,
+    }).length) {
+      throw new BadRequestException('Verifique os campos informados. O controle e os dados originais da importa\u00e7\u00e3o s\u00e3o preenchidos pelo sistema.');
+    }
   }
 
   private async prepareData(dto: CreateLancamentoFinanceiroDto, database: PrismaService | Prisma.TransactionClient = this.prisma, contexto?: ContextoFrota) {
@@ -234,6 +323,9 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
         include: { cavaloMecanico: true },
       });
       if (!conjunto) throw new BadRequestException('Conjunto operacional não encontrado. Atualize a página e selecione novamente.');
+      if (data.cavaloMecanicoId && data.cavaloMecanicoId !== conjunto.cavaloMecanicoId) {
+        throw new BadRequestException('O conjunto escolhido pertence a outro cavalo. Selecione novamente o cavalo e a composi\u00e7\u00e3o.');
+      }
       return {
         placa: conjunto.cavaloMecanico.placa,
         cavaloMecanicoId: conjunto.cavaloMecanicoId,
@@ -466,6 +558,8 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
         [relation]: { is: { OR: fields.map(textSearch) } },
       });
       where.OR = [
+        ...(/^(?:F)?0*\d+$/i.test(search) && Number(search.replace(/^F/i, '')) <= 2147483647
+          ? [{ numeroControle: Number(search.replace(/^F/i, '')) }] : []),
         textSearch('placa'),
         textSearch('descricao'),
         textSearch('observacoes'),
@@ -493,6 +587,10 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
       if (query[field]) where[field] = query[field];
     }
     if (query.tipoLancamento) where.tipoLancamento = query.tipoLancamento as TipoLancamento;
+    if (query.numeroControle?.trim()) {
+      const controle = query.numeroControle.trim().replace(/^F/i, '');
+      where.numeroControle = /^\d+$/.test(controle) && Number(controle) <= 2147483647 ? Number(controle) : -1;
+    }
     if (query.placa) where.placa = { contains: query.placa, mode: 'insensitive' };
     const relatedFilter = (fields: string[], value: string) => ({
       is: { OR: fields.map((field) => ({ [field]: { contains: value.trim(), mode: 'insensitive' as const } })) },
@@ -511,6 +609,7 @@ export class LancamentosFinanceirosService extends CrudService<CreateLancamentoF
   protected buildOrderBy(query: PaginationDto & Record<string, any>) {
     const direction = query.orderDirection === 'desc' ? 'desc' : 'asc';
     const sortableFields: Record<string, object> = {
+      numeroControle: { numeroControle: direction },
       data: { data: direction },
       cavaloMecanicoId: { placa: direction },
       motoristaId: { motorista: { nome: direction } },

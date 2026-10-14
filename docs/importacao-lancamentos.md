@@ -44,7 +44,23 @@ O fingerprint usa os dados financeiros normalizados e as pessoas externas. Reimp
 
 Na confirmação, o arquivo é reenviado e seu SHA-256 deve coincidir com o da prévia. O servidor relê o arquivo e revalida as linhas, associações, comissão e duplicidade. As linhas selecionadas, comissões, mapeamentos, rastreamento e auditorias são gravados na mesma transação `Serializable`. Falhas revertem o lote. Conflitos concorrentes provocam repetição completa e nova leitura de duplicados.
 
-Os vínculos de importação impedem editar ou excluir um faturamento importado pelo CRUD comum, preservando a consistência entre financeiro, dados originais e hash. A API recusa essas ações antes de recalcular comissão ou gravar dados; a listagem informa `importacao: { id }` e a interface oferece apenas visualização para esses registros. Lançamentos manuais continuam editáveis pelas regras anteriores, e despesas automáticas de comissão mantêm sua proteção própria. Uma correção de CTRC importado ou de mapeamento conflitante precisa de um fluxo específico de revisão, fora deste importador.
+Administradores podem usar **Faturamento → Editar** (ícone de lápis) tanto nos faturamentos manuais quanto nos importados. O formulário permite corrigir data, cavalo, motorista, cliente, categoria, descrição, quantidade, unidade, valor, multiplicação, comissão, impostos e observações. Valores totais e despesas de comissão são calculados pelo sistema. O faturamento importado continua identificado por `importacao: { id }`; sua exclusão permanece bloqueada para impedir duplicidades.
+
+A edição grava o faturamento, a atualização/criação/remoção de sua despesa automática e as auditorias anteriores/posteriores na mesma transação `Serializable`, com nova leitura após conflitos concorrentes. Uma falha de auditoria reverte a edição inteira. Alterar o cavalo usa sua composição atual, como no cadastro manual; manter o cavalo preserva o conjunto e os eixos armazenados. A edição financeira não muda engates, desengates ou eventos da frota. A auditoria conserva os valores anteriores; as consultas financeiras mostram o cadastro corrigido.
+
+Os dados originais da planilha, hashes, chave do CTRC e mapeamentos externos permanecem inalterados. Reimportar o mesmo arquivo ignora o CTRC já importado e mantém as correções manuais. Um arquivo com dados originais diferentes para o mesmo CTRC continua gerando conflito. O controle automático, os dados originais e a despesa automática não podem ser editados diretamente; esta deve ser alterada pelo faturamento de origem.
+
+A categoria não vem no layout da planilha e pode ser preenchida depois da importação. Em **Faturamento → Categoria**, o administrador escolhe uma categoria ativa de faturamento ou sem tipo específico e clica em **Salvar categoria**. Também é possível corrigir a classificação ou escolher **Sem categoria**. Valores ausentes aparecem como **Sem categoria**, em vez de `null`.
+
+Esse atalho usa `PATCH /api/lancamentos-financeiros/:id/categoria`, com JSON contendo somente `categoriaId` (ID cadastrado ou `null`). A rota exige JWT e ADMIN, valida o tipo/atividade da categoria e aceita apenas faturamentos importados. Grava exclusivamente a categoria e a auditoria `CLASSIFICACAO_FATURAMENTO_IMPORTADO`, na mesma transação `Serializable`, com usuário e classificação anterior/posterior. Uma falha na auditoria reverte a alteração. O atalho não recalcula a comissão. A edição completa usa `PATCH /api/lancamentos-financeiros/:id`, também com DTO concreto, JWT e ADMIN, e recalcula os valores pelas regras do cadastro manual.
+
+## Controle dos faturamentos
+
+Todos os faturamentos recebem um controle automático exibido como **F01, F02, …, F99, F100**, sem reiniciar por ano. O número aparece na listagem e no formulário, onde é somente para leitura. A busca aceita `F01` ou `1`; a ordenação considera o número, colocando F99 antes de F100. O banco armazena o inteiro em `numeroControle` e a interface aplica a letra F e o mínimo de dois dígitos.
+
+A migration aditiva `20261014000000_controle_faturamentos` numera os faturamentos existentes pela ordem de cadastro (`createdAt`, com desempate por ID), sem alterar seus valores, datas ou vínculos. Os novos continuam a sequência, incluindo os importados. Despesas comuns e comissões automáticas não recebem numeração. A geração usa uma sequência PostgreSQL e índice único, inclusive para cadastros simultâneos; um trigger impede alteração manual do número. Edições e reimportações preservam o controle. Números consumidos por transações desfeitas ou registros excluídos não são reutilizados; podem existir intervalos na sequência.
+
+Para publicar esta versão, aplique as migrations com `npm run prisma:deploy --workspace transportadora-api` antes de iniciar a API atualizada e publique também o frontend. A migration mantém as alterações em uma única transação; a atribuição inicial exige bloqueio da tabela durante sua execução. Ela foi testada somente em PostgreSQL temporário isolado, incluindo dados anteriores à nova coluna.
 
 ## Como resolver pendências na tela
 
@@ -76,7 +92,7 @@ Ambas recebem multipart com `arquivo` e `opcoes` JSON. As opções aceitam `hash
 
 ## Preparação do ambiente e testes
 
-A migration aditiva `20261011000000_importacao_lancamentos_financeiros` cria os dois modelos, constraints e índices. As correções de composição histórica e proteção de edição reutilizam o schema existente e não exigem nova migration. Para validar o código:
+A migration `20261011000000_importacao_lancamentos_financeiros` cria os modelos da importação, constraints e índices. A numeração automática exige também a migration aditiva `20261014000000_controle_faturamentos`. A edição completa utiliza as relações e auditorias já existentes. Para validar o código:
 
 ```text
 npm ci
@@ -127,12 +143,12 @@ Arquivos alterados ou criados nesta revisão:
 | [composicao-historica.spec.ts](../transportadora-api/src/caminhoes/composicao-historica.spec.ts) | Testes de vigência, limites e inconsistências históricas. |
 | [importacoes.service.ts](../transportadora-api/src/importacoes/importacoes.service.ts) | Carga histórica em lote, pendências e contexto transacional. |
 | [importacoes.integration.spec.ts](../transportadora-api/src/importacoes/importacoes.integration.spec.ts) | Cenários reais de transferência, financeiro e rastreabilidade. |
-| [lancamentos-financeiros.service.ts](../transportadora-api/src/lancamentos-financeiros/lancamentos-financeiros.service.ts) | Bloqueio de edição/exclusão e composição histórica na importação. |
+| [lancamentos-financeiros.service.ts](../transportadora-api/src/lancamentos-financeiros/lancamentos-financeiros.service.ts) | Edição auditada, recálculo de comissão, busca por controle e proteção contra exclusão do importado. |
 | [lancamentos-financeiros.service.spec.ts](../transportadora-api/src/lancamentos-financeiros/lancamentos-financeiros.service.spec.ts) | Proteções, contexto histórico e comportamento manual. |
 | [transportadora-web/package.json](../transportadora-web/package.json) | Atualizações compatíveis de Axios e React Router. |
 | [FinancialImportModal.tsx](../transportadora-web/src/components/FinancialImportModal.tsx) | Exibição da composição/eixos na data e orientação sobre pendências. |
 | [FinancialImportModal.test.tsx](../transportadora-web/src/components/FinancialImportModal.test.tsx) | Validação da informação histórica e dos bloqueios exibidos. |
-| [CrudPage.tsx](../transportadora-web/src/pages/CrudPage.tsx) | Importados com visualização e sem editar/excluir. |
+| [CrudPage.tsx](../transportadora-web/src/pages/CrudPage.tsx) | Visualização e edição dos importados, controle automático e atalho de categoria. |
 | [CrudPage.test.ts](../transportadora-web/src/pages/CrudPage.test.ts) | Ações de registros manuais, importados e protegidos. |
 | [crudPermissions.ts](../transportadora-web/src/utils/crudPermissions.ts) | Regra compartilhada das ações disponíveis. |
 | [financialImport.ts](../transportadora-web/src/utils/financialImport.ts) | Contrato e tratamento de composição pendente. |
@@ -153,3 +169,17 @@ Esta correção alterou o helper histórico e seu spec, o spec de integração d
 Em 13/10/2026, os testes foram ajustados à regra de composição atual do cadastro manual. Foram mantidas as verificações de duplicidade, conflitos de CTRC, rollback, concorrência, auditoria, associação de pessoas, comissão e proteção dos importados. A integração verifica que um faturamento importado continua consultável no histórico do cavalo com o mesmo conjunto, eixos e valores de comissão depois de transferir suas carretas para outro cavalo.
 
 Resultado: **526 testes aprovados**, sendo 380 da API e 146 do frontend; lint e builds aprovados. O audit de produção aprovou o nível HIGH, com zero HIGH/CRITICAL e duas entradas MODERATE já documentadas. Nenhuma dependência, schema, migration ou dado de produção foi alterado. O fluxo de cadastro retroativo proposto durante a análise não faz parte desta implementação. A publicação e a validação visual em navegador real continuam pendentes.
+
+## Classificação manual dos importados — 14/10/2026
+
+A ação **Editar categoria** permite completar a classificação dos faturamentos já importados, sem reenviar a planilha. Foram verificados preenchimento, troca e remoção da categoria; preservação de todos os campos financeiros, comissão e dados originais; reimportação idêntica mantendo a classificação; rejeição de categorias de despesa/inativas e de campos extras; restrição a ADMIN; rollback por falha de auditoria e concorrência com histórico de classificação consistente.
+
+`npm run check` aprovado: **551 testes** (397 API e 154 frontend), lint e os dois builds. `npm run audit:prod` aprovado no nível HIGH, com zero HIGH/CRITICAL e duas entradas MODERATE preexistentes. Sem mudanças de dependências, schema ou migrations, e sem alteração dos dados do ambiente em uso. Nenhum navegador estava conectado para validação visual. A mudança precisa ser publicada na API e no frontend.
+
+## Edição completa e controle automático — 14/10/2026
+
+A versão atual amplia a edição para todos os campos do formulário manual e acrescenta o controle F01, F02, F03… solicitado. O atalho de categoria continua disponível. O número é gerado pelo banco, aparece na tabela e no formulário e não é enviado no payload de edição.
+
+`npm run check` aprovado com **582 testes** (419 API e 163 frontend), lint e builds. Os novos cenários verificam atualização de valores e demais campos do importado, recálculo e sincronização da despesa, troca de cavalo sem reescrever a frota, preservação dos dados originais e das correções na reimportação, rollback por falha de auditoria e edição concorrente com histórico consistente. A numeração foi validada com 101 faturamentos anteriores à coluna, continuidade em F102, cadastros simultâneos, proteção contra renumeração, não reutilização após exclusão, busca e ordenação numérica. A interface foi verificada por testes de renderização e regras; não houve teste visual em navegador conectado.
+
+A migration foi aplicada exclusivamente em PostgreSQL temporário de testes. Nenhum banco em uso foi alterado e nenhuma versão foi publicada. Esta etapa altera o schema e exige aplicar a migration descrita em **Controle dos faturamentos** antes de iniciar a API atualizada. Dependências permanecem inalteradas.

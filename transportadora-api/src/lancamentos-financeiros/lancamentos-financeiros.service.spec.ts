@@ -76,6 +76,8 @@ function makeService(eixos = 6, currentOverrides: Record<string, any> = {}) {
     quantidadeEixosComissao: null,
     ...currentOverrides,
   };
+  prisma.lancamentoFinanceiro.findUnique.mockResolvedValue(current);
+  prisma.categoriaFinanceira.findUnique = jest.fn(async () => ({ ativo: true, tipoLancamento: null }));
   jest.spyOn(service as any, 'findOne').mockResolvedValue(current);
 
   return { service, prisma, create, update, remove, findUnique, current };
@@ -129,6 +131,14 @@ const historicalBillingDto = {
 };
 
 describe('LancamentosFinanceirosService', () => {
+  it('ordena controles numericamente e pesquisa com F e zeros à esquerda', () => {
+    const { service } = makeService();
+    expect((service as any).buildOrderBy({ orderBy: 'numeroControle', orderDirection: 'asc' })[0]).toEqual({ numeroControle: 'asc' });
+    expect((service as any).buildWhere({ numeroControle: 'F01' }).numeroControle).toBe(1);
+    expect((service as any).buildWhere({ numeroControle: 'F100' }).numeroControle).toBe(100);
+    expect((service as any).buildWhere({ search: 'F01' }).OR).toContainEqual({ numeroControle: 1 });
+    expect((service as any).buildWhere({ numeroControle: 'F999999999999999999' }).numeroControle).toBe(-1);
+  });
   it.each([
     { data: '2026-10-01', eixos: 7, percentual: '12', comissao: '582' },
     { data: '2026-10-09', eixos: 9, percentual: '11', comissao: '533.5' },
@@ -328,9 +338,10 @@ describe('LancamentosFinanceirosService', () => {
     { cavaloMecanicoId: 'horse-2' },
     { tipoComissao: TipoComissao.POR_VIAGEM, valorComissaoPorViagem: 1 },
     { descricao: 'Tentativa de alteração manual' },
-  ])('recusa edição do importado sem alterar faturamento ou comissão: %o', async (dto) => {
+    { categoriaId: 'category-1' },
+  ])('permite edição do importado auditada do faturamento e recalcula a comissão: %o', async (dto) => {
     const despesaComissao = { id: 'commission-1', valorTotal: 512.16, faturamentoOrigemId: 'launch-1' };
-    const { service, prisma, create, update, remove, findUnique, current } = makeService(7, {
+    const { service, prisma, update, current } = makeService(7, {
       tipoLancamento: TipoLancamento.FATURAMENTO,
       fornecedorId: null,
       clienteId: 'client-1',
@@ -349,18 +360,14 @@ describe('LancamentosFinanceirosService', () => {
     });
     const before = structuredClone(current);
 
-    await expect(service.update('launch-1', dto)).rejects.toThrow(new BadRequestException(
-      'Este lançamento foi importado e não pode ser editado diretamente para preservar a rastreabilidade. Utilize o fluxo específico de correção da importação.',
-    ));
-
+    await service.update('launch-1', dto, { id: 'admin' });
     expect(current).toEqual(before);
-    expect(create).not.toHaveBeenCalled();
-    expect(update).not.toHaveBeenCalled();
-    expect(remove).not.toHaveBeenCalled();
-    expect(findUnique).not.toHaveBeenCalled();
-    expect(prisma.categoriaFinanceira.upsert).not.toHaveBeenCalled();
-    expect(prisma.auditoria.create).not.toHaveBeenCalled();
-    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalled();
+    expect(prisma.auditoria.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      acao: 'ATUALIZACAO', usuarioId: 'admin', dadosAntes: expect.objectContaining({ importacao: { id: 'import-1' } }),
+    }) });
+    expect(prisma.lancamentoImportado.findUnique).not.toHaveBeenCalled();
+
   });
 
   it('mantém consulta e listagem dos importados e expõe somente o identificador da importação', async () => {

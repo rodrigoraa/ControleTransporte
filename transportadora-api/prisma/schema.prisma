@@ -412,6 +412,7 @@ model CategoriaFinanceira {
 
 model LancamentoFinanceiro {
   id                String            @id @default(uuid())
+  numeroControle    Int?              @unique
   data              DateTime
   placa             String
   motoristaId       String?

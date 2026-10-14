@@ -21,6 +21,10 @@ export class PaginationDto {
 
   @IsOptional()
   @IsString()
+  numeroControle?: string;
+
+  @IsOptional()
+  @IsString()
   tipoLancamento?: string;
 
   @IsOptional()

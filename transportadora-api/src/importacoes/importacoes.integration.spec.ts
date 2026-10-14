@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { basename, join, relative, sep } from 'node:path';
@@ -79,6 +79,7 @@ function arquivo(rows = [sourceRow()], extension: 'xls' | 'xlsx' = 'xls') {
 describePostgres('Importação financeira - PostgreSQL temporário (POSTGRES_TEST_BIN ou instalação local)', () => {
   let clusterDirectory: string | undefined;
   let dataDirectory: string | undefined;
+  let postgresPort: number;
   let prisma: PrismaClient;
   let financeiros: LancamentosFinanceirosService;
   let service: ImportacoesService;
@@ -89,6 +90,7 @@ describePostgres('Importação financeira - PostgreSQL temporário (POSTGRES_TES
     clusterDirectory = mkdtempSync(join(realpathSync(tmpdir()), clusterPrefix));
     dataDirectory = join(clusterDirectory, 'data');
     const port = await availablePort();
+    postgresPort = port;
     runPostgres('initdb', ['-D', dataDirectory, '--username', postgresUser, '--auth=trust', '--encoding=UTF8', '--no-locale', '--no-sync']);
     runPostgres('pg_ctl', [
       '-D', dataDirectory, '-l', join(clusterDirectory, 'postgres.log'), '-o',
@@ -114,7 +116,7 @@ describePostgres('Importação financeira - PostgreSQL temporário (POSTGRES_TES
     const migrationDiff = execFileSync(process.execPath, [cli, 'migrate', 'diff', '--from-url', url, '--to-schema-datamodel', schema], {
       env, windowsHide: true, timeout: 30_000, stdio: 'pipe',
     }).toString().trim();
-    expect(migrationDiff).not.toMatch(/mapeamentos_importacao|lancamentos_importados|TipoEntidadeImportacao/);
+    expect(migrationDiff).not.toMatch(/mapeamentos_importacao|lancamentos_importados|TipoEntidadeImportacao|numeroControle/);
   });
 
   beforeEach(async () => {
@@ -161,6 +163,169 @@ describePostgres('Importação financeira - PostgreSQL temporário (POSTGRES_TES
     ));
     return { cavalo, motorista, cliente, conjunto, implementos };
   }
+
+  it('numera faturamentos antigos por cadastro, preserva valores e continua em F102', async () => {
+    const migration = readFileSync(join(__dirname, '../../prisma/migrations/20261014000000_controle_faturamentos/migration.sql'), 'utf8');
+    // This schema belongs to the identity-verified temporary cluster, never the project database.
+    runPostgres('psql', ['-h', '127.0.0.1', '-p', String(postgresPort), '-U', postgresUser, '-d', 'postgres', '-v', 'ON_ERROR_STOP=1', '-c', `
+      CREATE SCHEMA controle_legado;
+      SET search_path TO controle_legado;
+      CREATE TABLE lancamentos_financeiros (id text PRIMARY KEY, "createdAt" timestamp, "tipoLancamento" text, "valorTotal" numeric);
+      INSERT INTO lancamentos_financeiros
+        SELECT 'antigo-' || n, '2026-10-01'::timestamp + n * interval '1 second', 'FATURAMENTO', n * 100 FROM generate_series(1,101) n;
+      INSERT INTO lancamentos_financeiros VALUES ('despesa', '2026-01-01', 'DESPESA', 42);
+      ${migration}
+      INSERT INTO lancamentos_financeiros (id, "createdAt", "tipoLancamento", "valorTotal") VALUES ('novo', now(), 'FATURAMENTO', 200);
+    `]);
+    const rows = await prisma.$queryRawUnsafe<Array<{ id: string; numeroControle: number | null; valorTotal: unknown }>>(
+      'SELECT id, "numeroControle", "valorTotal" FROM controle_legado.lancamentos_financeiros',
+    );
+    expect(rows.find((row) => row.id === 'antigo-1')?.numeroControle).toBe(1);
+    expect(rows.find((row) => row.id === 'antigo-100')?.numeroControle).toBe(100);
+    expect(rows.find((row) => row.id === 'antigo-101')?.numeroControle).toBe(101);
+    expect(rows.find((row) => row.id === 'novo')?.numeroControle).toBe(102);
+    expect(rows.find((row) => row.id === 'despesa')?.numeroControle).toBeNull();
+    expect(Number(rows.find((row) => row.id === 'antigo-100')?.valorTotal)).toBe(10000);
+  });
+
+  it('gera controles distintos em cadastros simultâneos, não numera comissões e impede renumeração', async () => {
+    const seeded = await cadastros(7);
+    const dto = {
+      data: new Date('2026-10-08T00:00:00Z'), cavaloMecanicoId: seeded.cavalo.id,
+      motoristaId: seeded.motorista.id, clienteId: seeded.cliente.id, tipoLancamento: 'FATURAMENTO' as const,
+      quantidade: 1, unidadeQuantidade: 'UNIDADE' as const, valorUnitario: 1000,
+      tipoComissao: TipoComissao.PERCENTUAL,
+    };
+    const rows = await Promise.all(Array.from({ length: 6 }, () => financeiros.create(dto)));
+    expect(new Set(rows.map((row) => row.numeroControle)).size).toBe(6);
+    for (const row of rows) {
+      expect(row.numeroControle).toBeGreaterThan(0);
+      expect(row.despesaComissao?.numeroControle).toBeNull();
+    }
+    await expect(financeiros.update(rows[0].id, { numeroControle: 'F99' } as any)).rejects.toThrow('preenchidos pelo sistema');
+    await expect(financeiros.create({ ...dto, numeroControle: 'F99' } as any)).rejects.toThrow('preenchidos pelo sistema');
+    await expect(prisma.lancamentoFinanceiro.update({ where: { id: rows[0].id }, data: { numeroControle: 99 } })).rejects.toThrow();
+    const deletedNumber = rows[1].numeroControle;
+    await financeiros.remove(rows[1].id);
+    const next = await financeiros.create(dto);
+    expect(rows.map((row) => row.numeroControle)).not.toContain(next.numeroControle);
+    expect(next.numeroControle).not.toBe(deletedNumber);
+    expect((await financeiros.findAll({ page: 1, limit: 10, numeroControle: 'F' + String(rows[0].numeroControle).padStart(2, '0') })).data.map((row: any) => row.id)).toContain(rows[0].id);
+    expect((await financeiros.findAll({ page: 1, limit: 10, search: 'F' + String(rows[0].numeroControle).padStart(2, '0') })).data.map((row: any) => row.id)).toContain(rows[0].id);
+  });
+
+  it('edita todos os campos do importado, sincroniza comissão e mantém controle e origem na reimportação', async () => {
+    await cadastros(7);
+    const file = arquivo();
+    const selecoes = [{ linha: 2, tipoComissao: TipoComissao.PERCENTUAL, descontoImpostos: true }];
+    const preview = await service.preview(file, { selecoes });
+    const options = { hashArquivo: preview.hashArquivo, linhasSelecionadas: [2], selecoes };
+    await service.confirmar(file, options);
+    const source = await prisma.lancamentoImportado.findFirstOrThrow();
+    const original = await financeiros.findOne(source.lancamentoFinanceiroId);
+    const motorista = await prisma.motorista.create({ data: { nome: 'Outro motorista' } });
+    const cliente = await prisma.cliente.create({ data: { nome: 'Outro cliente' } });
+    const categoria = await prisma.categoriaFinanceira.create({ data: { nome: 'Frete', tipoLancamento: 'FATURAMENTO' } });
+    const updated = await financeiros.update(original.id, {
+      data: new Date('2026-10-10T00:00:00Z'), motoristaId: motorista.id, clienteId: cliente.id, categoriaId: categoria.id,
+      descricao: 'Frete corrigido', observacoes: 'Conferido pelo responsável', quantidade: 2, unidadeQuantidade: 'UNIDADE',
+      valorUnitario: 3000, multiplicarQuantidade: true, tipoComissao: TipoComissao.PERCENTUAL,
+      percentualComissao: 10, valorComissaoPorViagem: 250, descontoImpostos: false,
+    }, { id: 'admin-edicao' });
+    expect(updated).toMatchObject({ numeroControle: original.numeroControle, motoristaId: motorista.id, clienteId: cliente.id,
+      categoriaId: categoria.id, descricao: 'Frete corrigido', observacoes: 'Conferido pelo responsável', unidadeQuantidade: 'UNIDADE' });
+    expect(Number(updated.valorTotal)).toBe(6000);
+    expect(Number(updated.valorComissao)).toBe(600);
+    expect(updated.despesaComissao!.id).toBe(original.despesaComissao.id);
+    expect(Number(updated.despesaComissao!.valorTotal)).toBe(600);
+    expect(updated.despesaComissao).toMatchObject({ motoristaId: motorista.id, data: updated.data });
+    expect(await prisma.lancamentoImportado.findUniqueOrThrow({ where: { id: source.id } })).toEqual(source);
+    const beforeReimport = await financeiros.findOne(original.id);
+    expect(await service.confirmar(file, options)).toEqual({ importados: 0, duplicadosIgnorados: 1, erros: 0 });
+    expect(await financeiros.findOne(original.id)).toEqual(beforeReimport);
+    const audit = await prisma.auditoria.findFirstOrThrow({ where: { entidadeId: original.id, acao: 'ATUALIZACAO' } });
+    expect(audit.usuarioId).toBe('admin-edicao');
+    expect(audit.dadosAntes).toMatchObject({ numeroControle: original.numeroControle, motoristaId: original.motoristaId });
+    expect(audit.dadosDepois).toMatchObject({ numeroControle: original.numeroControle, motoristaId: motorista.id });
+  });
+
+  it('reverte faturamento e comissão quando a auditoria da edição falha', async () => {
+    await cadastros(7);
+    const file = arquivo();
+    const selecoes = [{ linha: 2, tipoComissao: TipoComissao.PERCENTUAL }];
+    const preview = await service.preview(file, { selecoes });
+    await service.confirmar(file, { hashArquivo: preview.hashArquivo, linhasSelecionadas: [2], selecoes });
+    const source = await prisma.lancamentoImportado.findFirstOrThrow();
+    const before = await snapshot();
+    const failing = prisma.$extends({ query: { auditoria: { async create({ args, query }) {
+      const result = await query(args);
+      if (args.data.acao === 'ATUALIZACAO') throw new Error('Falha ao auditar edição');
+      return result;
+    } } } });
+    await expect(new LancamentosFinanceirosService(failing as unknown as PrismaService)
+      .update(source.lancamentoFinanceiroId, { valorUnitario: 9000 }, { id: 'admin' })).rejects.toThrow('Falha ao auditar edição');
+    expect(await snapshot()).toEqual(before);
+  });
+
+  it('corrige o cavalo do importado e sua comissão sem alterar vínculos ou eventos da frota', async () => {
+    await cadastros(7);
+    const file = arquivo();
+    const selecoes = [{ linha: 2, tipoComissao: TipoComissao.PERCENTUAL }];
+    const preview = await service.preview(file, { selecoes });
+    await service.confirmar(file, { hashArquivo: preview.hashArquivo, linhasSelecionadas: [2], selecoes });
+    const source = await prisma.lancamentoImportado.findFirstOrThrow();
+    const original = await financeiros.findOne(source.lancamentoFinanceiroId);
+    const cavalo = await prisma.cavaloMecanico.create({ data: { placa: 'XYZ9E99', tipoCavalo: 'TRACADO_6X4' } });
+    const implementos = await Promise.all([1, 2].map(() => prisma.implemento.create({ data: { tipo: 'CARRETA', quantidadeEixos: 3 } })));
+    const conjunto = await prisma.$transaction((tx) => composicoes.createConjunto(tx, cavalo, implementos, 'ATIVO', null, new Date('2026-10-01T00:00:00Z')));
+    const frota = () => Promise.all([
+      prisma.conjunto.findMany({ orderBy: { id: 'asc' } }), prisma.conjuntoImplemento.findMany({ orderBy: { id: 'asc' } }),
+      prisma.historicoCavaloMecanico.findMany({ orderBy: { id: 'asc' } }), prisma.historicoConjuntoOperacional.findMany({ orderBy: { id: 'asc' } }),
+    ]);
+    const before = await frota();
+    const updated = await financeiros.update(original.id, { cavaloMecanicoId: cavalo.id }, { id: 'admin' });
+    expect(updated).toMatchObject({ cavaloMecanicoId: cavalo.id, conjuntoId: conjunto.id, placa: 'XYZ9E99', quantidadeEixosComissao: 9, numeroControle: original.numeroControle });
+    expect(Number(updated.percentualComissao)).toBe(11);
+    expect(Number(updated.valorComissao)).toBe(533.5);
+    expect(updated.despesaComissao).toMatchObject({ id: original.despesaComissao.id, cavaloMecanicoId: cavalo.id, conjuntoId: conjunto.id });
+    expect(await frota()).toEqual(before);
+    expect(await prisma.lancamentoImportado.findUniqueOrThrow({ where: { id: source.id } })).toEqual(source);
+    await expect(financeiros.update(original.id, { cavaloMecanicoId: cavalo.id, conjuntoId: original.conjuntoId }, { id: 'admin' })).rejects.toThrow('pertence a outro cavalo');
+  });
+
+  it('repete edições concorrentes com leitura atualizada e histórico financeiro consistente', async () => {
+    await cadastros();
+    const file = arquivo();
+    const preview = await service.preview(file);
+    await service.confirmar(file, { hashArquivo: preview.hashArquivo, linhasSelecionadas: [2] });
+    const source = await prisma.lancamentoImportado.findFirstOrThrow();
+    let release!: () => void;
+    const barrier = new Promise<void>((resolve) => { release = resolve; });
+    let arrivals = 0;
+    const concurrent = prisma.$extends({ query: { lancamentoFinanceiro: { async findUnique({ args, query }) {
+      const row = await query(args);
+      if (args.where.id === source.lancamentoFinanceiroId && ++arrivals <= 2) {
+        if (arrivals === 2) release();
+        await barrier;
+      }
+      return row;
+    } } } });
+    const editing = new LancamentosFinanceirosService(concurrent as unknown as PrismaService);
+    await Promise.all([
+      editing.update(source.lancamentoFinanceiroId, { valorUnitario: 6000 }, { id: 'admin-a' }),
+      editing.update(source.lancamentoFinanceiroId, { observacoes: 'Conferido' }, { id: 'admin-b' }),
+    ]);
+    expect(arrivals).toBeGreaterThan(2);
+    const result = await financeiros.findOne(source.lancamentoFinanceiroId);
+    expect(Number(result.valorTotal)).toBe(6000);
+    expect(result.observacoes).toBe('Conferido');
+    const audits = await prisma.auditoria.findMany({ where: { entidadeId: result.id, acao: 'ATUALIZACAO' } });
+    expect(audits).toHaveLength(2);
+    const first = audits.find((row) => (row.dadosAntes as any).observacoes !== 'Conferido' && (row.dadosAntes as any).valorTotal === '4850')!;
+    const second = audits.find((row) => row.id !== first.id)!;
+    expect(second.dadosAntes).toEqual(first.dadosDepois);
+    expect(await prisma.lancamentoImportado.findUniqueOrThrow({ where: { id: source.id } })).toEqual(source);
+  });
 
   async function snapshot() {
     const orderBy = { id: 'asc' as const };
@@ -372,7 +537,7 @@ describePostgres('Importação financeira - PostgreSQL temporário (POSTGRES_TES
     expect((await snapshot()).slice(7)).toEqual(before.slice(7));
   });
 
-  it('protege o importado e sua comissão contra edição/exclusão comuns e permite consultar os dados', async () => {
+  it('preserva consulta e bloqueia exclusão do importado e edição da comissão automática', async () => {
     await cadastros(7);
     const file = arquivo();
     const selecoes = [{ linha: 2, tipoComissao: TipoComissao.PERCENTUAL, descontoImpostos: true }];
@@ -383,7 +548,6 @@ describePostgres('Importação financeira - PostgreSQL temporário (POSTGRES_TES
     expect(financeiro.importacao).toEqual({ id: registro.id });
     expect((await financeiros.findAll({ page: 1, limit: 10 })).data).toContainEqual(expect.objectContaining({ id: financeiro.id, importacao: { id: registro.id } }));
     const before = await snapshot();
-    await expect(financeiros.update(financeiro.id, { valorUnitario: 6_000 })).rejects.toThrow('não pode ser editado diretamente');
     await expect(financeiros.remove(financeiro.id)).rejects.toThrow('não pode ser excluído');
     await expect(financeiros.update(financeiro.despesaComissao.id, { valorUnitario: 6_000 })).rejects.toThrow('despesa de comissão é automática');
     expect(await snapshot()).toEqual(before);
@@ -405,6 +569,117 @@ describePostgres('Importação financeira - PostgreSQL temporário (POSTGRES_TES
     expect(Number(updated.despesaComissao!.valorTotal)).toBe(633.6);
     expect((await financeiros.findOne(manual.id)).importacao).toBeNull();
     expect(await prisma.lancamentoImportado.count()).toBe(0);
+  });
+
+  it('classifica, corrige e remove a categoria do importado sem alterar frete, comissão, hashes ou reimportação', async () => {
+    await cadastros(7);
+    const file = arquivo();
+    const selecoes = [{ linha: 2, tipoComissao: TipoComissao.PERCENTUAL, descontoImpostos: true }];
+    const preview = await service.preview(file, { selecoes });
+    const options = { hashArquivo: preview.hashArquivo, linhasSelecionadas: [2], selecoes };
+    await service.confirmar(file, options);
+    const imported = await prisma.lancamentoImportado.findFirstOrThrow();
+    const id = imported.lancamentoFinanceiroId;
+    const original = await prisma.lancamentoFinanceiro.findUniqueOrThrow({ where: { id } });
+    expect(original.categoriaId).toBeNull();
+    const commission = await prisma.lancamentoFinanceiro.findFirstOrThrow({ where: { faturamentoOrigemId: id } });
+    const frete = await prisma.categoriaFinanceira.create({ data: { nome: 'Frete de grãos', tipoLancamento: 'FATURAMENTO' } });
+    const geral = await prisma.categoriaFinanceira.create({ data: { nome: 'Operação geral', tipoLancamento: null } });
+    const actor = { id: 'admin-classificacao' };
+    const result = await financeiros.atualizarCategoriaImportado(id, { categoriaId: frete.id }, actor);
+    expect(result.categoriaFinanceira?.nome).toBe('Frete de grãos');
+    const classified = await prisma.lancamentoFinanceiro.findUniqueOrThrow({ where: { id } });
+    for (const field of Object.keys(original) as Array<keyof typeof original>) {
+      if (!['categoriaId', 'updatedAt'].includes(field)) expect(classified[field]).toEqual(original[field]);
+    }
+    expect(await service.confirmar(file, options)).toEqual({ importados: 0, duplicadosIgnorados: 1, erros: 0 });
+    expect((await prisma.lancamentoFinanceiro.findUniqueOrThrow({ where: { id } })).categoriaId).toBe(frete.id);
+    await financeiros.atualizarCategoriaImportado(id, { categoriaId: geral.id }, actor);
+    await financeiros.atualizarCategoriaImportado(id, { categoriaId: null }, actor);
+    await financeiros.atualizarCategoriaImportado(id, { categoriaId: null }, actor);
+    expect(await prisma.auditoria.findMany({ where: { acao: 'CLASSIFICACAO_FATURAMENTO_IMPORTADO' } })).toEqual(expect.arrayContaining([
+      expect.objectContaining({ usuarioId: actor.id, dadosAntes: { categoriaId: null }, dadosDepois: { categoriaId: frete.id, importacaoId: imported.id } }),
+      expect.objectContaining({ usuarioId: actor.id, dadosAntes: { categoriaId: frete.id }, dadosDepois: { categoriaId: geral.id, importacaoId: imported.id } }),
+      expect.objectContaining({ usuarioId: actor.id, dadosAntes: { categoriaId: geral.id }, dadosDepois: { categoriaId: null, importacaoId: imported.id } }),
+    ]));
+    expect(await prisma.auditoria.count({ where: { acao: 'CLASSIFICACAO_FATURAMENTO_IMPORTADO' } })).toBe(3);
+    expect(await prisma.lancamentoFinanceiro.findUniqueOrThrow({ where: { id: commission.id } })).toEqual(commission);
+    expect(await prisma.lancamentoImportado.findUniqueOrThrow({ where: { id: imported.id } })).toEqual(imported);
+    await expect(financeiros.remove(id)).rejects.toThrow('não pode ser excluído');
+  });
+
+  it('rejeita categorias inválidas, payload extra, registros inadequados e usuário não identificado sem modificar os dados', async () => {
+    const seeded = await cadastros(7);
+    const file = arquivo();
+    const selecoes = [{ linha: 2, tipoComissao: TipoComissao.POR_VIAGEM }];
+    const preview = await service.preview(file, { selecoes });
+    await service.confirmar(file, { hashArquivo: preview.hashArquivo, linhasSelecionadas: [2], selecoes });
+    const imported = await prisma.lancamentoImportado.findFirstOrThrow();
+    const id = imported.lancamentoFinanceiroId;
+    const expense = await prisma.lancamentoFinanceiro.findFirstOrThrow({ where: { faturamentoOrigemId: id } });
+    const inactive = await prisma.categoriaFinanceira.create({ data: { nome: 'Frete inativo', tipoLancamento: 'FATURAMENTO', ativo: false } });
+    const manual = await financeiros.create({ data: new Date('2026-10-08'), cavaloMecanicoId: seeded.cavalo.id, clienteId: seeded.cliente.id,
+      tipoLancamento: 'FATURAMENTO', quantidade: 1, unidadeQuantidade: 'UNIDADE', valorUnitario: 50, tipoComissao: 'POR_VIAGEM' });
+    const before = await snapshot();
+    const actor = { id: 'admin' };
+    for (const categoriaId of ['inexistente', expense.categoriaId!, inactive.id]) {
+      await expect(financeiros.atualizarCategoriaImportado(id, { categoriaId }, actor)).rejects.toThrow();
+    }
+    await expect(financeiros.atualizarCategoriaImportado(id, { categoriaId: null, valorUnitario: 999 } as any, actor)).rejects.toThrow('somente categoriaId');
+    await expect(financeiros.atualizarCategoriaImportado(manual.id, { categoriaId: null }, actor)).rejects.toThrow('somente faturamentos importados');
+    await expect(financeiros.atualizarCategoriaImportado(expense.id, { categoriaId: null }, actor)).rejects.toThrow('somente faturamentos importados');
+    await expect(financeiros.atualizarCategoriaImportado('inexistente', { categoriaId: null }, actor)).rejects.toThrow('não encontrado');
+    await expect(financeiros.atualizarCategoriaImportado(id, { categoriaId: null })).rejects.toThrow('identificar o usuário');
+    expect(await snapshot()).toEqual(before);
+  });
+
+  it('reverte a categoria se a gravação da auditoria falhar', async () => {
+    await cadastros();
+    const file = arquivo();
+    const preview = await service.preview(file);
+    await service.confirmar(file, { hashArquivo: preview.hashArquivo, linhasSelecionadas: [2] });
+    const imported = await prisma.lancamentoImportado.findFirstOrThrow();
+    const category = await prisma.categoriaFinanceira.create({ data: { nome: 'Frete', tipoLancamento: 'FATURAMENTO' } });
+    const before = await snapshot();
+    const failing = prisma.$extends({ query: { auditoria: { async create({ args, query }) {
+      const row = await query(args);
+      if (args.data.acao === 'CLASSIFICACAO_FATURAMENTO_IMPORTADO') throw new Error('Falha ao auditar categoria');
+      return row;
+    } } } });
+    await expect(new LancamentosFinanceirosService(failing as unknown as PrismaService)
+      .atualizarCategoriaImportado(imported.lancamentoFinanceiroId, { categoriaId: category.id }, { id: 'admin' })).rejects.toThrow('Falha ao auditar categoria');
+    expect(await snapshot()).toEqual(before);
+  });
+
+  it('registra classificações concorrentes com auditoria consistente e sem alterar os dados financeiros', async () => {
+    await cadastros();
+    const file = arquivo();
+    const preview = await service.preview(file);
+    await service.confirmar(file, { hashArquivo: preview.hashArquivo, linhasSelecionadas: [2] });
+    const imported = await prisma.lancamentoImportado.findFirstOrThrow();
+    const categories = await Promise.all(['Frete A', 'Frete B'].map((nome) => prisma.categoriaFinanceira.create({ data: { nome } })));
+    let release!: () => void;
+    const barrier = new Promise<void>((resolve) => { release = resolve; });
+    let arrivals = 0;
+    const concurrent = prisma.$extends({ query: { lancamentoFinanceiro: { async findUnique({ args, query }) {
+      const row = await query(args);
+      if (args.where.id === imported.lancamentoFinanceiroId && ++arrivals <= 2) {
+        if (arrivals === 2) release();
+        await barrier;
+      }
+      return row;
+    } } } });
+    const categoryService = new LancamentosFinanceirosService(concurrent as unknown as PrismaService);
+    await Promise.all(categories.map((category) => categoryService.atualizarCategoriaImportado(imported.lancamentoFinanceiroId, { categoriaId: category.id }, { id: 'admin' })));
+    const audits = await prisma.auditoria.findMany({ where: { acao: 'CLASSIFICACAO_FATURAMENTO_IMPORTADO' } });
+    expect(audits).toHaveLength(2);
+    const first = audits.find((row) => (row.dadosAntes as { categoriaId: string | null }).categoriaId === null)!;
+    const second = audits.find((row) => row.id !== first.id)!;
+    expect(second.dadosAntes).toEqual({ categoriaId: (first.dadosDepois as { categoriaId: string }).categoriaId });
+    const result = await prisma.lancamentoFinanceiro.findUniqueOrThrow({ where: { id: imported.lancamentoFinanceiroId } });
+    expect(result.categoriaId).toBe((second.dadosDepois as { categoriaId: string }).categoriaId);
+    expect(Number(result.valorTotal)).toBe(4850);
+    expect(await prisma.lancamentoImportado.findUniqueOrThrow({ where: { id: imported.id } })).toEqual(imported);
   });
 
   it.each(['xls', 'xlsx'] as const)('importa arquivo %s real preservando calendário, valor total e rastreabilidade', async (extension) => {

@@ -76,6 +76,7 @@ const tiposConjuntoOperacional = [
 ];
 
 const lancamentoFields: Field[] = [
+  { name: 'numeroControle', label: 'Controle', table: true, hidden: true, sortable: true, filterKey: 'numeroControle', filterType: 'text' },
   { name: 'data', label: 'Data', type: 'date', required: true, table: true, sortable: true, filterKey: 'data', filterType: 'date' },
   { name: 'cavaloMecanicoId', label: 'Cavalo mecânico', type: 'select', required: true, table: true, sortable: true, filterKey: 'cavalo', filterType: 'text', relation: { endpoint: '/caminhoes', labelKey: 'placa', fallbackKey: 'modelo', objectKey: 'cavaloMecanico' } },
   { name: 'conjuntoId', label: 'Conjunto usado', type: 'select', hidden: true, relation: { endpoint: '/conjuntos', labelKey: 'nome', fallbackKey: 'tipo', objectKey: 'conjunto' } },
@@ -219,7 +220,7 @@ export const crudResources: Resource[] = [
     fixedParams: { tipoLancamento: 'DESPESA' },
     fixedValues: { tipoLancamento: 'DESPESA' },
     fields: lancamentoFields
-      .filter((field) => field.name !== 'clienteId')
+      .filter((field) => field.name !== 'clienteId' && field.name !== 'numeroControle')
       .map((field) => {
         if (field.name === 'tipoLancamento') return { ...field, table: false, hidden: true };
         if (field.name === 'categoriaId') return { ...field, relation: { ...field.relation!, params: { tipoLancamento: 'DESPESA' } } };

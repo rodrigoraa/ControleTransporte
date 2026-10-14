@@ -5,6 +5,8 @@ import { History } from 'lucide-react';
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Toast } from '../components/Toast';
+import { Tags } from 'lucide-react';
+import { ImportedBillingCategoryModal } from '../components/ImportedBillingCategoryModal';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { FinancialImportModal } from '../components/FinancialImportModal';
 import { HistoricoOperacionalModal } from '../components/OperationalHistoryModal';
@@ -13,8 +15,8 @@ import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import { api } from '../services/api';
 import { apiErrorMessage } from '../utils/apiError';
 import { buildColumnFilterParams } from '../utils/columnFilters';
-import { canMutateCrudRecord } from '../utils/crudPermissions';
-import { date, maskPlate, money } from '../utils/formatters';
+import { canClassifyImportedBilling, canEditCrudRecord, canMutateCrudRecord } from '../utils/crudPermissions';
+import { billingControl, date, maskPlate, money } from '../utils/formatters';
 import { billingTotal, commissionAfterTaxDiscount, commissionDefaults, commissionValues, selectedCommissionValue } from '../utils/commission';
 import { nextTableSort, TableSort } from '../utils/tableSorting';
 import { financialImportVisible } from '../utils/financialImport';
@@ -52,6 +54,7 @@ export function CrudPage({ resource }: { resource: Resource }) {
   const [consumoCavalo, setConsumoCavalo] = useState<any | null>(null);
   const [historicoItem, setHistoricoItem] = useState<any | null>(null);
   const [importing, setImporting] = useState(false);
+  const [categoryItem, setCategoryItem] = useState<any | null>(null);
   const { user } = useAuth();
   const canWrite = user?.perfil === 'ADMIN' && !resource.readOnly;
   const limit = 10;
@@ -230,6 +233,7 @@ export function CrudPage({ resource }: { resource: Resource }) {
                   onHistorico={(row) => setHistoricoItem(row)}
                   onView={(row) => setModal({ mode: 'view', item: row })}
                   onEdit={(row) => setModal({ mode: 'edit', item: row })}
+                  onCategory={(row) => setCategoryItem(row)}
                   onDelete={(row) => setPendingDelete(row)}
                 />
               ))}
@@ -285,6 +289,11 @@ export function CrudPage({ resource }: { resource: Resource }) {
       {consumoCavalo && <ConsumoModal cavalo={consumoCavalo} canWrite={canWrite} onClose={() => setConsumoCavalo(null)} />}
       {historicoItem && <HistoricoOperacionalModal resource={resource} item={historicoItem} onClose={() => setHistoricoItem(null)} />}
       {importing && financialImportVisible(resource, user?.perfil) && <FinancialImportModal onClose={() => setImporting(false)} onImported={() => void load()} />}
+      {categoryItem && canClassifyImportedBilling(categoryItem, canWrite) && <ImportedBillingCategoryModal item={categoryItem} onClose={() => setCategoryItem(null)} onSaved={() => {
+        setCategoryItem(null);
+        setToast({ type: 'success', message: 'Categoria do faturamento atualizada.' });
+        void load();
+      }} />}
     </section>
   );
 }
@@ -324,7 +333,7 @@ async function loadPaginatedRows(endpoint: string, params: Record<string, string
   return rows;
 }
 
-export function FragmentRows({ group, grouped, tableFields, resource, canWrite, onConsumo, onHistorico, onView, onEdit, onDelete }: {
+export function FragmentRows({ group, grouped, tableFields, resource, canWrite, onConsumo, onHistorico, onView, onEdit, onDelete, onCategory }: {
   group: { key: string; title: string; rows: any[] };
   grouped: boolean;
   tableFields: Field[];
@@ -335,6 +344,7 @@ export function FragmentRows({ group, grouped, tableFields, resource, canWrite, 
   onView: (row: any) => void;
   onEdit: (row: any) => void;
   onDelete: (row: any) => void;
+  onCategory?: (row: any) => void;
 }) {
   return (
     <>
@@ -354,11 +364,14 @@ export function FragmentRows({ group, grouped, tableFields, resource, canWrite, 
             {['caminhoes', 'motoristas'].includes(resource.path) && <button className="icon-button" title="Histórico" onClick={() => onHistorico(row)}><History size={17} /></button>}
             <button className="icon-button" title="Visualizar" onClick={() => onView(row)}><Eye size={17} /></button>
             {row.faturamentoOrigemId && <span className="generated-expense-label" title="Gerada automaticamente pelo faturamento de origem">Automática</span>}
-            {row.importacao?.id && <span className="generated-expense-label" title="Protegido para preservar a rastreabilidade da importação">Importado</span>}
-            {canMutateCrudRecord(row, canWrite) && <>
+            {row.importacao?.id && <span className="generated-expense-label" title="Os dados originais da planilha são preservados após a edição">Importado</span>}
+            {resource.path === 'faturamento' && onCategory && canClassifyImportedBilling(row, canWrite) && <button type="button" className="button ghost" title="Editar categoria" onClick={() => onCategory(row)}><Tags size={17} />Categoria</button>}
+            {canEditCrudRecord(row, canWrite) &&
               <button className="icon-button" title="Editar" onClick={() => onEdit(row)}><Pencil size={17} /></button>
+            }
+            {canMutateCrudRecord(row, canWrite) &&
               <button className="icon-button danger" title={resource.path === 'caminhoes' ? 'Excluir cavalo mecânico' : 'Excluir'} onClick={() => onDelete(row)}><Trash2 size={17} /></button>
-            </>}
+            }
           </td>
         </tr>
       ))}
@@ -806,7 +819,7 @@ function ConfirmModal({
   );
 }
 
-function RecordModal({ resource, mode, item, onClose, onSaved }: { resource: Resource; mode: Mode; item: any; onClose: () => void; onSaved: (saved?: any) => void }) {
+export function RecordModal({ resource, mode, item, onClose, onSaved }: { resource: Resource; mode: Mode; item: any; onClose: () => void; onSaved: (saved?: any) => void }) {
   const [form, setForm] = useState<any>(() => ({ ...prepareInitial(item, resource.fields), ...resource.fixedValues }));
   const [relationOptions, setRelationOptions] = useState<Record<string, { label: string; value: string }[]>>({});
   const [relationRows, setRelationRows] = useState<Record<string, any[]>>({});
@@ -967,6 +980,9 @@ function RecordModal({ resource, mode, item, onClose, onSaved }: { resource: Res
           <button type="button" className="icon-button" onClick={onClose}><X size={18} /></button>
         </div>
         <div className="form-grid">
+          {resource.path === 'faturamento' && <label>Controle
+            <input readOnly value={item.numeroControle == null ? 'Gerado ao salvar' : billingControl(item.numeroControle)} aria-label="Controle do faturamento" />
+          </label>}
           {resource.fields.filter((field) => shouldRenderField(field, form)).map((field) => {
             return (
               <label key={field.name} className={field.type === 'textarea' ? 'wide' : ''}>
@@ -1208,6 +1224,8 @@ function CommissionSection({
 }
 
 function renderValue(value: any, field: Field) {
+  if (field.name === 'numeroControle') return billingControl(value);
+  if (field.name === 'categoriaId' && value == null) return 'Sem categoria';
   if (field.relation?.objectKey && value === undefined) return '-';
   if (field.type === 'money') return money(value);
   if (field.type === 'date') return date(value);

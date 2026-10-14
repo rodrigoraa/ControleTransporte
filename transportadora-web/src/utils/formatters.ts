@@ -22,3 +22,5 @@ const normalizePlate = (value: string, maxLength: number) =>
 
 export const maskPlate = (value: string, maxLength = 128) => normalizePlate(value, maxLength);
 
+export const billingControl = (value: number | null | undefined) => value == null ? '-' : `F${String(value).padStart(2, '0')}`;
+
