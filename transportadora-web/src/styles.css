@@ -349,6 +349,37 @@ td {
   gap: 6px;
 }
 
+td.crud-row-actions {
+  display: table-cell;
+  max-width: none;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+.row-actions > .icon-button {
+  flex: 0 0 36px;
+  height: 38px;
+}
+
+.row-actions > .generated-expense-label {
+  flex: 0 0 auto;
+}
+
+.record-origin {
+  margin-top: 6px;
+}
+
+.record-origin .generated-expense-label {
+  min-height: 24px;
+}
+
 .status-group-row td {
   background: #f4f7f9;
   color: #15202b;

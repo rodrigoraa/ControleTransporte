@@ -50,9 +50,9 @@ A edição grava o faturamento, a atualização/criação/remoção de sua despe
 
 Os dados originais da planilha, hashes, chave do CTRC e mapeamentos externos permanecem inalterados. Reimportar o mesmo arquivo ignora o CTRC já importado e mantém as correções manuais. Um arquivo com dados originais diferentes para o mesmo CTRC continua gerando conflito. O controle automático, os dados originais e a despesa automática não podem ser editados diretamente; esta deve ser alterada pelo faturamento de origem.
 
-A categoria não vem no layout da planilha e pode ser preenchida depois da importação. Em **Faturamento → Categoria**, o administrador escolhe uma categoria ativa de faturamento ou sem tipo específico e clica em **Salvar categoria**. Também é possível corrigir a classificação ou escolher **Sem categoria**. Valores ausentes aparecem como **Sem categoria**, em vez de `null`.
+A categoria não vem no layout da planilha e pode ser preenchida depois da importação. Em **Faturamento → Editar** (ícone de lápis), o administrador altera o campo **Categoria** e clica em **Salvar**, junto com os demais campos do faturamento. Valores ausentes aparecem como **Sem categoria**, em vez de `null`. A coluna Ações não possui um botão separado para categoria.
 
-Esse atalho usa `PATCH /api/lancamentos-financeiros/:id/categoria`, com JSON contendo somente `categoriaId` (ID cadastrado ou `null`). A rota exige JWT e ADMIN, valida o tipo/atividade da categoria e aceita apenas faturamentos importados. Grava exclusivamente a categoria e a auditoria `CLASSIFICACAO_FATURAMENTO_IMPORTADO`, na mesma transação `Serializable`, com usuário e classificação anterior/posterior. Uma falha na auditoria reverte a alteração. O atalho não recalcula a comissão. A edição completa usa `PATCH /api/lancamentos-financeiros/:id`, também com DTO concreto, JWT e ADMIN, e recalcula os valores pelas regras do cadastro manual.
+A edição completa usa `PATCH /api/lancamentos-financeiros/:id`, com DTO concreto, JWT e ADMIN, e recalcula os valores pelas regras do cadastro manual. A API anterior `PATCH /api/lancamentos-financeiros/:id/categoria` continua disponível por compatibilidade, sem botão próprio na interface; aceita somente `categoriaId`, exige JWT e ADMIN e grava a classificação e a auditoria na mesma transação, sem recalcular a comissão.
 
 ## Controle dos faturamentos
 
@@ -148,7 +148,7 @@ Arquivos alterados ou criados nesta revisão:
 | [transportadora-web/package.json](../transportadora-web/package.json) | Atualizações compatíveis de Axios e React Router. |
 | [FinancialImportModal.tsx](../transportadora-web/src/components/FinancialImportModal.tsx) | Exibição da composição/eixos na data e orientação sobre pendências. |
 | [FinancialImportModal.test.tsx](../transportadora-web/src/components/FinancialImportModal.test.tsx) | Validação da informação histórica e dos bloqueios exibidos. |
-| [CrudPage.tsx](../transportadora-web/src/pages/CrudPage.tsx) | Visualização e edição dos importados, controle automático e atalho de categoria. |
+| [CrudPage.tsx](../transportadora-web/src/pages/CrudPage.tsx) | Visualização e edição dos importados, controle automático e identificação da origem junto ao controle. |
 | [CrudPage.test.ts](../transportadora-web/src/pages/CrudPage.test.ts) | Ações de registros manuais, importados e protegidos. |
 | [crudPermissions.ts](../transportadora-web/src/utils/crudPermissions.ts) | Regra compartilhada das ações disponíveis. |
 | [financialImport.ts](../transportadora-web/src/utils/financialImport.ts) | Contrato e tratamento de composição pendente. |
@@ -178,8 +178,12 @@ A ação **Editar categoria** permite completar a classificação dos faturament
 
 ## Edição completa e controle automático — 14/10/2026
 
-A versão atual amplia a edição para todos os campos do formulário manual e acrescenta o controle F01, F02, F03… solicitado. O atalho de categoria continua disponível. O número é gerado pelo banco, aparece na tabela e no formulário e não é enviado no payload de edição.
+A versão atual amplia a edição para todos os campos do formulário manual e acrescenta o controle F01, F02, F03… solicitado. A categoria é editada pelo formulário completo. O número é gerado pelo banco, aparece na tabela e no formulário e não é enviado no payload de edição.
 
 `npm run check` aprovado com **582 testes** (419 API e 163 frontend), lint e builds. Os novos cenários verificam atualização de valores e demais campos do importado, recálculo e sincronização da despesa, troca de cavalo sem reescrever a frota, preservação dos dados originais e das correções na reimportação, rollback por falha de auditoria e edição concorrente com histórico consistente. A numeração foi validada com 101 faturamentos anteriores à coluna, continuidade em F102, cadastros simultâneos, proteção contra renumeração, não reutilização após exclusão, busca e ordenação numérica. A interface foi verificada por testes de renderização e regras; não houve teste visual em navegador conectado.
 
 A migration foi aplicada exclusivamente em PostgreSQL temporário de testes. Nenhum banco em uso foi alterado e nenhuma versão foi publicada. Esta etapa altera o schema e exige aplicar a migration descrita em **Controle dos faturamentos** antes de iniciar a API atualizada. Dependências permanecem inalteradas.
+
+## Correção da coluna Ações — 14/10/2026
+
+O botão separado de categoria e seu modal foram removidos da interface. A identificação **Importado** aparece abaixo do controle, e a coluna Ações reúne os ícones com largura fixa e alinhamento central, dentro de uma célula de tabela normal. A categoria continua disponível no formulário do lápis. A correção altera somente frontend e documentação, sem migration ou alteração de API. Lint, **161 testes da interface** e build aprovados. Não havia navegador conectado para inspeção visual.

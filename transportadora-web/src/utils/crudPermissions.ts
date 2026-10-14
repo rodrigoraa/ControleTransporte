@@ -12,8 +12,3 @@ export function canMutateCrudRecord(row: ProtectedRecord, canWrite: boolean) {
 export function canEditCrudRecord(row: ProtectedRecord, canWrite: boolean) {
   return canWrite && !row.protegido && !row.faturamentoOrigemId;
 }
-
-export function canClassifyImportedBilling(row: ProtectedRecord, canWrite: boolean) {
-  return canWrite && !row.protegido && !row.faturamentoOrigemId && Boolean(row.importacao?.id)
-    && row.tipoLancamento === 'FATURAMENTO';
-}

@@ -37,21 +37,21 @@ describe('ações dos lançamentos financeiros', () => {
     expect(crudResources.find((entry) => entry.path === 'despesas')!.fields.some((field) => field.name === 'numeroControle')).toBe(false);
   });
   it.each([
-    { tipoLancamento: 'FATURAMENTO', importacao: { id: 'import' }, canWrite: true, expected: true },
-    { tipoLancamento: 'FATURAMENTO', importacao: { id: 'import' }, canWrite: false, expected: false },
-    { tipoLancamento: 'FATURAMENTO', importacao: null, canWrite: true, expected: false },
-    { tipoLancamento: 'DESPESA', importacao: { id: 'import' }, canWrite: true, expected: false },
-    { tipoLancamento: 'FATURAMENTO', importacao: { id: 'import' }, faturamentoOrigemId: 'bill', canWrite: true, expected: false },
-    { tipoLancamento: 'FATURAMENTO', importacao: { id: 'import' }, protegido: true, canWrite: true, expected: false },
-  ])('restringe a classificação de categoria ao faturamento importado autorizado: %j', ({ canWrite, expected, ...fields }) => {
+    { tipoLancamento: 'FATURAMENTO', importacao: { id: 'import' }, canWrite: true },
+    { tipoLancamento: 'FATURAMENTO', importacao: { id: 'import' }, canWrite: false },
+    { tipoLancamento: 'FATURAMENTO', importacao: null, canWrite: true },
+    { tipoLancamento: 'DESPESA', importacao: { id: 'import' }, canWrite: true },
+    { tipoLancamento: 'FATURAMENTO', importacao: { id: 'import' }, faturamentoOrigemId: 'bill', canWrite: true },
+    { tipoLancamento: 'FATURAMENTO', importacao: { id: 'import' }, protegido: true, canWrite: true },
+  ])('mantém a categoria na coluna e a edição no lápis: %j', ({ canWrite, ...fields }) => {
     const noop = () => undefined;
     const html = renderToStaticMarkup(createElement('table', null, createElement('tbody', null, createElement(FragmentRows, {
       group: { key: 'billing', title: 'Faturamento', rows: [{ id: 'bill', categoriaId: null, ...fields }] }, grouped: false,
       tableFields: [{ name: 'categoriaId', label: 'Categoria' }],
       resource: { path: 'faturamento', endpoint: '/lancamentos-financeiros', title: 'Faturamentos', fields: [] },
-      canWrite, onConsumo: noop, onHistorico: noop, onView: noop, onEdit: noop, onDelete: noop, onCategory: noop,
+      canWrite, onConsumo: noop, onHistorico: noop, onView: noop, onEdit: noop, onDelete: noop,
     }))));
-    expect(html.includes('title="Editar categoria"')).toBe(expected);
+    expect(html).not.toContain('title="Editar categoria"');
     expect(html).toContain('Sem categoria');
     if (fields.importacao) {
       expect(html.includes('title="Editar"')).toBe(canWrite && !fields.faturamentoOrigemId && !fields.protegido);
@@ -67,12 +67,16 @@ describe('ações dos lançamentos financeiros', () => {
   ])('mantém consulta e respeita as ações de $cenario', ({ row, canWrite, mutavel }) => {
     const noop = () => undefined;
     const html = renderToStaticMarkup(createElement('table', null, createElement('tbody', null, createElement(FragmentRows, {
-      group: { key: 'financeiro', title: 'Faturamentos', rows: [row] }, grouped: false, tableFields: [],
+      group: { key: 'financeiro', title: 'Faturamentos', rows: [row] }, grouped: false, tableFields: [{ name: 'numeroControle', label: 'Controle' }],
       resource: { path: 'faturamento', title: 'Faturamentos', endpoint: '/lancamentos-financeiros', fields: [] },
       canWrite, onConsumo: noop, onHistorico: noop, onView: noop, onEdit: noop, onDelete: noop,
     }))));
 
     expect(html).toContain('title="Visualizar"');
+    const actions = html.slice(html.indexOf('<td class="actions crud-row-actions">'));
+    expect(actions).toContain('class="row-actions"');
+    expect(actions).not.toContain('>Importado</span>');
+    expect(actions).not.toContain('Categoria');
     expect(html.includes('title="Editar"')).toBe(mutavel || ('importacao' in row && Boolean(row.importacao) && canWrite));
     expect(html.includes('title="Excluir"')).toBe(mutavel);
     if ('importacao' in row && row.importacao) expect(html).toContain('>Importado</span>');
